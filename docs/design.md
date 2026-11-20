@@ -86,13 +86,14 @@ The app hands Earshot the text whenever it changes, at any length. Earshot makes
   own. Until the compaction is back, and whenever it fails, the item's last characters are used. A hold never waits.
 - **Text that changed while it was being compacted** drops that result and starts again once it has settled, so text
   that is still streaming is not compacted on every change.
-- **Per question, by order.** When the items together pass the question limit, items from the end of the list send
-  their name only. Nothing is compacted for this limit.
-- **An item limit.** Jev takes 255 options a question, so a question offers at most 254 items and "none of these".
-  Items past that are not offered; touch still reaches them (E3).
-- **Order is newest first.** A target can carry a time, `at`. Targets with one are sorted newest first, and the time
-  is sent with the name, so "the one from yesterday" can be picked. Targets without one keep the app's order. Both
-  limits cut from the old end.
+- **Two sets of options.** The system set is always offered: the actions, and targets with no time, in the app's
+  order. The rolling set is the targets that carry a time, `at`, newest first; the time is sent with the name, so
+  "the one from yesterday" can be picked.
+- **An item limit.** Jev takes 255 options a question: "none of these", the system set, and the rolling set in what
+  is left. Older rolling items are not offered; touch still reaches them (E3). A system set too large to leave the
+  rolling set room is an error when the app declares it, never a silent cut.
+- **Per question, by age.** The system set's text is counted first. When the rolling items pass what is left of the
+  question limit, the oldest send their name only. Nothing is compacted for this limit.
 - A private target sends neither name nor context, and is never compacted (E6).
 - Context is untrusted text. It can change which target is picked; it never skips a `confirm`.
 - Compaction sends an item's text to the compaction transport when the text changes, before any hold. An app that
@@ -133,4 +134,6 @@ One typed list of failures, each with default glasses text an app can override. 
 - Whether screens get declared ids and parameters (`thread/:id`), so context and deep links attach to a route.
 - The two context limits and how long text must be still before it is compacted. First guess: 1,200 characters an
   item, 240,000 a question, 5 seconds.
+- Whether the first question offers the rolling set beside the actions, so "open that one" takes one question, not
+  two.
 - Streaming speech-to-text, so words show while the user talks. It needs a second service and probably a back end.
