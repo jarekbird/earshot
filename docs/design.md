@@ -70,9 +70,14 @@ text, so Jev is enough.
 
 - **The system set** is always offered: Earshot's standard options, then the actions of the screen and the app, in
   the app's order.
-- **The standard options** are the same in every app: "none of these", back and home. Back and home are ordinary
-  actions the router supplies, so touch reaches them too (E3) and an app replaces one by declaring an action with its
-  id. Back at the home screen is blocked and says so.
+- **The standard options** are the same in every app: back, home, "not a navigation command" and "none of these".
+  - Back and home are ordinary actions the router supplies, so touch reaches them too (E3) and an app replaces one by
+    declaring an action with its id. Back at the home screen is blocked and says so.
+  - "Not a navigation command" is the navigator's **not mine**: the words go to the next agent in the stack. The app
+    gives the option its text, saying what its other agents take, for example "a message to send". It is offered only
+    when the app has another agent.
+  - "None of these" means the user asked to go somewhere that is not offered. It stops there with "No match", so a
+    navigation command is never handed to another agent as if it were a message.
 - **The rolling set** is a first in, first out queue of items the app adds, each an action with one of its targets,
   for example "open" with one conversation. Adding an item already in the queue makes it the newest. The queue
   belongs to the app, not a screen, so an item can be picked from any screen.
@@ -126,7 +131,8 @@ One typed list of failures, each with default glasses text an app can override. 
 | Key refused, out of credit, rate limited, busy | A short reason, once         | Stops calling for a while; no retry loop |
 | Nothing heard, or too short                    | "Didn't catch that"          | Sends nothing                            |
 | Unsure                                         | The few candidates, to tap   |                                          |
-| No match                                       | "No match"                   | Passes the words to the next agent       |
+| None of these                                  | "No match"                   | Stops; the words go to no other agent    |
+| Not a navigation command                       | What the next agent shows    | Passes the words to the next agent       |
 | The screen changed while deciding              | Nothing                      | Drops the verdict                        |
 | The target left, or the action is blocked      | The reason                   | Reports it (E5)                          |
 | Too many targets, or too much context          | Nothing                      | Trims to the cap                         |
