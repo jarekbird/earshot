@@ -163,6 +163,16 @@ One typed list of failures, each with default glasses text an app can override. 
 | Too many targets, or too much context          | Nothing                      | Trims to the cap                         |
 | The model names an option that was not offered | "No match"                   | Treats it as unknown                     |
 
+## Later: a wake word
+
+A second way to start a voice command, hands-free and opt-in: a spoken phrase in place of a hold. The microphone
+stays open while the app is open, a small detector on the phone listens for the phrase, and nothing leaves the
+phone until it is heard. After the phrase, the words go the same way as after a hold; the end of speech replaces the
+release. It works only while the app is open on the glasses.
+
+To be measured before it is designed further: the battery cost of an open microphone, whether a detector runs in the
+Even app's web view, and whether the phrase also wakes Even's own assistant.
+
 ## Open
 
 - How dimmed text behind bright text reads on real glasses, and which brightness levels to use. To be tested
