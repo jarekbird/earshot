@@ -60,9 +60,10 @@ containers change, and maps the touchpad to actions: swipe moves, tap runs, doub
 ## Hold and the agent stack (slice 3)
 
 Hold always opens the mic. Earshot owns the hold, the recording and the checks for a recording that is too short or
-silent. Release sends the audio to a transcriber, `(audio) => text`, and the words show briefly as heard. The Even
-SDK gives an app the raw microphone only: the "Hey Even" wake word and Even's assistant screen are closed to apps, so
-Earshot draws its own listening and heard lines.
+silent. The hold is one trigger of this path; a wake word can be a second (below). Release sends the audio to a
+transcriber, `(audio) => text`, and the words show briefly as heard. The Even SDK gives an app the raw microphone
+only: the "Hey Even" wake word and Even's assistant screen are closed to apps, so Earshot draws its own listening and
+heard lines.
 
 ### The voice overlay
 
@@ -155,6 +156,7 @@ One typed list of failures, each with default glasses text an app can override. 
 | Offline, or no answer in time                  | A short reason               | Drops the hold                           |
 | Key refused, out of credit, rate limited, busy | A short reason, once         | Stops calling for a while; no retry loop |
 | Nothing heard, or too short                    | "Didn't catch that"          | Sends nothing                            |
+| The wake phrase, then no words                 | Nothing                      | Listens for the phrase again             |
 | Unsure                                         | The few candidates, to tap   |                                          |
 | None of these                                  | "No match"                   | Stops; the words go to no other agent    |
 | Not a navigation command                       | What the next agent shows    | Passes the words to the next agent       |
@@ -163,19 +165,23 @@ One typed list of failures, each with default glasses text an app can override. 
 | Too many targets, or too much context          | Nothing                      | Trims to the cap                         |
 | The model names an option that was not offered | "No match"                   | Treats it as unknown                     |
 
-## Later: a wake word
+## Wake word (built with the first app that uses it, E8)
 
-A second way to start a voice command, hands-free and opt-in: a spoken phrase in place of a hold. The microphone
-stays open while the app is open, a small detector on the phone listens for the phrase, and nothing leaves the
-phone until it is heard. After the phrase, the words go the same way as after a hold; the end of speech replaces the
-release. It works only while the app is open on the glasses.
+A second way to start a voice command, hands-free: a spoken phrase in place of a hold. Hold and the phrase are two
+triggers of one path. After either, Earshot shows the overlay, records, transcribes and sends the words down the
+stack. A hold ends at release; after the phrase, a pause in speech or a longest length ends it.
 
-Earshot allows for it and ships no detector. The hold slice takes its start from a trigger, so a second trigger plugs
-in without changing what follows. The app supplies the detector and sets its own phrase; Earshot bundles no model,
-because the open models found so far have licences that do not clearly allow commercial apps.
-
-To be measured before it is designed further: the battery cost of an open microphone, whether a detector runs in the
-Even app's web view, and whether the phrase also wakes Even's own assistant.
+- It listens through the glasses. While it is on and the app is open on the glasses, Earshot keeps the glasses'
+  microphone open and hands the audio to a detector on the phone. Nothing leaves the phone until the phrase is heard.
+- The detector is the app's: it takes the audio and says when it heard the phrase. The app picks the engine and sets
+  its own phrase. Earshot ships no detector and no model, because the open models found so far have licences that do
+  not clearly allow commercial apps.
+- Audio the SDK marks as someone else's voice is not handed to the detector.
+- It is off until the app turns it on, so an app can make it the user's choice.
+- A hold works as always while it is on.
+- When the phone suspends the app the microphone stops; Earshot opens it again when the app is back.
+- The phrase cannot open the app: an app runs only while it is open on the glasses.
+- An action that asks first is still answered by a tap.
 
 ## Open
 
@@ -187,4 +193,7 @@ Even app's web view, and whether the phrase also wakes Even's own assistant.
   item, 240,000 a question, 5 seconds.
 - Which other standard options every app gets. Candidates: "what can I say", which lists the actions to tap, and
   "never mind".
+- For the wake word, on real glasses, before it is built: what it costs the glasses' battery to send audio the whole
+  time, whether a detector runs in the Even app's web view, and whether the phrase also wakes Even's own assistant.
+- How long a pause ends a command started by the wake word, and the longest command.
 - Streaming speech-to-text, so words show while the user talks. It needs a second service and probably a back end.
