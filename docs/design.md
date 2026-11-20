@@ -41,6 +41,16 @@ A stack of screens over a home screen. `open`, `replace`, `back` (false at home)
 - `router.actions()` is the current screen's actions, then the app's. A screen's action replaces the app's action of
   the same id.
 
+## Text for the glasses (slice 1, built)
+
+`textWidth`, `fitText`, `wrapText`, `cleanText`, `oneLine`, `hasGlyph`, in `src/glasses/text.ts`. The widths are Even's
+own, from `@evenrealities/pretext`, which is taken from the firmware's font; Earshot keeps no width table. `wrapText`
+returns the lines, which Even's package does not, because the renderer draws lists and pages as lines of text. Its
+lines are ones the glasses do not break again.
+
+Scrolling, dates and the limits on a container's length are not here: one app scrolls, one formats dates, and the
+limits belong to the renderer.
+
 ## Store check (slice 1, built)
 
 `earshot-check`, and `earshot/check` from code. It reads `app.json` and the build and lists what Even Hub's review

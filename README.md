@@ -8,7 +8,7 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 
 | Slice | What                                                                   | State   |
 | ----- | ---------------------------------------------------------------------- | ------- |
-| 1     | Actions, the screen router, lifetimes and the store check              | here    |
+| 1     | Actions, the screen router, lifetimes, text and the store check        | here    |
 | 2     | Glasses renderer and touch input                                       | planned |
 | 3     | Hold to talk, and the agent stack with an offline navigator            | planned |
 | 4     | Navigation by [Jev](https://typesafe.ai), TypeSafe AI's decision model | planned |
@@ -20,7 +20,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.4
+npm install github:jarekbird/earshot#v0.0.5
 ```
 
 ## Actions
@@ -97,6 +97,26 @@ async function load(life: Lifetime) {
 - `life.guard(work)` gives the result of `work`, or rejects with `LifetimeEnded` if the lifetime ends first. Code after it never runs for a screen that is gone.
 - `life.child()` is a shorter lifetime inside this one, for one task.
 - When it ends, every cleanup runs, newest first, even if one throws. The failures are then thrown together as an `AggregateError`.
+
+## Text for the glasses
+
+The glasses have one font, with letters of different widths. These measure with Even's own numbers for it ([`@evenrealities/pretext`](https://www.npmjs.com/package/@evenrealities/pretext)), so text fits before it is drawn.
+
+```ts
+import { cleanText, fitText, oneLine, textWidth, wrapText } from 'earshot'
+
+fitText(oneLine(thread.title), 400) // one line, cut to 400 pixels with an ellipsis
+wrapText(cleanText(message.text), 560) // the lines, none wider than 560 pixels
+textWidth('14:30') // pixels
+```
+
+- `cleanText` swaps a backtick and a tab for what the font can draw, makes line ends the same and removes characters that draw nothing. `oneLine` does that and puts the text on one line.
+- `fitText` and `wrapText` measure and cut; they do not clean. Give `fitText` one line.
+- `wrapText` breaks where the glasses break: after a space, a hyphen, or a Chinese, Japanese or Korean character, and inside a word only when the word is wider than the line. The glasses do not break its lines again. It keeps the spaces that start a paragraph.
+- A character the font cannot draw leaves a 4 pixel gap on the glasses. `hasGlyph(char)` says whether the font draws it.
+- Take the container's padding and border off the width first.
+
+The numbers match the Even Hub simulator to the pixel. Check a tight layout on real glasses.
 
 ## Develop
 
