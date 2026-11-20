@@ -73,22 +73,27 @@ Navigation needs no generated text, so Jev is enough.
 
 ### Context
 
-An app improves the navigator's picks with context, all optional and read only when a hold ends:
+An app improves the navigator's picks with context, all optional:
 
 - a screen: what is on it now;
 - an action: a hint of when to pick it;
-- a target: `brief`, sent with its name, and `detail`, a function called only for a shortlist.
+- a target: anything that tells it from the others, for example the latest text of a conversation.
 
-Rules for it:
+The app hands Earshot the text whenever it changes, at any length. Earshot makes it fit:
 
-- A private target sends neither name nor context (E6).
+- **Two limits, in characters.** One per item, and one for a whole question.
+- **Per item, by compaction.** Text over the item limit is compacted at once, in the background, each item on its
+  own. Until the compaction is back, and whenever it fails, the item's last characters are used. A hold never waits.
+- **Text that changed while it was being compacted** drops that result and starts again once it has settled, so text
+  that is still streaming is not compacted on every change.
+- **Per question, by order.** When the items together pass the question limit, items from the end of the list send
+  their name only. List order is priority. Nothing is compacted for this limit.
+- A private target sends neither name nor context, and is never compacted (E6).
 - Context is untrusted text. It can change which target is picked; it never skips a `confirm`.
-- The navigator caps context per target and in total and trims from the end of the list, so list order is priority.
-  The cap is about cost, speed and accuracy: the model's context is large.
-- Later: drill-down. When a few targets are close, the navigator asks again with only their `detail`. Each step is
-  one more typed question, so the model still writes no text.
-- Compaction is too slow for a hold. An app that wants a summary as context makes it when its data changes and keeps
-  it; a cheap text model on the same key costs about what Jev does.
+- Compaction sends an item's text to the compaction transport when the text changes, before any hold. An app that
+  must keep text on the device gives no context for it, or supplies its own transport.
+- Later: drill-down. When a few targets are close, the navigator asks again with a longer piece of only their text.
+  Each step is one more typed question, so the model still writes no text.
 
 ### Transports and keys
 
@@ -120,4 +125,6 @@ One typed list of failures, each with default glasses text an app can override. 
 
 - Whether OpenRouter's sign-in redirect works inside the Even app's web view. To be tested before building on it.
 - Whether screens get declared ids and parameters (`thread/:id`), so context and deep links attach to a route.
+- The two context limits and how long text must be still before it is compacted. First guess: 1,200 characters an
+  item, 240,000 a question, 5 seconds.
 - Streaming speech-to-text, so words show while the user talks. It needs a second service and probably a back end.
