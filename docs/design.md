@@ -51,6 +51,14 @@ lines are ones the glasses do not break again.
 Scrolling, dates and the limits on a container's length are not here: one app scrolls, one formats dates, and the
 limits belong to the renderer.
 
+## Storage (slice 1, built)
+
+`createStore(places)` gives `get`, `set` and `remove` by key, with text values. An app passes two places, the Even
+app's storage and the web view's: each has lost data between launches. Every save is stamped, so a read takes the
+newer copy and repairs the other, and a remove is a stamped save of nothing, because the SDK has no delete. A change
+no place stored, and a read no place answered, are errors. Changes to one key run in order. `src/store.ts` names the
+SDK's two storage calls by shape, so it does not import the SDK (E1).
+
 ## Store check (slice 1, built)
 
 `earshot-check`, and `earshot/check` from code. It reads `app.json` and the build and lists what Even Hub's review

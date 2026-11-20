@@ -4,4 +4,6 @@ export { cleanText, fitText, hasGlyph, oneLine, textWidth, wrapText } from './gl
 export { Lifetime, LifetimeEnded } from './lifetime.js'
 export type { Timer } from './lifetime.js'
 export { Router } from './router.js'
+export { createStore, evenPlace, memoryPlace, StoreError, webPlace } from './store.js'
+export type { EvenStorage, Place, Store, StoreOptions, WebStorage } from './store.js'
 export type { RouterOptions, Screen } from './router.js'

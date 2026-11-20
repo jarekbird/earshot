@@ -8,7 +8,7 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 
 | Slice | What                                                                   | State   |
 | ----- | ---------------------------------------------------------------------- | ------- |
-| 1     | Actions, the screen router, lifetimes, text and the store check        | here    |
+| 1     | Actions, the screen router, lifetimes, text, storage, the store check  | here    |
 | 2     | Glasses renderer and touch input                                       | planned |
 | 3     | Hold to talk, and the agent stack with an offline navigator            | planned |
 | 4     | Navigation by [Jev](https://typesafe.ai), TypeSafe AI's decision model | planned |
@@ -20,7 +20,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.5
+npm install github:jarekbird/earshot#v0.0.6
 ```
 
 ## Actions
@@ -117,6 +117,28 @@ textWidth('14:30') // pixels
 - Take the container's padding and border off the width first.
 
 The numbers match the Even Hub simulator to the pixel. Check a tight layout on real glasses.
+
+## Storage
+
+What an app remembers between launches: a pairing, a token, a cache. Earshot saves each value in two places, the Even app's storage and the web view's, because either can lose its copy.
+
+```ts
+import { createStore, evenPlace, memoryPlace, webPlace } from 'earshot'
+
+const store = createStore([evenPlace(bridge), webPlace()])
+
+await store.set('pairing', JSON.stringify(pairing))
+const text = await store.get('pairing') // null when nothing is saved
+await store.remove('pairing')
+
+const forTests = createStore([memoryPlace()])
+```
+
+- A read gives the newest copy and repairs a place that fell behind, so an old value never comes back after a save or a remove that reached only one place.
+- `set` and `remove` reject with `StoreError` when no place stored the change. `get` rejects with it when no place could be read, which is not the same as nothing saved.
+- Changes to one key land in the order they were made.
+- Text an app saved under the same key before it used Earshot is read as it is.
+- A place is `{ read, write }`, so an app can add its own.
 
 ## Develop
 
