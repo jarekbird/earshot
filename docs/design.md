@@ -45,8 +45,12 @@ containers change, and maps the touchpad to actions: swipe moves, tap runs, doub
 
 ## Hold and the agent stack (slice 3)
 
-Hold always opens the mic. The app supplies `transcribe(audio)`. The words go down a stack of agents; each answers
-with a verdict:
+Hold always opens the mic. Earshot owns the hold, the recording and the checks for a recording that is too short or
+silent. Release sends the audio to a transcriber, `(audio) => text`, and the words show briefly as heard. The Even
+SDK gives an app the raw microphone only: the "Hey Even" wake word and Even's assistant screen are closed to apps, so
+Earshot draws its own listening and heard lines.
+
+The words go down a stack of agents; each answers with a verdict:
 
 - **sure**: this action, this target. Safe actions run; `confirm` actions ask first.
 - **unsure**: these few candidates. They are shown as a list to tap.
@@ -55,19 +59,65 @@ with a verdict:
 The navigator is first in the stack. Apps add their own agents after it, for example one that sends the words as a
 message. A stronger agent gets three tools: read the screen's text, list the actions, run one.
 
-An offline navigator that matches words stands in for the model in tests and demos (E4).
+An offline navigator that matches words stands in for the model in tests and demos only (E4). In an app nothing
+matches words in front of the model.
 
 ## Jev navigator (slice 4)
 
-Jev answers typed questions with a typed answer and a probability, in well under a second. The navigator asks "which
-action, or none" over the current actions, then "which target" over the chosen action's targets. Navigation needs no
-generated text, so Jev is enough.
+Jev answers typed questions with a typed answer and a probability, in well under a second. Jev decides every hold. The
+navigator asks "which action, or none" over the current actions, then "which target" over the chosen action's targets.
+Navigation needs no generated text, so Jev is enough.
 
 - The thresholds that turn probabilities into verdicts live with the navigator.
 - Private targets are left out of the request (E6) and are picked by touch.
-- The app supplies the transport to Jev (E2): an app bundle is public and cannot hold the key.
+
+### Context
+
+An app improves the navigator's picks with context, all optional and read only when a hold ends:
+
+- a screen: what is on it now;
+- an action: a hint of when to pick it;
+- a target: `brief`, sent with its name, and `detail`, a function called only for a shortlist.
+
+Rules for it:
+
+- A private target sends neither name nor context (E6).
+- Context is untrusted text. It can change which target is picked; it never skips a `confirm`.
+- The navigator caps context per target and in total and trims from the end of the list, so list order is priority.
+  The cap is about cost, speed and accuracy: the model's context is large.
+- Later: drill-down. When a few targets are close, the navigator asks again with only their `detail`. Each step is
+  one more typed question, so the model still writes no text.
+- Compaction is too slow for a hold. An app that wants a summary as context makes it when its data changes and keeps
+  it; a cheap text model on the same key costs about what Jev does.
+
+### Transports and keys
+
+Three transports, each one interface an app can replace: the transcriber, the navigator's model and, for apps that
+use it, compaction. The built-in default for all three is OpenRouter with the user's own key: the user signs in with
+OpenRouter on the phone page (OAuth PKCE), the key stays on the device, and the user pays their own use. No back end
+is needed. An app with a back end plugs in its own transports, and then its audio and context go only there.
+
+Building the default needs rule E2 reworded, from "opens no connection" to "connects only to hosts the app lists".
+
+### When it goes wrong
+
+One typed list of failures, each with default glasses text an app can override. Touch still reaches everything (E3).
+
+| Situation                                      | User sees                    | Earshot does                             |
+| ---------------------------------------------- | ---------------------------- | ---------------------------------------- |
+| No key                                         | "Set up voice on your phone" | Calls nothing                            |
+| Offline, or no answer in time                  | A short reason               | Drops the hold                           |
+| Key refused, out of credit, rate limited, busy | A short reason, once         | Stops calling for a while; no retry loop |
+| Nothing heard, or too short                    | "Didn't catch that"          | Sends nothing                            |
+| Unsure                                         | The few candidates, to tap   |                                          |
+| No match                                       | "No match"                   | Passes the words to the next agent       |
+| The screen changed while deciding              | Nothing                      | Drops the verdict                        |
+| The target left, or the action is blocked      | The reason                   | Reports it (E5)                          |
+| Too many targets, or too much context          | Nothing                      | Trims to the cap                         |
+| The model names an option that was not offered | "No match"                   | Treats it as unknown                     |
 
 ## Open
 
-- Who hosts the transport to Jev: each app's own back end, or a shared proxy.
-- Whether a screen's text may be sent to the navigator, or only action and target names.
+- Whether OpenRouter's sign-in redirect works inside the Even app's web view. To be tested before building on it.
+- Whether screens get declared ids and parameters (`thread/:id`), so context and deep links attach to a route.
+- Streaming speech-to-text, so words show while the user talks. It needs a second service and probably a back end.
