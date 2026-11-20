@@ -20,7 +20,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.3
+npm install github:jarekbird/earshot#v0.0.4
 ```
 
 ## Actions
@@ -129,6 +129,6 @@ Earshot's own, stricter:
 
 - `version` matches `package.json`, and `min_sdk_version` matches the installed SDK.
 - Each whitelist entry is an origin, such as `https://api.example.com` or `wss://*.example.com`.
-- No URL anywhere in the build is outside the whitelist. Scripts are read as JavaScript, so a URL joined from parts is found, and one whose host is only known at run time counts as outside.
+- No URL anywhere in the build is outside the whitelist. Scripts are read as JavaScript, so a URL joined from parts is found, and one whose host is only known at run time counts as outside. A script that cannot be read as JavaScript is reported.
 
-It needs `typescript` installed. The same checks are functions in `earshot/check`: `checkApp`, `manifestProblems`, `scan`.
+The same checks are functions in `earshot/check`: `checkApp`, `manifestProblems`, `scan`.

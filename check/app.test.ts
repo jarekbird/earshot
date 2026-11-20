@@ -71,6 +71,13 @@ describe('checking a built app', () => {
     ])
   })
 
+  it('reports a script it cannot read as JavaScript, because joined URLs in it go unchecked', () => {
+    const root = project({ 'dist/assets/app.js': 'fetch("https://api.example.invalid/x") }{' })
+    expect(checkApp({ root }).problems).toEqual([
+      `${join('dist', 'assets', 'app.js')} could not be read as JavaScript, so a URL joined from parts in it would be missed.`,
+    ])
+  })
+
   it('reads a manifest and a build from other places', () => {
     const root = project({ 'plugin/app.json': JSON.stringify({ ...manifest, name: 'Even Weather' }), 'out/index.html': '<p>hi</p>' })
     expect(checkApp({ root, manifest: 'plugin/app.json', dist: 'out' }).problems).toEqual([

@@ -53,8 +53,11 @@ export function checkApp({ root = process.cwd(), manifest = 'app.json', dist = '
 
   const files = filesIn(build)
   for (const file of files) {
-    for (const url of new Set(scan(whitelist, file, readFileSync(file, 'utf8')))) {
-      if (!allow.includes(url)) problems.push(`${JSON.stringify(url)} in ${relative(root, file)} is outside the network whitelist.`)
+    const { urls, read } = scan(whitelist, file, readFileSync(file, 'utf8'))
+    const where = relative(root, file)
+    if (!read) problems.push(`${where} could not be read as JavaScript, so a URL joined from parts in it would be missed.`)
+    for (const url of new Set(urls)) {
+      if (!allow.includes(url)) problems.push(`${JSON.stringify(url)} in ${where} is outside the network whitelist.`)
     }
   }
   return { problems, files: files.length, whitelist }

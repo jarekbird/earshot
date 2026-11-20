@@ -86,10 +86,35 @@ describe('the URL scan reads scripts as JavaScript', () => {
   })
 
   it('reads JSON values, and scans HTML, CSS and broken JSON as text', () => {
-    expect(scan(whitelist, 'a.json', '{"u": ["https://attacker.invalid"]}')).toHaveLength(1)
-    expect(scan(whitelist, 'a.json', '{"u": "https://attacker.invalid"')).toHaveLength(1)
-    expect(scan(whitelist, 'index.html', '<script src="https://attacker.invalid/x.js"></script>')).toHaveLength(1)
-    expect(scan(whitelist, 'a.css', '@import url(https://attacker.invalid/a.css);')).toHaveLength(1)
-    expect(scan(whitelist, 'a.mjs', 'fetch("https:" + "//attacker.invalid/x")')).toHaveLength(1)
+    expect(scan(whitelist, 'a.json', '{"u": ["https://attacker.invalid"]}').urls).toHaveLength(1)
+    expect(scan(whitelist, 'a.json', '{"u": "https://attacker.invalid"').urls).toHaveLength(1)
+    expect(scan(whitelist, 'index.html', '<script src="https://attacker.invalid/x.js"></script>').urls).toHaveLength(1)
+    expect(scan(whitelist, 'a.css', '@import url(https://attacker.invalid/a.css);').urls).toHaveLength(1)
+    expect(scan(whitelist, 'a.mjs', 'fetch("https:" + "//attacker.invalid/x")')).toEqual({
+      urls: ['https://attacker.invalid/x'],
+      read: true,
+    })
+  })
+
+  it('reads modules, plain scripts and a first line that names the interpreter', () => {
+    expect(outsideScript(whitelist, 'import x from "https://attacker.invalid/x.js"; export default x')).toHaveLength(1)
+    expect(outsideScript(whitelist, 'const u = await import("https:" + "//attacker.invalid/x.js")')).toHaveLength(1)
+    expect(outsideScript(whitelist, 'with (a) { fetch("https://attacker.invalid/x") }')).toHaveLength(1)
+    expect(outsideScript(whitelist, '#!/usr/bin/env node\nfetch("https://attacker.invalid/x")')).toHaveLength(1)
+  })
+
+  it('reads a long chain of joined strings, and reports one too deep to read', () => {
+    const chain = (terms: number) =>
+      `const u = "https:" + "//attacker.invalid/" + ${Array.from({ length: terms }, (_, i) => `"p${i}"`).join(' + ')}`
+    expect(scan(whitelist, 'a.js', chain(1_000))).toMatchObject({
+      read: true,
+      urls: [expect.stringContaining('https://attacker.invalid/')],
+    })
+    expect(scan(whitelist, 'a.js', chain(200_000)).read).toBe(false)
+  })
+
+  it('says so when a script cannot be read as JavaScript, and still scans its text', () => {
+    expect(scan(whitelist, 'a.js', 'fetch("https://attacker.invalid/x") }{')).toEqual({ urls: ['https://attacker.invalid/x'], read: false })
+    expect(outsideScript(whitelist, 'this is not javascript }{')).toBeNull()
   })
 })

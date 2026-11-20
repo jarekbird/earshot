@@ -1,6 +1,6 @@
 {
   "name": "earshot",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "A voice-first app framework for Even Realities G2 glasses: declare what your app can do, then hold and say it.",
   "license": "MIT",
   "type": "module",
@@ -36,8 +36,8 @@
     "format": "prettier --write .",
     "check": "prettier --check . && tsc --noEmit && vitest run && npm run build"
   },
-  "peerDependencies": {
-    "typescript": ">=5"
+  "dependencies": {
+    "acorn": "8.19.0"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
