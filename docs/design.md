@@ -68,7 +68,11 @@ Jev answers typed questions with a typed answer and a probability, in well under
 question that offers everything the user could mean: a system set and a rolling set. Navigation needs no generated
 text, so Jev is enough.
 
-- **The system set** is always offered: "none of these" and the actions of the screen and the app, in the app's order.
+- **The system set** is always offered: Earshot's standard options, then the actions of the screen and the app, in
+  the app's order.
+- **The standard options** are the same in every app: "none of these", back and home. Back and home are ordinary
+  actions the router supplies, so touch reaches them too (E3) and an app replaces one by declaring an action with its
+  id. Back at the home screen is blocked and says so.
 - **The rolling set** is a first in, first out queue of items the app adds, each an action with one of its targets,
   for example "open" with one conversation. Adding an item already in the queue makes it the newest. The queue
   belongs to the app, not a screen, so an item can be picked from any screen.
@@ -134,4 +138,6 @@ One typed list of failures, each with default glasses text an app can override. 
 - Whether screens get declared ids and parameters (`thread/:id`), so context and deep links attach to a route.
 - The two context limits and how long text must be still before it is compacted. First guess: 1,200 characters an
   item, 240,000 a question, 5 seconds.
+- Which other standard options every app gets. Candidates: "what can I say", which lists the actions to tap, and
+  "never mind".
 - Streaming speech-to-text, so words show while the user talks. It needs a second service and probably a back end.
