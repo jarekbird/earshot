@@ -53,12 +53,27 @@ own test.
 The only code that imports the SDK (E1). It owns the device limits as tested constants, redraws a page only when its
 containers change, and maps the touchpad to actions: swipe moves, tap runs, double tap goes back.
 
+- It sets the front-to-back order of every container, and keeps one text box in front of the rest for the voice
+  overlay. That box is one of the eight containers a page may have besides images.
+- Lists are drawn as text, not as the SDK's list container: text can be dimmed in place, a list cannot.
+
 ## Hold and the agent stack (slice 3)
 
 Hold always opens the mic. Earshot owns the hold, the recording and the checks for a recording that is too short or
 silent. Release sends the audio to a transcriber, `(audio) => text`, and the words show briefly as heard. The Even
 SDK gives an app the raw microphone only: the "Hey Even" wake word and Even's assistant screen are closed to apps, so
 Earshot draws its own listening and heard lines.
+
+### The voice overlay
+
+The same in every app, so a user learns it once. During a hold, and while the words are shown and decided on, Earshot
+lowers the brightness of the page's text in place and writes its own lines, bright, in the front box: listening, the
+words heard, and what went wrong. When it is done the page's brightness returns. Nothing is rebuilt, so nothing
+flickers.
+
+- The display has no fill: black is see-through. A box in front cannot hide what is behind it, so dimming is what
+  keeps the overlay readable.
+- The overlay and its words are Earshot's. Everything else on the page is the app's.
 
 The words go down a stack of agents; each answers with a verdict:
 
@@ -150,6 +165,8 @@ One typed list of failures, each with default glasses text an app can override. 
 
 ## Open
 
+- How dimmed text behind bright text reads on real glasses, and which brightness levels to use. To be tested
+  first in slice 2; a reserved row is the fallback.
 - Whether OpenRouter's sign-in redirect works inside the Even app's web view. To be tested before building on it.
 - Whether screens get declared ids and parameters (`thread/:id`), so context and deep links attach to a route.
 - The two context limits and how long text must be still before it is compacted. First guess: 1,200 characters an
