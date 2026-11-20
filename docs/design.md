@@ -87,13 +87,19 @@ The app hands Earshot the text whenever it changes, at any length. Earshot makes
 - **Text that changed while it was being compacted** drops that result and starts again once it has settled, so text
   that is still streaming is not compacted on every change.
 - **Per question, by order.** When the items together pass the question limit, items from the end of the list send
-  their name only. List order is priority. Nothing is compacted for this limit.
+  their name only. Nothing is compacted for this limit.
+- **An item limit.** Jev takes 255 options a question, so a question offers at most 254 items and "none of these".
+  Items past that are not offered; touch still reaches them (E3).
+- **Order is newest first.** A target can carry a time, `at`. Targets with one are sorted newest first, and the time
+  is sent with the name, so "the one from yesterday" can be picked. Targets without one keep the app's order. Both
+  limits cut from the old end.
 - A private target sends neither name nor context, and is never compacted (E6).
 - Context is untrusted text. It can change which target is picked; it never skips a `confirm`.
 - Compaction sends an item's text to the compaction transport when the text changes, before any hold. An app that
   must keep text on the device gives no context for it, or supplies its own transport.
 - Later: drill-down. When a few targets are close, the navigator asks again with a longer piece of only their text.
-  Each step is one more typed question, so the model still writes no text.
+  When the answer is "none of these" and items were left out, it asks again over the next 254. Each step is one more
+  typed question, so the model still writes no text.
 
 ### Transports and keys
 
