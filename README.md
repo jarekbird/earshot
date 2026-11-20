@@ -6,12 +6,12 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 
 **Status: early.** Only the first slice exists. The API will change until two apps run on it.
 
-| Slice | What                                                                   | State   |
-| ----- | ---------------------------------------------------------------------- | ------- |
-| 1     | Actions, the screen router, lifetimes, text, storage, the store check  | here    |
-| 2     | Glasses renderer and touch input                                       | planned |
-| 3     | Hold to talk, and the agent stack with an offline navigator            | planned |
-| 4     | Navigation by [Jev](https://typesafe.ai), TypeSafe AI's decision model | planned |
+| Slice | What                                                                                    | State   |
+| ----- | --------------------------------------------------------------------------------------- | ------- |
+| 1     | Actions, the router, lifetimes, text, storage, the store check and the simulator driver | here    |
+| 2     | Glasses renderer and touch input                                                        | planned |
+| 3     | Hold to talk, and the agent stack with an offline navigator                             | planned |
+| 4     | Navigation by [Jev](https://typesafe.ai), TypeSafe AI's decision model                  | planned |
 
 The design is in [`docs/design.md`](docs/design.md).
 
@@ -20,7 +20,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.6
+npm install github:jarekbird/earshot#v0.0.7
 ```
 
 ## Actions
@@ -145,6 +145,7 @@ const forTests = createStore([memoryPlace()])
 ```sh
 npm install
 npm run check
+npm run check:sim   # the simulator driver, against the real simulator
 ```
 
 MIT licensed.
@@ -174,3 +175,24 @@ Earshot's own, stricter:
 - No URL anywhere in the build is outside the whitelist. Scripts are read as JavaScript, so a URL joined from parts is found, and one whose host is only known at run time counts as outside. A script that cannot be read as JavaScript is reported.
 
 The same checks are functions in `earshot/check`: `checkApp`, `manifestProblems`, `scan`.
+
+## Run your app in the simulator
+
+Even's simulator can be driven from a test or a script. `earshot/sim` starts it on your page, sends touchpad input, reads the page's console and takes pictures.
+
+```ts
+import { Simulator } from 'earshot/sim'
+
+const sim = await Simulator.start({ url: 'http://127.0.0.1:5173/' })
+await sim.logged('ready') // the next console entry that says so
+await sim.input('tap') // tap, double, up, down, press, release, menu
+const png = await sim.screenshot('glasses') // or 'phone'
+await sim.stop()
+```
+
+- Install `@evenrealities/evenhub-simulator` in your project; the driver finds it there.
+- `sim.until(what, check, ms)` waits for anything else, and says what the console and the simulator last said when time runs out. The simulator can only be asked, not listened to, so waiting asks it ten times a second.
+- Each run has its own home folder, removed by `stop`. Every process it starts has a hard time limit, an hour unless you pass `limitSeconds`.
+- On Linux without a display it starts a hidden one, which needs `Xvfb`. A bare CI machine also needs the simulator's libraries: on Ubuntu, `xvfb libwebkit2gtk-4.1-0 libasound2t64`.
+- Input reaches the app only when its page has a container that captures events.
+- The simulator is not the glasses: check fonts, scrolling and timing on the device.

@@ -1,7 +1,7 @@
 # Earshot
 
 Voice-first app framework for Even G2 glasses. Design and slices: `docs/design.md`. `AGENTS.md` links here. `src` is the
-framework; `check` is the build-time store check, which needs Node.
+framework; `check` is the build-time store check and `sim` drives Even's simulator for tests; both need Node.
 
 ## Rules
 

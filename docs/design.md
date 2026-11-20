@@ -59,6 +59,14 @@ newer copy and repairs the other, and a remove is a stamped save of nothing, bec
 no place stored, and a read no place answered, are errors. Changes to one key run in order. `src/store.ts` names the
 SDK's two storage calls by shape, so it does not import the SDK (E1).
 
+## Simulator driver (slice 1, built)
+
+`earshot/sim`, in `sim/`, outside `src` because it needs Node. It starts Even's simulator on a page, with its own home
+folder, a hidden display on Linux and a hard time limit on every process, then sends touchpad input, reads the
+console, takes pictures and waits for a condition. The simulator gives a picture and a console, not the text on the
+glasses. Reading what the glasses show, and a stand-in bridge for tests without the simulator, come with the renderer
+in slice 2, which decides what a drawn frame is.
+
 ## Store check (slice 1, built)
 
 `earshot-check`, and `earshot/check` from code. It reads `app.json` and the build and lists what Even Hub's review

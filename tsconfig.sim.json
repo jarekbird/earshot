@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "rootDir": "sim",
+    "outDir": "dist/sim"
+  },
+  "include": ["sim"],
+  "exclude": ["sim/**/*.test.ts"]
+}

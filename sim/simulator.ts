@@ -1,0 +1,265 @@
+import { spawn, type ChildProcess } from 'node:child_process'
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs'
+import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import type { Readable } from 'node:stream'
+import { setTimeout as pause } from 'node:timers/promises'
+
+const LOOPBACK = '127.0.0.1'
+const POLL_MS = 100
+const ACTIONS = {
+  tap: 'click',
+  double: 'double_click',
+  up: 'up',
+  down: 'down',
+  press: 'long_press',
+  release: 'long_press_release',
+  menu: 'context_menu',
+} as const
+
+export type Input = keyof typeof ACTIONS
+
+export interface ConsoleEntry {
+  id: number
+  level: string
+  message: string
+  ts: number
+}
+
+export interface SimulatorOptions {
+  url: string
+  binary?: string
+  headless?: boolean
+  env?: Record<string, string>
+  limitSeconds?: number
+  startMs?: number
+}
+
+export function limited(platform: string, command: string, args: string[], seconds: number): [string, string[]] {
+  return platform === 'linux' ? ['timeout', ['--kill-after=10', String(seconds), command, ...args]] : [command, args]
+}
+
+export function findBinary(from: string, platform: string = process.platform, arch: string = process.arch): string {
+  for (let dir = from; ; dir = dirname(dir)) {
+    const binary = join(dir, 'node_modules', '@evenrealities', `sim-${platform}-${arch}`, 'bin', 'evenhub-simulator')
+    if (existsSync(binary)) return binary
+    if (dirname(dir) === dir)
+      throw new Error(`No Even Hub simulator for ${platform} ${arch} here. Install @evenrealities/evenhub-simulator.`)
+  }
+}
+
+const freePort = () =>
+  new Promise<number>((done, fail) => {
+    const server = createServer()
+    server.once('error', fail)
+    server.listen(0, LOOPBACK, () => {
+      const address = server.address()
+      server.close(() => done(typeof address === 'object' && address ? address.port : 0))
+    })
+  })
+
+const over = (child: ChildProcess) => child.exitCode !== null || child.signalCode !== null
+
+function signal(group: number, name: NodeJS.Signals | 0): boolean {
+  try {
+    return process.kill(-group, name)
+  } catch {
+    return false
+  }
+}
+
+async function end(child: ChildProcess | undefined): Promise<void> {
+  const group = child?.pid
+  if (!child || group === undefined) return
+  if (!over(child)) {
+    const exited = new Promise<void>(done => child.once('exit', () => done()))
+    signal(group, 'SIGTERM')
+    await Promise.race([exited, pause(2_500, undefined, { ref: false })])
+  }
+  signal(group, 'SIGKILL')
+  for (let checks = 0; checks < 100 && signal(group, 0); checks++) await pause(20)
+}
+
+interface Started {
+  child: ChildProcess
+  failed: () => Error | undefined
+}
+
+function launch(command: string, args: string[], env: NodeJS.ProcessEnv, cwd: string, log: number, seconds: number, pipe = false): Started {
+  const [limiter, limitedArgs] = limited(process.platform, command, args, seconds)
+  const child = spawn(limiter, limitedArgs, { cwd, env, detached: true, stdio: ['ignore', log, log, ...(pipe ? (['pipe'] as const) : [])] })
+  let failure: Error | undefined
+  child.once('error', error => (failure = error))
+  if (limiter === command) setTimeout(() => void end(child), seconds * 1000).unref()
+  return { child, failed: () => failure }
+}
+
+async function startDisplay(home: string, log: number, seconds: number): Promise<{ child: ChildProcess; name: string }> {
+  const { child, failed } = launch(
+    'Xvfb',
+    ['-displayfd', '3', '-nolisten', 'tcp', '-screen', '0', '1280x1024x24'],
+    process.env,
+    home,
+    log,
+    seconds,
+    true,
+  )
+  let text = ''
+  ;(child.stdio[3] as Readable).on('data', chunk => (text += String(chunk)))
+  for (const until = Date.now() + 15_000; !text.includes('\n'); await pause(20)) {
+    if (failed() || over(child) || Date.now() > until) {
+      await end(child)
+      throw new Error('The hidden display did not start. Is Xvfb installed?')
+    }
+  }
+  return { child, name: `:${text.trim()}` }
+}
+
+export class Simulator {
+  readonly entries: ConsoleEntry[] = []
+  #seen = -1
+  #matched = -1
+  #stopping: Promise<void> | undefined
+
+  private constructor(
+    readonly api: string,
+    private readonly sim: Started,
+    private readonly display: ChildProcess | undefined,
+    private readonly home: string,
+  ) {}
+
+  static async start(options: SimulatorOptions): Promise<Simulator> {
+    const home = mkdtempSync(join(tmpdir(), 'earshot-sim-'))
+    const log = openSync(join(home, 'simulator.log'), 'a')
+    const seconds = options.limitSeconds ?? 3600
+    let display: { child: ChildProcess; name: string } | undefined
+    let simulator: Simulator | undefined
+    try {
+      const binary = options.binary ?? findBinary(process.cwd())
+      if (options.headless ?? (process.platform === 'linux' && !process.env.DISPLAY)) display = await startDisplay(home, log, seconds)
+      const port = await freePort()
+      const env = {
+        ...process.env,
+        ...(display ? { DISPLAY: display.name } : {}),
+        HOME: home,
+        XDG_CONFIG_HOME: join(home, '.config'),
+        XDG_DATA_HOME: join(home, '.local/share'),
+        XDG_CACHE_HOME: join(home, '.cache'),
+        ...options.env,
+      }
+      const sim = launch(binary, ['--no-aid', '--no-glow', '--automation-port', String(port), options.url], env, home, log, seconds)
+      simulator = new Simulator(`http://${LOOPBACK}:${port}`, sim, display?.child, home)
+      const api = simulator.api
+      await simulator.#wait(
+        'the simulator to answer',
+        () =>
+          fetch(`${api}/api/ping`).then(
+            pong => pong.ok,
+            () => false,
+          ),
+        options.startMs ?? 60_000,
+      )
+      return simulator
+    } catch (error) {
+      if (simulator) await simulator.stop()
+      else {
+        await end(display?.child)
+        rmSync(home, { recursive: true, force: true })
+      }
+      throw error
+    } finally {
+      closeSync(log)
+    }
+  }
+
+  async read(): Promise<ConsoleEntry[]> {
+    const response = await fetch(`${this.api}/api/console${this.#seen >= 0 ? `?since_id=${this.#seen}` : ''}`)
+    if (!response.ok) throw new Error(`The simulator did not give its console (${response.status}).`)
+    const { entries = [] } = (await response.json()) as { entries?: ConsoleEntry[] }
+    const fresh = entries.filter(entry => entry.id > this.#seen)
+    for (const entry of fresh) this.#seen = Math.max(this.#seen, entry.id)
+    this.entries.push(...fresh)
+    return fresh
+  }
+
+  until<T>(what: string, check: () => T | Promise<T>, ms = 20_000): Promise<Exclude<T, undefined | null | false>> {
+    return this.#wait(
+      what,
+      async () => {
+        await this.read()
+        return check()
+      },
+      ms,
+    )
+  }
+
+  logged(match: string | RegExp, ms = 20_000): Promise<ConsoleEntry> {
+    const matches = (entry: ConsoleEntry) => (typeof match === 'string' ? entry.message.includes(match) : match.test(entry.message))
+    return this.until(
+      `the console to say ${typeof match === 'string' ? JSON.stringify(match) : String(match)}`,
+      () => {
+        const at = this.entries.findIndex((entry, index) => index > this.#matched && matches(entry))
+        if (at < 0) return undefined
+        this.#matched = at
+        return this.entries[at]
+      },
+      ms,
+    )
+  }
+
+  async input(input: Input): Promise<void> {
+    const response = await fetch(`${this.api}/api/input`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: ACTIONS[input] }),
+    })
+    if (!response.ok) throw new Error(`The simulator refused ${input} (${response.status}).`)
+  }
+
+  async screenshot(of: 'glasses' | 'phone'): Promise<Uint8Array> {
+    const response = await fetch(`${this.api}/api/screenshot/${of === 'phone' ? 'webview' : 'glasses'}`)
+    if (!response.ok) throw new Error(`The simulator gave no picture of the ${of} (${response.status}).`)
+    return new Uint8Array(await response.arrayBuffer())
+  }
+
+  stop(): Promise<void> {
+    this.#stopping ??= (async () => {
+      await end(this.sim.child)
+      await end(this.display)
+      rmSync(this.home, { recursive: true, force: true })
+    })()
+    return this.#stopping
+  }
+
+  async #wait<T>(what: string, check: () => T | Promise<T>, ms: number): Promise<Exclude<T, undefined | null | false>> {
+    for (const until = Date.now() + ms; ; await pause(POLL_MS)) {
+      let found: T | undefined
+      let thrown: unknown
+      try {
+        found = await check()
+      } catch (error) {
+        thrown = error
+        await pause(POLL_MS)
+      }
+      if (found !== undefined && found !== null && found !== false) return found as Exclude<T, undefined | null | false>
+      const failure = this.sim.failed()
+      if (failure) throw new Error(`The simulator did not run: ${failure.message}`)
+      if (over(this.sim.child)) throw new Error(`The simulator exited while waiting for ${what}.${this.#said()}`)
+      if (thrown) throw thrown
+      if (Date.now() > until) throw new Error(`Timed out waiting for ${what}.${this.#said()}`)
+    }
+  }
+
+  #said(): string {
+    const last = this.entries.slice(-5).map(entry => entry.message)
+    let printed: string[] = []
+    try {
+      printed = readFileSync(join(this.home, 'simulator.log'), 'utf8').trim().split('\n').slice(-15)
+    } catch {}
+    return [
+      ...(last.length ? ['', 'The console last said:', ...last] : []),
+      ...(printed.join('').length ? ['', 'The simulator printed:', ...printed] : []),
+    ].join('\n')
+  }
+}
