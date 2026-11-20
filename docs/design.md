@@ -33,8 +33,11 @@ One package. The navigator's model (Jev) is built in and on by default, behind o
 
 A stack of screens over a home screen. `open`, `replace`, `back` (false at home), `goHome`, `close`.
 
-- A screen is `{ id, actions?, enter? }`. `enter` receives a signal that aborts when the screen leaves the stack (E7).
-  A screen covered by another keeps running.
+- A screen is `{ id, actions?, enter? }`. `enter` receives a lifetime that ends when the screen leaves the stack
+  (E7). A screen covered by another keeps running.
+- A lifetime owns cleanups, timers and listeners, carries an abort signal, and guards an `await` so the code after
+  it does not run for a screen that is gone. It has no sleep: a delay is a timer, and waiting for something is its
+  event.
 - `router.actions()` is the current screen's actions, then the app's. A screen's action replaces the app's action of
   the same id.
 

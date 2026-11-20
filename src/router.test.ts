@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { action } from './action.js'
+import type { Lifetime } from './lifetime.js'
 import { Router, type Screen } from './router.js'
 
 const screen = (id: string, more: Partial<Screen> = {}): Screen => ({ id, ...more })
@@ -67,39 +68,66 @@ describe('the screen stack', () => {
 })
 
 describe('E7: what a screen starts ends with it', () => {
-  it('signals a screen when it leaves the stack, not when another covers it', () => {
-    let left: AbortSignal | undefined
+  it("ends a screen's lifetime when it leaves the stack, not when another covers it", () => {
+    let life: Lifetime | undefined
     const router = new Router({ home: screen('list') })
-    router.open(screen('thread', { enter: signal => void (left = signal) }))
-    expect(left?.aborted).toBe(false)
+    router.open(screen('thread', { enter: entered => void (life = entered) }))
+    expect(life?.ended).toBe(false)
     router.open(screen('menu'))
-    expect(left?.aborted).toBe(false)
+    expect(life?.ended).toBe(false)
     router.back()
-    expect(left?.aborted).toBe(false)
+    expect(life?.ended).toBe(false)
     router.back()
-    expect(left?.aborted).toBe(true)
+    expect(life?.ended).toBe(true)
+    expect(life?.signal.aborted).toBe(true)
   })
 
-  it('signals a replaced screen, and every screen goHome leaves', () => {
-    const signals: AbortSignal[] = []
-    const enter = (signal: AbortSignal) => void signals.push(signal)
+  it('ends a replaced screen before the next one enters, and every screen goHome leaves', () => {
+    const lives: Lifetime[] = []
+    const seen: boolean[][] = []
+    const enter = (life: Lifetime) => {
+      seen.push(lives.map(l => l.ended))
+      lives.push(life)
+    }
     const router = new Router({ home: screen('list') })
     router.open(screen('a', { enter }))
     router.replace(screen('b', { enter }))
     router.open(screen('c', { enter }))
-    expect(signals.map(s => s.aborted)).toEqual([true, false, false])
+    expect(seen).toEqual([[], [true], [true, false]])
     router.goHome()
-    expect(signals.map(s => s.aborted)).toEqual([true, true, true])
+    expect(lives.map(l => l.ended)).toEqual([true, true, true])
   })
 
   it('close ends every screen, home included', () => {
-    const signals: AbortSignal[] = []
-    const enter = (signal: AbortSignal) => void signals.push(signal)
+    const lives: Lifetime[] = []
+    const enter = (life: Lifetime) => void lives.push(life)
     const router = new Router({ home: screen('list', { enter }) })
     router.open(screen('thread', { enter }))
-    expect(signals.map(s => s.aborted)).toEqual([false, false])
+    expect(lives.map(l => l.ended)).toEqual([false, false])
     router.close()
-    expect(signals.map(s => s.aborted)).toEqual([true, true])
+    expect(lives.map(l => l.ended)).toEqual([true, true])
+  })
+
+  it('still leaves every screen and reports the change when a cleanup throws, then passes the failure on', () => {
+    const ended: string[] = []
+    const failing = (id: string) =>
+      screen(id, {
+        enter: life => {
+          life.own(() => ended.push(id))
+          life.own(() => {
+            throw new Error(`${id} failed`)
+          })
+        },
+      })
+    const onChange = vi.fn()
+    const router = new Router({ home: screen('list'), onChange })
+    router.open(failing('a'))
+    router.open(failing('b'))
+    onChange.mockClear()
+    expect(() => router.goHome()).toThrow(AggregateError)
+    expect(ended).toEqual(['b', 'a'])
+    expect(router.current.id).toBe('list')
+    expect(onChange).toHaveBeenCalledOnce()
   })
 })
 

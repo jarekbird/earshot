@@ -1,9 +1,10 @@
 import type { Action, Outcome } from './action.js'
+import { Lifetime } from './lifetime.js'
 
 export interface Screen {
   readonly id: string
   actions?(): readonly Action[]
-  enter?(left: AbortSignal): void
+  enter?(life: Lifetime): void
 }
 
 export interface RouterOptions {
@@ -14,7 +15,7 @@ export interface RouterOptions {
 
 interface Entry {
   screen: Screen
-  life: AbortController
+  life: Lifetime
 }
 
 export class Router {
@@ -42,25 +43,22 @@ export class Router {
   }
 
   replace(screen: Screen): void {
-    this.#stack.pop()?.life.abort()
-    this.open(screen)
+    this.#leave(this.#stack.splice(-1), () => this.open(screen))
   }
 
   back(): boolean {
     if (this.#stack.length === 1) return false
-    this.#stack.pop()?.life.abort()
-    this.#onChange(this.current)
+    this.#leave(this.#stack.splice(-1), () => this.#onChange(this.current))
     return true
   }
 
   goHome(): void {
     if (this.#stack.length === 1) return
-    for (const entry of this.#stack.splice(1).reverse()) entry.life.abort()
-    this.#onChange(this.current)
+    this.#leave(this.#stack.splice(1), () => this.#onChange(this.current))
   }
 
   close(): void {
-    for (const entry of [...this.#stack].reverse()) entry.life.abort()
+    this.#leave([...this.#stack], () => {})
   }
 
   actions(): readonly Action[] {
@@ -80,8 +78,22 @@ export class Router {
   }
 
   #enter(screen: Screen): Entry {
-    const life = new AbortController()
-    screen.enter?.(life.signal)
+    const life = new Lifetime()
+    screen.enter?.(life)
     return { screen, life }
+  }
+
+  #leave(entries: readonly Entry[], after: () => void): void {
+    const errors: unknown[] = []
+    for (const entry of [...entries].reverse()) {
+      try {
+        entry.life.end()
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    after()
+    if (errors.length === 1) throw errors[0]
+    if (errors.length) throw new AggregateError(errors, 'Cleanups failed when screens left.')
   }
 }

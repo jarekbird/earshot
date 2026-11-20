@@ -8,7 +8,7 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 
 | Slice | What                                                                   | State   |
 | ----- | ---------------------------------------------------------------------- | ------- |
-| 1     | Actions and the screen router                                          | here    |
+| 1     | Actions, the screen router and lifetimes                               | here    |
 | 2     | Glasses renderer and touch input                                       | planned |
 | 3     | Hold to talk, and the agent stack with an offline navigator            | planned |
 | 4     | Navigation by [Jev](https://typesafe.ai), TypeSafe AI's decision model | planned |
@@ -20,7 +20,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.1
+npm install github:jarekbird/earshot#v0.0.2
 ```
 
 ## Actions
@@ -52,7 +52,7 @@ A target is chosen by id and found again when the action runs. If it left in the
 
 ## Screens and the router
 
-A screen has an id, its own actions, and a signal that ends what it started.
+A screen has an id, its own actions, and a lifetime that ends what it started.
 
 ```ts
 import { Router } from 'earshot'
@@ -66,13 +66,37 @@ const router = new Router({
 router.open({
   id: 'thread',
   actions: () => [stop],
-  enter: left => subscribe(thread, { signal: left }),
+  enter: life => life.own(subscribe(thread)),
 })
 
 router.actions() // stop, pages, refresh: the screen's, then the app's
 await router.run('stop')
 router.back() // false at home: time to exit
 ```
+
+## Lifetimes
+
+A screen's lifetime ends when the screen leaves the stack, and takes with it everything started through it. A screen covered by another keeps running.
+
+```ts
+enter: life => {
+  life.own(subscribe(thread)) // any cleanup function
+  life.interval(refresh, 30_000) // also timeout; both return { cancel }
+  life.listen(window, 'online', reconnect)
+  void load(life)
+}
+
+async function load(life: Lifetime) {
+  const response = await fetch(url, { signal: life.signal })
+  const thread = await life.guard(response.json())
+  show(thread)
+}
+```
+
+- `life.signal` aborts when the lifetime ends, for `fetch` and anything else that takes a signal.
+- `life.guard(work)` gives the result of `work`, or rejects with `LifetimeEnded` if the lifetime ends first. Code after it never runs for a screen that is gone.
+- `life.child()` is a shorter lifetime inside this one, for one task.
+- When it ends, every cleanup runs, newest first, even if one throws. The failures are then thrown together as an `AggregateError`.
 
 ## Develop
 
