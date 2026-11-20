@@ -170,6 +170,10 @@ stays open while the app is open, a small detector on the phone listens for the 
 phone until it is heard. After the phrase, the words go the same way as after a hold; the end of speech replaces the
 release. It works only while the app is open on the glasses.
 
+Earshot allows for it and ships no detector. The hold slice takes its start from a trigger, so a second trigger plugs
+in without changing what follows. The app supplies the detector and sets its own phrase; Earshot bundles no model,
+because the open models found so far have licences that do not clearly allow commercial apps.
+
 To be measured before it is designed further: the battery cost of an open microphone, whether a detector runs in the
 Even app's web view, and whether the phrase also wakes Even's own assistant.
 
