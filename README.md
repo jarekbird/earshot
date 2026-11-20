@@ -8,7 +8,7 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 
 | Slice | What                                                                   | State   |
 | ----- | ---------------------------------------------------------------------- | ------- |
-| 1     | Actions, the screen router and lifetimes                               | here    |
+| 1     | Actions, the screen router, lifetimes and the store check              | here    |
 | 2     | Glasses renderer and touch input                                       | planned |
 | 3     | Hold to talk, and the agent stack with an offline navigator            | planned |
 | 4     | Navigation by [Jev](https://typesafe.ai), TypeSafe AI's decision model | planned |
@@ -20,7 +20,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.2
+npm install github:jarekbird/earshot#v0.0.3
 ```
 
 ## Actions
@@ -106,3 +106,29 @@ npm run check
 ```
 
 MIT licensed.
+
+## Check before you submit
+
+`earshot-check` reads your `app.json` and your build, and lists what Even Hub's review would turn down. Run it after every build.
+
+```sh
+npx earshot-check                                  # app.json and dist
+npx earshot-check plugin/app.json plugin/dist      # other places
+npx earshot-check --allow demo://local             # a URL that is the app's own and never leaves it
+```
+
+From [Even Hub's submission rules](https://hub.evenrealities.com/docs/ship/app-submission):
+
+- `package_id` is reverse-domain, lowercase, with no hyphens or underscores.
+- `edition` is the current one.
+- `name` is at most 20 characters and does not contain "Even".
+- `version` is `x.y.z`, and `min_sdk_version` and `entrypoint` are present; the entry point is a file in the build.
+- Each permission has a name and a description of 1 to 300 characters, and `network` has a whitelist.
+
+Earshot's own, stricter:
+
+- `version` matches `package.json`, and `min_sdk_version` matches the installed SDK.
+- Each whitelist entry is an origin, such as `https://api.example.com` or `wss://*.example.com`.
+- No URL anywhere in the build is outside the whitelist. Scripts are read as JavaScript, so a URL joined from parts is found, and one whose host is only known at run time counts as outside.
+
+It needs `typescript` installed. The same checks are functions in `earshot/check`: `checkApp`, `manifestProblems`, `scan`.

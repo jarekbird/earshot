@@ -41,6 +41,13 @@ A stack of screens over a home screen. `open`, `replace`, `back` (false at home)
 - `router.actions()` is the current screen's actions, then the app's. A screen's action replaces the app's action of
   the same id.
 
+## Store check (slice 1, built)
+
+`earshot-check`, and `earshot/check` from code. It reads `app.json` and the build and lists what Even Hub's review
+would turn down: the manifest rules, and any URL in the build outside the network whitelist. It lives in `check/`,
+outside `src`, because it needs Node; nothing in `src` imports it. What belongs on an app's whitelist stays the app's
+own test.
+
 ## Renderer and touch (slice 2)
 
 The only code that imports the SDK (E1). It owns the device limits as tested constants, redraws a page only when its

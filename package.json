@@ -1,6 +1,6 @@
 {
   "name": "earshot",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "A voice-first app framework for Even Realities G2 glasses: declare what your app can do, then hold and say it.",
   "license": "MIT",
   "type": "module",
@@ -12,9 +12,16 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./check": {
+      "types": "./dist/check/index.d.ts",
+      "default": "./dist/check/index.js"
     }
   },
   "types": "./dist/index.d.ts",
+  "bin": {
+    "earshot-check": "./dist/check/cli.js"
+  },
   "files": [
     "dist"
   ],
@@ -22,12 +29,15 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.check.json",
     "prepare": "npm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "check": "prettier --check . && tsc --noEmit && vitest run && npm run build"
+  },
+  "peerDependencies": {
+    "typescript": ">=5"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

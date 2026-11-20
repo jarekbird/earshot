@@ -1,0 +1,7 @@
+export { checkApp } from './app.js'
+export type { CheckOptions, CheckResult } from './app.js'
+export { command } from './command.js'
+export type { CommandResult } from './command.js'
+export { EDITION, manifestProblems, whitelistOf } from './manifest.js'
+export type { ProjectFacts } from './manifest.js'
+export { outside, outsideScript, scan } from './urls.js'
