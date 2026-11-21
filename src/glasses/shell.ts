@@ -120,6 +120,7 @@ export class Shell {
   #fading: Timer | undefined
   #recording: { chunks: Uint8Array[]; screen: Screen; end: () => void } | null = null
   #turn = 0
+  #said = false
   #deciding: Lifetime | null = null
   #asked: Array<{ frame: number; screen: Screen }> = []
 
@@ -221,17 +222,17 @@ export class Shell {
             : [
                 move(UP, this.#words.moveUp, -1, 'cursor'),
                 move(DOWN, this.#words.moveDown, 1, 'cursor'),
-                action({ id: CHOOSE, say: this.#words.choose, run: () => this.#choose(drawn, place) }),
+                action({ id: CHOOSE, say: this.#words.choose, run: () => this.#choose(drawn, place, this.#said) }),
               ]
     const taken = new Set(actions.map(a => a.id))
     return [...actions, ...own.filter(a => !taken.has(a.id) && (taken.add(a.id), true))]
   }
 
-  #choose(drawn: Drawn, place: Place): void {
+  #choose(drawn: Drawn, place: Place, said = false): void {
     const target = drawn.targets[place.cursor]
     if (!target || drawn.view.kind !== 'list') return
     if (this.#own.has(drawn.screen)) this.#router.back()
-    void this.#start(drawn.view.action, target.id)
+    void this.#start(drawn.view.action, target.id, said)
   }
 
   notice(text: string): void {
@@ -267,7 +268,7 @@ export class Shell {
       id: 'earshot.actions',
       say: this.#words.more,
       targets: () => actions.map(a => ({ id: a.id, say: a.say, value: a })),
-      run: chosen => this.#start(chosen),
+      run: chosen => this.#start(chosen, undefined, this.#said),
     })
   }
 
@@ -447,7 +448,7 @@ export class Shell {
       id: 'earshot.which',
       say: this.#words.which,
       targets: () => verdict.candidates.map((candidate, index) => ({ id: String(index), say: candidate.say, value: candidate })),
-      run: candidate => this.#do(candidate.action, candidate.target, false),
+      run: candidate => this.#do(candidate.action, candidate.target, this.#said),
     })
     this.#clear()
     this.#openOwn({ id: 'earshot.which', view: () => list({ title: this.#words.which, action: which }) })
@@ -480,15 +481,19 @@ export class Shell {
     if (targets !== null && targetId === undefined) {
       return this.#openOwn({ id: 'earshot.pick', view: () => list({ title: chosen.say, action: chosen }) })
     }
-    if (chosen.risk === 'safe' || (chosen.risk === 'voice' && !said)) return this.#run(chosen, targetId)
+    if (chosen.risk === 'safe' || (chosen.risk === 'voice' && !said)) return this.#run(chosen, targetId, said)
     const target = targets?.find(candidate => candidate.id === targetId)
     this.#show(`${chosen.say}${target ? `: ${target.say}` : ''}?\n${this.#words.confirm}`)
     this.#asking = () => void this.#run(chosen, targetId)
   }
 
-  async #run(chosen: Action, targetId?: string): Promise<void> {
+  // An action the shell made (choose, More, which one) starts another: it has to know the words chose it.
+  async #run(chosen: Action, targetId?: string, said = false): Promise<void> {
     try {
-      const outcome = await this.#life.guard(chosen.run(targetId))
+      this.#said = said
+      const running = chosen.run(targetId)
+      this.#said = false
+      const outcome = await this.#life.guard(running)
       if (outcome.done) return this.redraw()
       if (outcome.why === 'blocked') return this.notice(outcome.say)
       this.notice(outcome.why === 'gone' ? this.#words.gone : this.#words.unavailable)

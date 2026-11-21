@@ -672,6 +672,36 @@ describe('a hold', () => {
     expect(ran).toEqual(['stop', 'stop'])
   })
 
+  it('still asks when the words pick the action and then its target from the list: no write without a tap', async () => {
+    const { voice } = hearing('allow it', 'choose this one')
+    const { fake, front, ran } = world({
+      voice,
+      home: ({ ran }) => ({
+        id: 'home',
+        actions: () => [
+          action({
+            id: 'allow',
+            say: 'Allow',
+            risk: 'voice',
+            targets: () => [{ id: 'r1', say: 'Run the migration', value: 'r1' }],
+            run: id => void ran.push(`allow ${id}`),
+          }),
+        ],
+        view: () => text({ title: 'Home', body: 'Hello' }),
+      }),
+    })
+    await settle()
+    await say(fake)
+    await settle(2_000)
+    expect(fake.lines()).toEqual(['Allow', '> Run the migration'])
+    await say(fake)
+    expect(front()).toBe('Allow: Run the migration?\nTap to confirm')
+    expect(ran).toEqual([])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['allow r1'])
+  })
+
   it('drops its question when the screen changes before the tap', async () => {
     const { voice } = hearing('stop it')
     const { fake, front, ran, router } = world({
