@@ -45,6 +45,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check:sim": "vitest run --config vitest.sim.config.ts",
+    "example:pack": "npm run build && node example/build.mjs && node dist/check/cli.js example/build/app.json example/dist && evenhub pack example/build/app.json example/dist -o example/build/earshot-example.ehpk",
     "format": "prettier --write .",
     "check": "prettier --check . && tsc --noEmit && vitest run && npm run build"
   },
@@ -57,6 +58,7 @@
   },
   "devDependencies": {
     "@evenrealities/even_hub_sdk": "0.0.16",
+    "@evenrealities/evenhub-cli": "0.2.0",
     "@evenrealities/evenhub-simulator": "0.9.5",
     "@types/node": "^24.19.2",
     "esbuild": "0.28.2",

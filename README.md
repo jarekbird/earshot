@@ -218,6 +218,7 @@ const forTests = createStore([memoryPlace()])
 npm install
 npm run check
 npm run check:sim   # the simulator driver, against the real simulator
+npm run example:pack   # build, check and pack the example app in example/
 ```
 
 MIT licensed.

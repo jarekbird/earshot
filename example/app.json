@@ -1,0 +1,10 @@
+{
+  "package_id": "com.jarekbird.earshotexample",
+  "edition": "202601",
+  "name": "Earshot example",
+  "version": "0.0.0",
+  "min_sdk_version": "0.0.16",
+  "entrypoint": "index.html",
+  "permissions": [],
+  "supported_languages": ["en"]
+}
