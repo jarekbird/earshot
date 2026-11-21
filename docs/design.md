@@ -168,7 +168,10 @@ three candidates, 1,200 characters an item, 240,000 a question, five seconds of 
 
 Tried live on 2026-11-20 with `typesafe/jev-1.14`: an answer in about 0.2 seconds, the wanted option on 12 of 12 test
 phrases, each sure pick at 0.82 or more, and 24 questions for $0.0006. Speech-to-text and compaction answered
-correctly in form; speech-to-text has not been tried with real speech, nor the relay from inside the Even app.
+correctly in form; the relay has not been tried from inside the Even app.
+
+Tried live the same day through the relay as a Cloudflare Worker: a Jev question in about 0.35 seconds end to end,
+and eleven seconds of recorded speech turned into the right words in 1.7 seconds.
 
 The design it follows:
 
