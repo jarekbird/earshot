@@ -650,6 +650,49 @@ describe('a hold', () => {
     expect(ran).toEqual(['open Ana'])
   })
 
+  it('asks before an action marked voice only when the words chose it: a pick from the menu runs at once', async () => {
+    const { voice } = hearing('stop it')
+    const { fake, front, ran } = world({
+      voice,
+      home: ({ ran }) => ({
+        id: 'home',
+        actions: () => [action({ id: 'stop', say: 'Stop', risk: 'voice', run: () => void ran.push('stop') })],
+        view: () => text({ title: 'Home', body: 'Hello' }),
+      }),
+    })
+    await settle()
+    fake.pick('Stop')
+    await settle()
+    expect(ran).toEqual(['stop'])
+    await say(fake)
+    expect(front()).toBe('Stop?\nTap to confirm')
+    expect(ran).toEqual(['stop'])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['stop', 'stop'])
+  })
+
+  it('drops its question when the screen changes before the tap', async () => {
+    const { voice } = hearing('stop it')
+    const { fake, front, ran, router } = world({
+      voice,
+      home: ({ ran }) => ({
+        id: 'home',
+        actions: () => [action({ id: 'stop', say: 'Stop', risk: 'voice', run: () => void ran.push('stop') })],
+        view: () => text({ title: 'Home', body: 'Hello' }),
+      }),
+    })
+    await settle()
+    await say(fake)
+    expect(front()).toBe('Stop?\nTap to confirm')
+    router.open({ id: 'other', actions: () => [], view: () => text({ body: 'Other' }) })
+    await settle()
+    expect(front()).toBe('')
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([])
+  })
+
   it('still asks before an action that needs it', async () => {
     const { voice } = hearing('delete ben')
     const { fake, front, ran } = world({

@@ -131,7 +131,12 @@ export class Shell {
     this.#noticeMs = options.noticeMs ?? NOTICE_MS
     this.#voice = options.voice
     this.#life.own(glasses.onInput(input => this.#input(input)))
-    this.#life.own(router.onChange(() => this.redraw()))
+    this.#life.own(
+      router.onChange(() => {
+        if (this.#asking) this.#clear()
+        this.redraw()
+      }),
+    )
     this.redraw()
   }
 
@@ -436,22 +441,22 @@ export class Shell {
       if (verdict.say !== undefined) this.notice(verdict.say)
       return this.redraw()
     }
-    if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target)
+    if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target, true)
     const which = action<Pick>({
       id: 'earshot.which',
       say: this.#words.which,
       targets: () => verdict.candidates.map((candidate, index) => ({ id: String(index), say: candidate.say, value: candidate })),
-      run: candidate => this.#do(candidate.action, candidate.target),
+      run: candidate => this.#do(candidate.action, candidate.target, false),
     })
     this.#clear()
     this.#openOwn({ id: 'earshot.which', view: () => list({ title: this.#words.which, action: which }) })
   }
 
-  #do(id: string, targetId?: string): void {
+  #do(id: string, targetId: string | undefined, said: boolean): void {
     const rolled = this.#voice?.rolling?.items().find(item => item.action.id === id && item.target === targetId)?.action
     const found = this.#reachable().find(a => a.id === id) ?? rolled
     if (!found) return this.notice(this.#words.unavailable)
-    void this.#start(found, targetId)
+    void this.#start(found, targetId, said)
   }
 
   #picked(item: number): void {
@@ -467,14 +472,14 @@ export class Shell {
     void this.#start(found)
   }
 
-  async #start(chosen: Action, targetId?: string): Promise<void> {
+  async #start(chosen: Action, targetId?: string, said = false): Promise<void> {
     const why = chosen.blocked()
     if (why !== null) return this.notice(why)
     const targets = chosen.targets()
     if (targets !== null && targetId === undefined) {
       return this.#openOwn({ id: 'earshot.pick', view: () => list({ title: chosen.say, action: chosen }) })
     }
-    if (chosen.risk !== 'confirm') return this.#run(chosen, targetId)
+    if (chosen.risk === 'safe' || (chosen.risk === 'voice' && !said)) return this.#run(chosen, targetId)
     const target = targets?.find(candidate => candidate.id === targetId)
     this.#show(`${chosen.say}${target ? `: ${target.say}` : ''}?\n${this.#words.confirm}`)
     this.#asking = () => void this.#run(chosen, targetId)

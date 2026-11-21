@@ -1,4 +1,4 @@
-export type Risk = 'safe' | 'confirm'
+export type Risk = 'safe' | 'confirm' | 'voice'
 
 export interface Target<T> {
   id: string
