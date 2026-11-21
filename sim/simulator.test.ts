@@ -1,7 +1,8 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
+import { FRAME_TAG } from '../src/glasses/glasses.js'
 import { findBinary, limited, Simulator } from './simulator.js'
 
 const FAKE = `#!/usr/bin/env node
@@ -18,6 +19,7 @@ const say = message => entries.push({ id: entries.length, level: 'log', message,
 say('started ' + args.join(' '))
 say('home=' + process.env.HOME + ' pid=' + process.pid + ' display=' + (process.env.DISPLAY ?? ''))
 if (mode === 'later') setTimeout(() => say('ready later'), 300)
+if (mode === 'frames') say('[earshot frame] {"lines":["Threads","One"]}')
 if (mode === 'dies') setTimeout(() => process.exit(0), 300)
 if (mode === 'silent') setInterval(() => {}, 1000)
 else
@@ -35,6 +37,7 @@ else
         const { action } = JSON.parse(body)
         if (mode === 'refuses') response.statusCode = 400
         else say('input ' + action)
+        if (mode === 'frames') setTimeout(() => say('[earshot frame] {"lines":["Threads","after ' + action + '"]}'), 200)
         response.end()
       })
       return
@@ -163,6 +166,26 @@ describe('until', () => {
   it('stops waiting when the simulator exits', async () => {
     const sim = await start('dies')
     await expect(sim.until('the moon', () => false, 10_000)).rejects.toThrow(/exited while waiting for the moon/)
+  })
+})
+
+describe('what the glasses show', () => {
+  it('is the lines of the last frame the app traced', async () => {
+    const sim = await start('frames')
+    expect(sim.shown()).toEqual([])
+    await sim.read()
+    expect(sim.shown()).toEqual(['Threads', 'One'])
+  })
+
+  it('can be waited for', async () => {
+    const sim = await start('frames')
+    await sim.input('tap')
+    expect(await sim.shows('after click')).toEqual(['Threads', 'after click'])
+    await expect(sim.shows('never', 300)).rejects.toThrow(/Timed out waiting for the glasses to show "never"/)
+  })
+
+  it('uses the tag the renderer writes', () => {
+    expect(readFileSync(new URL('./simulator.ts', import.meta.url), 'utf8')).toContain(`const FRAME_TAG = '${FRAME_TAG}'`)
   })
 })
 

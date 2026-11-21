@@ -1,6 +1,6 @@
 {
   "name": "earshot",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "A voice-first app framework for Even Realities G2 glasses: declare what your app can do, then hold and say it.",
   "license": "MIT",
   "type": "module",
@@ -19,6 +19,10 @@
     "./check": {
       "types": "./dist/check/index.d.ts",
       "default": "./dist/check/index.js"
+    },
+    "./testing": {
+      "types": "./dist/glasses/fake.d.ts",
+      "default": "./dist/glasses/fake.js"
     },
     "./sim": {
       "types": "./dist/sim/index.d.ts",
@@ -48,10 +52,14 @@
     "@evenrealities/pretext": "0.1.4",
     "acorn": "8.19.0"
   },
+  "peerDependencies": {
+    "@evenrealities/even_hub_sdk": ">=0.0.16"
+  },
   "devDependencies": {
     "@evenrealities/even_hub_sdk": "0.0.16",
     "@evenrealities/evenhub-simulator": "0.9.5",
     "@types/node": "^24.19.2",
+    "esbuild": "0.28.2",
     "prettier": "^3.10.1",
     "typescript": "^5.7.0",
     "vitest": "^3.2.7"

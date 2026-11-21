@@ -8,6 +8,7 @@ import { setTimeout as pause } from 'node:timers/promises'
 
 const LOOPBACK = '127.0.0.1'
 const POLL_MS = 100
+const FRAME_TAG = '[earshot frame]'
 const ACTIONS = {
   tap: 'click',
   double: 'double_click',
@@ -203,6 +204,29 @@ export class Simulator {
         if (at < 0) return undefined
         this.#matched = at
         return this.entries[at]
+      },
+      ms,
+    )
+  }
+
+  shown(): string[] {
+    for (let at = this.entries.length - 1; at >= 0; at--) {
+      const tagged = this.entries[at].message.indexOf(FRAME_TAG)
+      if (tagged < 0) continue
+      try {
+        const frame: unknown = JSON.parse(this.entries[at].message.slice(tagged + FRAME_TAG.length))
+        if (frame && typeof frame === 'object' && 'lines' in frame && Array.isArray(frame.lines)) return frame.lines.map(String)
+      } catch {}
+    }
+    return []
+  }
+
+  shows(text: string, ms = 20_000): Promise<string[]> {
+    return this.until(
+      `the glasses to show ${JSON.stringify(text)}`,
+      () => {
+        const lines = this.shown()
+        return lines.some(line => line.includes(text)) ? lines : undefined
       },
       ms,
     )

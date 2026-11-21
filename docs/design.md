@@ -74,7 +74,7 @@ would turn down: the manifest rules, and any URL in the build outside the networ
 outside `src`, because it needs Node; nothing in `src` imports it. What belongs on an app's whitelist stays the app's
 own test.
 
-## Renderer and touch (slice 2)
+## Renderer and touch (slice 2, step 1 of 3 built)
 
 The only code that imports the SDK (E1). It owns the device limits as tested constants, redraws a page only when its
 containers change, and maps the touchpad to actions: swipe moves, tap runs, double tap goes back.
@@ -82,6 +82,28 @@ containers change, and maps the touchpad to actions: swipe moves, tap runs, doub
 - It sets the front-to-back order of every container, and keeps one text box in front of the rest for the voice
   overlay. That box is one of the eight containers a page may have besides images.
 - Lists are drawn as text, not as the SDK's list container: text can be dimmed in place, a list cannot.
+- A screen hands it a `list`, a `text` or its own `boxes`. A list shows the targets of one action; `boxes` is the
+  level under both.
+
+Step 1, built: `Glasses` draws a frame of boxes and reports input.
+
+- One draw at a time, and only the newest frame waits. Text and brightness change in place; anything else about a box
+  rebuilds the page, at most once in 300 ms. A refused draw is retried after 0.5, 1, 2 and then 4 seconds.
+- A full-screen empty box behind the others takes the input, because the firmware animates a bounce on the box that
+  takes the swipes.
+- Input is one type: tap, double, up, down, hold, release, menu, foreground, background, exit.
+- `earshot/testing` is a stand-in bridge for tests, and a traced frame is what `earshot/sim` reads back as the
+  glasses' text.
+
+What the simulator showed, which the code follows where it differs from Even's pages:
+
+- A text box takes 999 bytes, on a rebuild and on an update. Even's pages say 1,000 and 2,000 characters.
+- It reports `foreground` when Even's menu opens and `background` when it closes, so Earshot keeps drawing through
+  both and only reports them.
+- A second create is refused, so a reloaded web view takes its old page over with a rebuild.
+
+Step 2: `list`, `text`, touch running actions, and Even's menu from the action list. Step 3: the front box and
+dimming.
 
 ## Hold and the agent stack (slice 3)
 

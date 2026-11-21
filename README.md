@@ -6,12 +6,12 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 
 **Status: early.** Only the first slice exists. The API will change until two apps run on it.
 
-| Slice | What                                                                                    | State   |
-| ----- | --------------------------------------------------------------------------------------- | ------- |
-| 1     | Actions, the router, lifetimes, text, storage, the store check and the simulator driver | here    |
-| 2     | Glasses renderer and touch input                                                        | planned |
-| 3     | Hold to talk, and the agent stack with an offline navigator                             | planned |
-| 4     | Navigation by [Jev](https://typesafe.ai), TypeSafe AI's decision model                  | planned |
+| Slice | What                                                                                                    | State   |
+| ----- | ------------------------------------------------------------------------------------------------------- | ------- |
+| 1     | Actions, the router, lifetimes, text, storage, the store check and the simulator driver                 | here    |
+| 2     | Glasses renderer and touch input: drawing and input are here; lists, text screens and the menu are next | partly  |
+| 3     | Hold to talk, and the agent stack with an offline navigator                                             | planned |
+| 4     | Navigation by [Jev](https://typesafe.ai), TypeSafe AI's decision model                                  | planned |
 
 The design is in [`docs/design.md`](docs/design.md).
 
@@ -20,7 +20,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.7
+npm install github:jarekbird/earshot#v0.0.8
 ```
 
 ## Actions
@@ -97,6 +97,54 @@ async function load(life: Lifetime) {
 - `life.guard(work)` gives the result of `work`, or rejects with `LifetimeEnded` if the lifetime ends first. Code after it never runs for a screen that is gone.
 - `life.child()` is a shorter lifetime inside this one, for one task.
 - When it ends, every cleanup runs, newest first, even if one throws. The failures are then thrown together as an `AggregateError`.
+
+## Draw on the glasses
+
+`Glasses` draws frames of text boxes and tells you what the user did. It is the only part of Earshot that talks to Even's SDK, which your app installs.
+
+```ts
+import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
+import { Glasses, Lifetime, LINE_HEIGHT, SCREEN_WIDTH } from 'earshot'
+
+const life = new Lifetime()
+const glasses = new Glasses(life, await waitForEvenAppBridge())
+
+glasses.draw({
+  boxes: [
+    { id: 'title', x: 0, y: 0, w: SCREEN_WIDTH, h: LINE_HEIGHT, text: 'Threads' },
+    { id: 'body', x: 0, y: LINE_HEIGHT, w: SCREEN_WIDTH, h: 200, text: 'One\nTwo', brightness: 2 },
+  ],
+})
+
+glasses.onInput(input => {
+  if (input.kind === 'double') void glasses.leave()
+})
+```
+
+- Draw as often as you like. One draw is sent at a time, and only the newest frame waits.
+- A change of text or brightness is updated in place, without a flicker. The page is rebuilt only when a box is added, removed, moved, resized or renamed, and never more than about three times a second.
+- A draw the glasses refuse is tried again, after half a second, then one, two and four.
+- `input.kind` is `tap`, `double`, `up`, `down`, `hold`, `release`, `menu`, `foreground`, `background` or `exit`. A hold says where it was pressed: `right`, `left` or `ring`.
+- An app gets seven text boxes. Text over 999 bytes in a box is cut, with an ellipsis.
+- `brightness` runs from 0 to 4, and 4 is the default.
+- Even reports `foreground` and `background` around its own menu too, so Earshot keeps drawing through both.
+
+Lists, text screens and Even's menu, drawn from your actions, come next.
+
+### Test without the glasses
+
+```ts
+import { fakeBridge } from 'earshot/testing'
+
+const fake = fakeBridge()
+const glasses = new Glasses(life, fake.bridge)
+glasses.draw(frame)
+await vi.advanceTimersByTimeAsync(0)
+expect(fake.lines()).toEqual(['Threads', 'One', 'Two'])
+fake.tap() // also double, up, down, hold, release, menu, foreground, background, exit
+```
+
+The stand-in refuses what Even's simulator refuses: a ninth text box, text of 1,000 bytes, a second page. `fake.refuse('rebuild', 2)` makes it refuse on request.
 
 ## Text for the glasses
 
@@ -195,4 +243,5 @@ await sim.stop()
 - Each run has its own home folder, removed by `stop`. Every process it starts has a hard time limit, an hour unless you pass `limitSeconds`.
 - On Linux without a display it starts a hidden one, which needs `Xvfb`. A bare CI machine also needs the simulator's libraries: on Ubuntu, `xvfb libwebkit2gtk-4.1-0 libasound2t64`.
 - Input reaches the app only when its page has a container that captures events.
+- `new Glasses(life, bridge, { trace: true })` writes what the glasses show to the console, and then `await sim.shows('Threads')` waits for it and `sim.shown()` gives the lines.
 - The simulator is not the glasses: check fonts, scrolling and timing on the device.
