@@ -267,7 +267,8 @@ export class Shell {
   }
 
   #input(input: Input): void {
-    if (input.kind === 'foreground' || input.kind === 'background' || input.kind === 'exit') return
+    if (input.kind === 'foreground') return
+    if (input.kind === 'background' || input.kind === 'exit') return this.#recording || this.#deciding ? this.#callOff() : undefined
     if (input.kind === 'hold') return this.#hold()
     if (input.kind === 'release') return this.#release()
     if (this.#recording || this.#deciding) {

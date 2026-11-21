@@ -403,6 +403,21 @@ describe('the microphone', () => {
     expect(heard).toEqual([320, 160])
   })
 
+  it('closes when it was told to before it had opened', async () => {
+    const { fake, glasses } = setup()
+    const answer = fake.bridge.audioControl.bind(fake.bridge)
+    let open = () => {}
+    fake.bridge.audioControl = async (on, source) => {
+      if (on) await new Promise<void>(opened => (open = opened))
+      return answer(on, source)
+    }
+    const opening = glasses.openMic()
+    await glasses.closeMic()
+    open()
+    await opening
+    expect(fake.mic).toBeNull()
+  })
+
   it('says so when it does not open', async () => {
     const { fake, glasses } = setup()
     fake.refuse('mic', 1)

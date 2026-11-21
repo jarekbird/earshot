@@ -166,6 +166,7 @@ export class Glasses {
   readonly #listeners = new Set<(input: Input) => void>()
   readonly #ears = new Set<(pcm: Uint8Array) => void>()
   #micOpen = false
+  #micWanted = false
   #frame: Frame = { boxes: [] }
   #overlay: string | null = null
   #wanted: Page | null = null
@@ -199,9 +200,11 @@ export class Glasses {
 
   async openMic(): Promise<boolean> {
     if (this.#life.ended) return false
+    this.#micWanted = true
     const opening = attempt(() => this.#bridge.audioControl(true, AudioInputSource.Glasses))
     this.holdRebuilds(opening)
     this.#micOpen = (await opening) === true
+    if (!this.#micWanted) await this.closeMic()
     return this.#micOpen
   }
 
@@ -216,6 +219,7 @@ export class Glasses {
   }
 
   async closeMic(): Promise<void> {
+    this.#micWanted = false
     if (!this.#micOpen) return
     this.#micOpen = false
     await attempt(() => this.#bridge.audioControl(false))

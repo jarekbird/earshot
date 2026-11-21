@@ -910,6 +910,42 @@ describe('a hold', () => {
     expect(asked).toEqual([0.8])
   })
 
+  it('is called off when the app goes to the background or is closed, while it listens or an agent has something pending', async () => {
+    const sent: string[] = []
+    const asked: number[] = []
+    const voice: VoiceOptions = {
+      transcribe: async audio => {
+        asked.push(audio.seconds)
+        return 'tell the team'
+      },
+      model: { choose: async ({ options }) => ({ [options.find(option => option.role === 'pass')!.id]: 1 }) },
+      agents: [
+        async ({ words, life }) => {
+          await life!.guard(new Promise<void>(done => life!.timeout(done, 3_000)))
+          sent.push(words)
+          return { kind: 'handled' }
+        },
+      ],
+    }
+    const { fake, front } = world({ voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(800))
+    fake.background()
+    await settle(50)
+    expect(fake.mic).toBeNull()
+    expect(front()).toBe('')
+    fake.release()
+    await settle(50)
+    expect(asked).toEqual([])
+
+    await say(fake)
+    fake.exit()
+    await settle(5_000)
+    expect(sent).toEqual([])
+  })
+
   it('ends by itself after a minute without a release', async () => {
     const { voice, asked } = hearing('refresh')
     const { fake, ran } = world({ voice })

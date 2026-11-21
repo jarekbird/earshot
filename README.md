@@ -155,7 +155,7 @@ new Shell(life, glasses, router, {
 - `agents` get the words the navigator passes on, in order, with the recording (`audio`) and the turn's lifetime (`life`). An agent answers `{ kind: 'handled', say }`, `{ kind: 'notMine' }`, or with an action to run.
 - An agent that waits before it acts waits through `life`. Any touch while a command is being decided calls it off and does nothing else; a hold calls it off and listens again. Both end `life`.
 - `model` is what the navigator asks. It gets the question and gives each option a chance. Over 0.7 the navigator is sure; under that it lists the options over 0.15. The default matches the words against the labels and calls no service.
-- A double tap calls a command off while it listens. A hold with no release ends after a minute (`maxHoldMs`). No answer in fifteen seconds is given up on (`timeoutMs`).
+- A double tap calls a command off while it listens, and so does leaving the app. A hold with no release ends after a minute (`maxHoldMs`). No answer in fifteen seconds is given up on (`timeoutMs`).
 - Throw `SayError` from a transcriber to say what went wrong in your own words.
 
 ### What the navigator is offered
