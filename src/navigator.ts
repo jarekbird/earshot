@@ -17,7 +17,7 @@ export interface Question {
 }
 
 export interface NavigatorModel {
-  choose(question: Question): Promise<Record<string, number>>
+  choose(question: Question, life?: Lifetime): Promise<Record<string, number>>
 }
 
 export interface Pick {
@@ -96,7 +96,7 @@ const verdictOf = (meaning: Meaning): Verdict => {
 export function navigator(model: NavigatorModel): Agent {
   return async heard => {
     const { question, meanings } = questionFor(heard)
-    const ranked = Object.entries(await model.choose(question))
+    const ranked = Object.entries(await model.choose(question, heard.life))
       .flatMap(([id, chance]) => {
         const meaning = meanings.get(id)
         return meaning === undefined ? [] : [{ meaning, chance }]

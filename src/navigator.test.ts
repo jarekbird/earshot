@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { action } from './action.js'
+import { Lifetime } from './lifetime.js'
 import { MAX_OPTIONS, matchWords, navigator, questionFor, QUESTION_LIMIT, SURE_AT, type Heard, type Question } from './navigator.js'
 import type { RollingItem } from './rolling.js'
 
@@ -81,6 +82,19 @@ describe('the question', () => {
 
 describe('the navigator', () => {
   const answering = (pick: (question: Question) => Record<string, number>) => navigator({ choose: async question => pick(question) })
+
+  it("hands the model the turn's lifetime, so what it asks for can end with the turn", async () => {
+    const life = new Lifetime()
+    const got: unknown[] = []
+    const agent = navigator({
+      choose: async (_question, turn) => {
+        got.push(turn)
+        return {}
+      },
+    })
+    await agent({ words: 'go back', actions: [], rolling: [], hasNext: false, life })
+    expect(got).toEqual([life])
+  })
   const idOf = (question: Question, say: string) => question.options.find(option => option.say === say)!.id
 
   it('is sure of the option the model gives a high enough chance', async () => {
