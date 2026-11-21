@@ -668,3 +668,38 @@ describe('watching the draws', () => {
     expect(told()).toEqual(['begin 1', 'call 1 create', 'answer 1 create', 'call 1 picture chart', 'answer 1 picture chart', 'end 1'])
   })
 })
+
+describe('a draw that has to wait', () => {
+  const watched = () => {
+    const seen: Drawing[] = []
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge, { watch: event => seen.push(event) })
+    return { fake, glasses, seen }
+  }
+
+  it('is told of when it waits for the gap between two rebuilds', async () => {
+    const { glasses, seen } = watched()
+    glasses.draw(frame(box('title', 'One')))
+    await settle()
+    seen.length = 0
+    glasses.draw(frame(box('title', 'One'), box('body', 'Two', { y: 27 })))
+    await settle()
+    expect(seen).toEqual([{ at: 'wait', frame: 2, inMs: REBUILD_GAP_MS }])
+    await settle(REBUILD_GAP_MS)
+    expect(seen.at(-1)).toEqual({ at: 'end', frame: 2, drawn: true })
+  })
+
+  it('is told of when it is asked for while a refused draw waits to be tried again', async () => {
+    const { fake, glasses, seen } = watched()
+    fake.refuse('create')
+    fake.refuse('rebuild')
+    glasses.draw(frame(box('title', 'One')))
+    await settle(100)
+    seen.length = 0
+    glasses.draw(frame(box('title', 'Two')))
+    await settle()
+    expect(seen).toEqual([{ at: 'wait', frame: 2, inMs: 400 }])
+    await settle(400)
+    expect(seen.at(-1)).toEqual({ at: 'end', frame: 2, drawn: true })
+  })
+})

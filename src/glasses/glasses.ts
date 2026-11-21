@@ -45,6 +45,7 @@ export type GlassesBridge = Pick<
 export type DrawOp = 'create' | 'rebuild' | 'update' | 'picture'
 
 export type Drawing =
+  | { at: 'wait'; frame: number; inMs: number }
   | { at: 'begin'; frame: number; rebuild: boolean }
   | { at: 'call'; frame: number; op: DrawOp; box?: string }
   | { at: 'answer'; frame: number; op: DrawOp; box?: string; boxes: number; ms: number; ok: boolean; got: unknown }
@@ -172,6 +173,7 @@ export class Glasses {
   #failures = 0
   #rebuildAt = 0
   #retry: Timer | undefined
+  #retryAt = 0
   #traced = ''
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
@@ -277,7 +279,12 @@ export class Glasses {
   }
 
   async #run(): Promise<void> {
-    if (this.#drawing || this.#retry) return
+    if (this.#drawing) return
+    if (this.#retry) {
+      await Promise.resolve()
+      if (this.#retry && this.#wanted) this.#watch({ at: 'wait', frame: this.#wanted.frame, inMs: this.#retryAt - this.#now() })
+      return
+    }
     this.#drawing = true
     try {
       await Promise.resolve()
@@ -286,7 +293,10 @@ export class Glasses {
         const shape = shapeOf(page)
         const rebuild = shape !== this.#shape
         const wait = rebuild ? this.#rebuildAt - this.#now() : 0
-        if (wait > 0) return this.#later(wait)
+        if (wait > 0) {
+          this.#watch({ at: 'wait', frame: page.frame, inMs: wait })
+          return this.#later(wait)
+        }
         const { frame } = page
         this.#watch({ at: 'begin', frame, rebuild })
         const drawn = (rebuild ? await this.#build(page, shape) : await this.#update(page)) && (await this.#hang(page))
@@ -308,6 +318,7 @@ export class Glasses {
   }
 
   #later(ms: number): void {
+    if (!this.#retry) this.#retryAt = this.#now() + ms
     this.#retry ??= this.#life.timeout(() => {
       this.#retry = undefined
       void this.#run()

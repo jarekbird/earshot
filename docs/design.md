@@ -118,7 +118,8 @@ the input box. The data is sent after the page is built and again only when the 
 nothing; a picture the glasses refuse is tried again like any draw.
 
 An app can watch the draws for its own log: each frame has a number, and `watch` is told when a frame begins and
-ends, each call to the glasses with its answer and how long it took, and each retry with its wait.
+ends, each call to the glasses with its answer and how long it took, each retry with its wait, and when a frame is
+put off: between two rebuilds, or behind a retry.
 
 Still to try on real glasses: how the dimmed page reads behind
 the overlay, and which levels to use. It is 1 now.
