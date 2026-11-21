@@ -1,4 +1,4 @@
-import type { Action, Outcome } from './action.js'
+import { action, type Action, type Outcome } from './action.js'
 import { Lifetime } from './lifetime.js'
 import type { View } from './view.js'
 
@@ -6,6 +6,7 @@ export interface Screen {
   readonly id: string
   actions?(): readonly Action[]
   view?(): View
+  context?(): string
   enter?(life: Lifetime): void
 }
 
@@ -23,6 +24,20 @@ export class Router {
   readonly #stack: Entry[]
   readonly #appActions: () => readonly Action[]
   readonly #listeners = new Set<(current: Screen) => void>()
+  readonly #standard: readonly Action[] = [
+    action({
+      id: 'back',
+      say: 'Go back',
+      blocked: () => (this.depth > 1 ? null : 'Nothing to go back to'),
+      run: () => void this.back(),
+    }),
+    action({
+      id: 'home',
+      say: 'Go home',
+      blocked: () => (this.depth > 1 ? null : 'Already at the start'),
+      run: () => this.goHome(),
+    }),
+  ]
 
   constructor(options: RouterOptions) {
     this.#appActions = options.actions ?? (() => [])
@@ -74,7 +89,9 @@ export class Router {
       if (ids.has(a.id)) throw new Error(`${screen.id}: two actions with id "${a.id}"`)
       ids.add(a.id)
     }
-    return [...own, ...this.#appActions().filter(a => !ids.has(a.id))]
+    const offered = [...own, ...this.#appActions().filter(a => !ids.has(a.id))]
+    const taken = new Set(offered.map(a => a.id))
+    return [...offered, ...this.#standard.filter(a => !taken.has(a.id))]
   }
 
   async run(id: string, targetId?: string): Promise<Outcome> {

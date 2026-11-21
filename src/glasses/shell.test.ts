@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { action, type Action } from '../action.js'
 import { Lifetime } from '../lifetime.js'
+import { Rolling } from '../rolling.js'
 import { Router, type Screen } from '../router.js'
 import { boxes, list, text } from '../view.js'
 import { fakeBridge } from './fake.js'
@@ -32,9 +33,12 @@ function world(more: { home?: (parts: Parts) => Screen; appActions?: () => Actio
     },
   })
   const refresh = action({ id: 'refresh', say: 'Refresh', run: () => void ran.push('refresh') })
-  const parts: Parts = { open, refresh, ran, people }
+  const rolling = new Rolling(life)
+  for (const name of people) rolling.add(open, name.toLowerCase())
+  const parts: Parts = { open, refresh, ran, people, rolling }
   const home = more.home?.(parts) ?? { id: 'people', actions: () => [open, refresh], view: () => list({ title: 'People', action: open }) }
   const router: Router = new Router({ home, actions: more.appActions })
+  if (more.voice) more.voice.rolling ??= rolling
   const shell = new Shell(life, glasses, router, { voice: more.voice })
   const menu = () => fake.menuItems().map(item => item.name)
   const front = () => fake.boxes().at(-1)!.text.trim()
@@ -51,6 +55,7 @@ interface Parts {
   refresh: Action
   ran: string[]
   people: string[]
+  rolling: Rolling
 }
 
 describe('drawing', () => {
@@ -84,7 +89,7 @@ describe('drawing', () => {
   it('lists the actions of a screen that has no view of its own', async () => {
     const { fake, menu, ran } = world({ home: ({ refresh }) => ({ id: 'bare', actions: () => [refresh] }) })
     await settle()
-    expect(fake.lines()).toEqual(['> Refresh'])
+    expect(fake.lines()).toEqual(['> Refresh', 'Go back', 'Go home'])
     expect(menu()).toEqual([])
     fake.tap()
     await settle()
@@ -216,7 +221,7 @@ describe("Even's menu", () => {
     const about = action({ id: 'about', say: 'About', run: () => {} })
     const { menu } = world({ appActions: () => [about] })
     await settle()
-    expect(menu()).toEqual(['Refresh', 'About'])
+    expect(menu()).toEqual(['Refresh', 'About', 'Go back', 'Go home'])
   })
 
   it('runs the action that is picked', async () => {
@@ -275,7 +280,7 @@ describe("Even's menu", () => {
     expect(menu()).toEqual([...many.slice(0, 9).map(a => a.say), 'More…'])
     fake.pick('More…')
     await settle()
-    expect(fake.lines()).toEqual(['More…', '> Action 9', 'Action 10', 'Last'])
+    expect(fake.lines()).toEqual(['More…', '> Action 9', 'Action 10', 'Last', 'Go back', 'Go home'])
     fake.down()
     fake.down()
     fake.tap()
@@ -515,48 +520,31 @@ describe('a hold', () => {
   })
 
   it('lists the few candidates to tap when the navigator is unsure', async () => {
-    const { voice } = hearing('ben')
-    const { fake, ran } = world({
-      voice,
-      home: ({ open, people }) => ({
-        id: 'home',
-        actions: () => [
-          open,
-          action({
-            id: 'call',
-            say: 'Call',
-            targets: () => people.map(name => ({ id: name.toLowerCase(), say: name, value: name })),
-            run: () => {},
-          }),
-        ],
-        view: () => text({ title: 'Home', body: 'Hello' }),
-      }),
-    })
+    const { fake, ran } = world({ voice: hearing('ana ben').voice })
     await settle()
     await say(fake)
-    expect(fake.lines().slice(0, 3)).toEqual(['Which one?', '> Open: Ben', 'Call: Ben'])
+    expect(fake.lines()).toEqual(['Which one?', '> Open: Ben', 'Open: Ana'])
+    fake.down()
     fake.tap()
     await settle()
-    expect(ran).toEqual(['open Ben'])
+    expect(ran).toEqual(['open Ana'])
   })
 
   it('still asks before an action that needs it', async () => {
     const { voice } = hearing('delete ben')
     const { fake, front, ran } = world({
       voice,
-      home: ({ people, ran }) => ({
-        id: 'home',
-        actions: () => [
-          action({
-            id: 'delete',
-            say: 'Delete',
-            risk: 'confirm',
-            targets: () => people.map(name => ({ id: name.toLowerCase(), say: name, value: name })),
-            run: name => void ran.push(`delete ${name}`),
-          }),
-        ],
-        view: () => text({ title: 'Home', body: 'Hello' }),
-      }),
+      home: ({ people, ran, rolling }) => {
+        const remove = action({
+          id: 'delete',
+          say: 'Delete',
+          risk: 'confirm',
+          targets: () => people.map(name => ({ id: name.toLowerCase(), say: name, value: name })),
+          run: name => void ran.push(`delete ${name}`),
+        })
+        rolling.add(remove, 'ben')
+        return { id: 'home', actions: () => [remove], view: () => text({ title: 'Home', body: 'Hello' }) }
+      },
     })
     await settle()
     await say(fake)
@@ -565,6 +553,40 @@ describe('a hold', () => {
     fake.tap()
     await settle()
     expect(ran).toEqual(['delete Ben'])
+  })
+
+  it('runs an item of the rolling set from a screen that does not have its action', async () => {
+    const { fake, ran, router } = world({ voice: hearing('open cy').voice })
+    await settle()
+    router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })
+    await settle()
+    await say(fake)
+    expect(ran).toEqual(['open Cy'])
+  })
+
+  it('tells the model what is on the screen, and what the other agents take', async () => {
+    const asked: { screen?: string; says: string[] }[] = []
+    const { voice } = hearing('refresh')
+    voice.model = {
+      choose: async question => {
+        asked.push({ screen: question.screen, says: question.options.map(option => option.say) })
+        return {}
+      },
+    }
+    voice.otherwise = 'A note to remember'
+    voice.agents = [() => ({ kind: 'notMine' })]
+    const { fake } = world({
+      voice,
+      home: ({ refresh }) => ({ id: 'home', actions: () => [refresh], context: () => 'Two notes', view: () => text({ body: 'Hello' }) }),
+    })
+    await settle()
+    await say(fake)
+    expect(asked).toEqual([
+      {
+        screen: 'Two notes',
+        says: ['Go back', 'Go home', 'A note to remember', 'None of these', 'Refresh', 'Open: Cy', 'Open: Ben', 'Open: Ana'],
+      },
+    ])
   })
 
   it("hands words the navigator passes on to the app's agents, in order", async () => {

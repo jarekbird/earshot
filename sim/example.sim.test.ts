@@ -32,7 +32,7 @@ describe('the example app in the real Even Hub simulator', () => {
   it('draws a list, moves the cursor, opens an item and comes back to it', async () => {
     const sim = await start()
     expect(sim.shown()).toEqual(['Earshot example', '> Welcome', 'Voice', 'A long note'])
-    expect(sim.menu()).toEqual(['Delete note', 'Tap counter', 'Send'])
+    expect(sim.menu()).toEqual(['Delete note', 'Tap counter', 'Send', 'Go back', 'Go home'])
     await sim.input('down')
     await sim.shows('> Voice')
     await sim.input('tap')

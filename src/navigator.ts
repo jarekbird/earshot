@@ -1,19 +1,21 @@
 import type { Action } from './action.js'
+import type { RollingItem } from './rolling.js'
 
 export interface Option {
   id: string
   say: string
+  context?: string
+  role?: 'pass' | 'none'
 }
 
 export interface Question {
   words: string
+  screen?: string
   options: Option[]
 }
 
-export type Choice = { sure: string } | { unsure: string[] }
-
 export interface NavigatorModel {
-  choose(question: Question): Promise<Choice>
+  choose(question: Question): Promise<Record<string, number>>
 }
 
 export interface Pick {
@@ -32,54 +34,78 @@ export type Verdict =
 export interface Heard {
   words: string
   actions: readonly Action[]
-  canGoBack: boolean
+  rolling: readonly RollingItem[]
   hasNext: boolean
+  otherwise?: string
+  screen?: string
 }
 
 export type Agent = (heard: Heard) => Verdict | Promise<Verdict>
 
 // Jev takes at most 255 options in one question.
 export const MAX_OPTIONS = 255
-export const BACK = 'earshot.back'
-export const HOME = 'earshot.home'
-const PASS = 'earshot.pass'
-const NONE = 'earshot.none'
+export const QUESTION_LIMIT = 240_000
+export const SURE_AT = 0.7
+export const UNSURE_FROM = 0.15
 const UNSURE_AT_MOST = 3
+const STANDARD = ['back', 'home']
+const PASS = 'pass'
+const NONE = 'none'
 
 type Meaning = Pick | typeof PASS | typeof NONE
 
 export function questionFor(heard: Heard): { question: Question; meanings: Map<string, Meaning> } {
-  const offered: Meaning[] = []
-  if (heard.canGoBack) offered.push({ action: BACK, say: 'Go back' }, { action: HOME, say: 'Go home' })
-  if (heard.hasNext) offered.push(PASS)
-  offered.push(NONE)
-  for (const action of heard.actions) offered.push({ action: action.id, say: action.say })
-  for (const action of heard.actions) {
-    for (const target of action.targets() ?? []) {
-      if (!target.private) offered.push({ action: action.id, target: target.id, say: `${action.say}: ${target.say}` })
-    }
+  const meanings = new Map<string, Meaning>()
+  const options: Option[] = []
+  let length = heard.words.length + (heard.screen?.length ?? 0)
+  const offer = (meaning: Meaning, option: Omit<Option, 'id'>) => {
+    const id = `o${options.length}`
+    meanings.set(id, meaning)
+    options.push({ id, ...option })
+    length += option.say.length + (option.context?.length ?? 0)
   }
-  const meanings = new Map(offered.slice(0, MAX_OPTIONS).map((meaning, index) => [`o${index}`, meaning]))
-  const say = (meaning: Meaning) => (meaning === PASS ? 'Not a navigation command' : meaning === NONE ? 'None of these' : meaning.say)
-  return { question: { words: heard.words, options: [...meanings].map(([id, meaning]) => ({ id, say: say(meaning) })) }, meanings }
+  const offerAction = (action: Action) =>
+    offer({ action: action.id, say: action.say }, { say: action.say, ...(action.hint === undefined ? {} : { context: action.hint }) })
+
+  for (const id of STANDARD) heard.actions.filter(action => action.id === id).forEach(offerAction)
+  if (heard.hasNext) offer(PASS, { say: heard.otherwise ?? 'Not a navigation command', role: 'pass' })
+  offer(NONE, { say: 'None of these', role: 'none' })
+  heard.actions.filter(action => !STANDARD.includes(action.id)).forEach(offerAction)
+
+  let full = false
+  for (const item of heard.rolling.slice(0, Math.max(0, MAX_OPTIONS - options.length))) {
+    full ||= length + item.say.length + item.context.length > QUESTION_LIMIT
+    offer(
+      { action: item.action.id, target: item.target, say: item.say },
+      { say: item.say, ...(item.context && !full ? { context: item.context } : {}) },
+    )
+  }
+  return { question: { words: heard.words, ...(heard.screen ? { screen: heard.screen } : {}), options }, meanings }
+}
+
+const verdictOf = (meaning: Meaning): Verdict => {
+  if (meaning === PASS) return { kind: 'notMine' }
+  if (meaning === NONE) return { kind: 'none' }
+  return { kind: 'sure', action: meaning.action, ...(meaning.target === undefined ? {} : { target: meaning.target }) }
 }
 
 export function navigator(model: NavigatorModel): Agent {
   return async heard => {
     const { question, meanings } = questionFor(heard)
-    const choice = await model.choose(question)
-    const chosen = ('sure' in choice ? [choice.sure] : choice.unsure).map(id => meanings.get(id))
-    if ('sure' in choice) {
-      const [meaning] = chosen
-      if (meaning === PASS) return { kind: 'notMine' }
-      if (!meaning || meaning === NONE) return { kind: 'none' }
-      return { kind: 'sure', action: meaning.action, ...(meaning.target === undefined ? {} : { target: meaning.target }) }
-    }
-    const candidates = chosen.filter(meaning => meaning !== undefined && meaning !== PASS && meaning !== NONE)
-    if (candidates.length === 0) return { kind: 'none' }
-    if (candidates.length === 1)
-      return { kind: 'sure', action: candidates[0].action, ...(candidates[0].target === undefined ? {} : { target: candidates[0].target }) }
-    return { kind: 'unsure', candidates }
+    const ranked = Object.entries(await model.choose(question))
+      .flatMap(([id, chance]) => {
+        const meaning = meanings.get(id)
+        return meaning === undefined ? [] : [{ meaning, chance }]
+      })
+      .sort((a, b) => b.chance - a.chance)
+    if (ranked.length === 0) return { kind: 'none' }
+    if (ranked[0].chance >= SURE_AT) return verdictOf(ranked[0].meaning)
+    const candidates = ranked
+      .filter(({ chance }) => chance >= UNSURE_FROM)
+      .flatMap(({ meaning }) => (meaning === PASS || meaning === NONE ? [] : [meaning]))
+      .slice(0, UNSURE_AT_MOST)
+    if (candidates.length) return { kind: 'unsure', candidates }
+    return ranked[0].meaning === PASS ? { kind: 'notMine' } : { kind: 'none' }
   }
 }
 
@@ -88,10 +114,8 @@ const tokens = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? 
 export const matchWords: NavigatorModel = {
   async choose({ words, options }) {
     const said = new Set(tokens(words))
-    const fallback =
-      options.find(option => option.say === 'Not a navigation command') ?? options.find(option => option.say === 'None of these')
     const scored = options
-      .filter(option => option.say !== 'Not a navigation command' && option.say !== 'None of these')
+      .filter(option => option.role === undefined)
       .map(option => {
         const wanted = tokens(option.say)
         const matched = wanted.filter(token => said.has(token)).length
@@ -99,9 +123,9 @@ export const matchWords: NavigatorModel = {
       })
       .filter(score => score.matched > 0)
       .sort((a, b) => b.share - a.share || b.matched - a.matched)
-    const best = scored.filter(score => score.share === scored[0].share && score.matched === scored[0].matched)
-    if (best.length === 0) return { sure: fallback?.id ?? '' }
-    if (best.length === 1) return { sure: best[0].id }
-    return { unsure: best.slice(0, UNSURE_AT_MOST).map(score => score.id) }
+    const best = scored.filter(score => score.share === scored[0].share && score.matched === scored[0].matched).slice(0, UNSURE_AT_MOST)
+    if (best.length) return Object.fromEntries(best.map(score => [score.id, 1 / best.length]))
+    const fallback = options.find(option => option.role === 'pass') ?? options.find(option => option.role === 'none')
+    return fallback ? { [fallback.id]: 1 } : {}
   },
 }

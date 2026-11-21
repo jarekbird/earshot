@@ -1,5 +1,18 @@
 import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
-import { action, boxes, Glasses, Lifetime, LINE_HEIGHT, list, Router, SCREEN_WIDTH, Shell, text, type Agent } from '../src/index.js'
+import {
+  action,
+  boxes,
+  Glasses,
+  Lifetime,
+  LINE_HEIGHT,
+  list,
+  Rolling,
+  Router,
+  SCREEN_WIDTH,
+  Shell,
+  text,
+  type Agent,
+} from '../src/index.js'
 
 interface Note {
   id: string
@@ -28,6 +41,7 @@ const glasses = new Glasses(life, await waitForEvenAppBridge(), { trace: flags.h
 const open = action({
   id: 'open',
   say: 'Open note',
+  hint: 'Shows one note to read',
   targets,
   run: note => router.open({ id: 'note', view: () => text({ title: note.title, body: note.body }) }),
 })
@@ -67,16 +81,27 @@ const router: Router = new Router({
   home: {
     id: 'notes',
     actions: () => [open, remove, counter, send],
+    context: () => `A list of ${notes.length} notes`,
     view: () => list({ title: 'Earshot example', action: open, empty: 'No notes' }),
   },
 })
+
+const rolling = new Rolling(life)
+for (const note of notes) rolling.add(open, note.id, note.body)
 const takeNote: Agent = heard => {
   const [, body] = /^remember (.+)/i.exec(heard.words) ?? []
   if (!body) return { kind: 'notMine' }
-  notes.push({ id: `said${notes.length}`, title: body, body })
+  const note = { id: `said${notes.length}`, title: body, body }
+  notes.push(note)
+  rolling.add(open, note.id, note.body)
   return { kind: 'handled', say: 'Saved' }
 }
 
 const shell: Shell = new Shell(life, glasses, router, {
-  voice: scripted && { transcribe: async () => scripted.shift() ?? '', agents: [takeNote] },
+  voice: scripted && {
+    transcribe: async () => scripted.shift() ?? '',
+    agents: [takeNote],
+    otherwise: 'Something to remember as a new note',
+    rolling,
+  },
 })

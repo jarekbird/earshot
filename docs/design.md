@@ -159,7 +159,17 @@ message. A stronger agent gets three tools: read the screen's text, list the act
 An offline navigator that matches words stands in for the model in tests and demos only (E4). In an app nothing
 matches words in front of the model.
 
-## Jev navigator (slice 4)
+## Jev navigator (slice 4, first half built)
+
+Built, with no network in it: the one question with its system set and rolling set, going back and going home as
+actions of the router, context with its two limits and its compaction, and the thresholds that turn the model's
+chances into a verdict. The numbers are first guesses: sure from 0.7, a candidate from 0.15, at most three candidates,
+1,200 characters an item, 240,000 a question, five seconds of stillness. The model is still the offline stand-in.
+
+Not built: Jev as the model, and the default transports with the user's own key. Both open connections, so they wait
+for rule E2 to be reworded and for a go on paid calls.
+
+The design it follows:
 
 Jev answers typed questions with a typed answer and a probability, in well under a second. Jev decides every hold, in one
 question that offers everything the user could mean: a system set and a rolling set. Navigation needs no generated

@@ -1,7 +1,9 @@
 import { action, type Action, type TargetInfo } from '../action.js'
 import { joinPcm, problemWith, secondsOf, type Audio } from '../audio.js'
 import { LifetimeEnded, type Lifetime, type Timer } from '../lifetime.js'
-import { BACK, HOME, matchWords, navigator, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
+import { ITEM_LIMIT } from '../context.js'
+import { matchWords, navigator, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
+import type { Rolling } from '../rolling.js'
 import type { Router, Screen } from '../router.js'
 import { list, type View } from '../view.js'
 import type { Box } from './frame.js'
@@ -38,6 +40,8 @@ export interface VoiceOptions {
   transcribe: (audio: Audio) => Promise<string>
   model?: NavigatorModel
   agents?: Agent[]
+  otherwise?: string
+  rolling?: Rolling
   timeoutMs?: number
 }
 
@@ -297,11 +301,14 @@ export class Shell {
   async #ask(voice: VoiceOptions, words: string): Promise<Verdict> {
     const agents = [navigator(voice.model ?? matchWords), ...(voice.agents ?? [])]
     for (const [index, agent] of agents.entries()) {
+      const screen = this.#router.current.context?.().slice(-ITEM_LIMIT)
       const verdict = await agent({
         words,
         actions: this.#router.actions(),
-        canGoBack: this.#router.depth > 1,
+        rolling: voice.rolling?.items() ?? [],
         hasNext: index < agents.length - 1,
+        ...(voice.otherwise === undefined ? {} : { otherwise: voice.otherwise }),
+        ...(screen ? { screen } : {}),
       })
       if (verdict.kind !== 'notMine') return verdict
     }
@@ -326,9 +333,8 @@ export class Shell {
   }
 
   #do(id: string, targetId?: string): void {
-    if (id === BACK) return void this.#router.back()
-    if (id === HOME) return this.#router.goHome()
-    const found = this.#router.actions().find(a => a.id === id)
+    const rolled = this.#voice?.rolling?.items().find(item => item.action.id === id && item.target === targetId)?.action
+    const found = this.#router.actions().find(a => a.id === id) ?? rolled
     if (!found) return this.notice(this.#words.unavailable)
     void this.#start(found, targetId)
   }

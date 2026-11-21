@@ -152,15 +152,34 @@ describe('the actions possible now', () => {
   it("are the current screen's, then the app's", () => {
     const router = new Router({ home: screen('list'), actions: app })
     router.open(screen('thread', { actions: () => [action({ id: 'stop', say: 'Stop', run: () => {} })] }))
-    expect(router.actions().map(a => a.id)).toEqual(['stop', 'pages', 'refresh'])
+    expect(router.actions().map(a => a.id)).toEqual(['stop', 'pages', 'refresh', 'back', 'home'])
     router.back()
-    expect(router.actions().map(a => a.id)).toEqual(['pages', 'refresh'])
+    expect(router.actions().map(a => a.id)).toEqual(['pages', 'refresh', 'back', 'home'])
   })
 
   it("let a screen's action replace the app's action of the same id", () => {
     const router = new Router({ home: screen('list'), actions: app })
     router.open(screen('usage', { actions: () => [action({ id: 'refresh', say: 'Refresh usage', run: () => {} })] }))
-    expect(router.actions().map(a => a.say)).toEqual(['Refresh usage', 'Pages'])
+    expect(router.actions().map(a => a.say)).toEqual(['Refresh usage', 'Pages', 'Go back', 'Go home'])
+  })
+
+  it('include going back and going home, which say why not at the home screen', async () => {
+    const router = new Router({ home: screen('list') })
+    expect(await router.run('back')).toEqual({ done: false, why: 'blocked', say: 'Nothing to go back to' })
+    expect(await router.run('home')).toEqual({ done: false, why: 'blocked', say: 'Already at the start' })
+    router.open(screen('a'))
+    router.open(screen('b'))
+    expect(await router.run('back')).toEqual({ done: true })
+    expect(router.current.id).toBe('a')
+    router.open(screen('b'))
+    expect(await router.run('home')).toEqual({ done: true })
+    expect(router.current.id).toBe('list')
+  })
+
+  it('let an app replace going back or home with an action of the same id', async () => {
+    const mine = action({ id: 'back', say: 'Close', run: () => {} })
+    const router = new Router({ home: screen('list'), actions: () => [mine] })
+    expect(router.actions().map(a => a.say)).toEqual(['Close', 'Go home'])
   })
 
   it('refuse two actions of one id on a screen', () => {

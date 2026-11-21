@@ -6,12 +6,12 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 
 **Status: early.** Only the first slice exists. The API will change until two apps run on it.
 
-| Slice | What                                                                                                       | State   |
-| ----- | ---------------------------------------------------------------------------------------------------------- | ------- |
-| 1     | Actions, the router, lifetimes, text, storage, the store check and the simulator driver                    | here    |
-| 2     | Glasses renderer and touch input; the brightness of the voice overlay is still to be tried on real glasses | here    |
-| 3     | Hold to talk, and the agent stack with an offline navigator                                                | here    |
-| 4     | Navigation by [Jev](https://typesafe.ai), TypeSafe AI's decision model                                     | planned |
+| Slice | What                                                                                                                                         | State  |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 1     | Actions, the router, lifetimes, text, storage, the store check and the simulator driver                                                      | here   |
+| 2     | Glasses renderer and touch input; the brightness of the voice overlay is still to be tried on real glasses                                   | here   |
+| 3     | Hold to talk, and the agent stack with an offline navigator                                                                                  | here   |
+| 4     | Navigation by [Jev](https://typesafe.ai): the question, the rolling set and context are here; Jev itself and the default transports are next | partly |
 
 The design is in [`docs/design.md`](docs/design.md).
 
@@ -20,7 +20,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.10
+npm install github:jarekbird/earshot#v0.0.11
 ```
 
 ## Actions
@@ -149,12 +149,34 @@ new Shell(life, glasses, router, {
 
 - A hold opens the glasses' microphone and shows "Listening". The release closes it. A recording under half a second, or a silent one, is not sent anywhere.
 - `transcribe` gets the sound as 16 kHz, 16-bit, one-channel PCM, and gives back the words. Earshot opens no connection itself; where the sound goes is yours to decide.
-- The words show over the page, and the navigator picks from what the app can do now: go back, go home, each action, and each action on each of its targets. A target marked `private` is never offered.
+- The words show over the page, and the navigator picks from what the app can do now: go back, go home, each action, and the items of the rolling set.
 - When it is sure, the action runs, and one marked `confirm` still asks first. When it is unsure, the few candidates are listed to tap. When nothing fits, it says "No match".
 - `agents` get the words the navigator passes on, in order. An agent answers `{ kind: 'handled', say }`, `{ kind: 'notMine' }`, or with an action to run.
-- `model` is what the navigator asks. The default matches the words against the labels and calls no service. Jev comes in the next slice.
+- `model` is what the navigator asks. It gets the question and gives each option a chance. Over 0.7 the navigator is sure; under that it lists the options over 0.15. The default matches the words against the labels and calls no service.
 - A double tap calls a command off. A hold with no release ends after a minute. No answer in fifteen seconds is given up on.
 - Throw `SayError` from a transcriber to say what went wrong in your own words.
+
+### What the navigator is offered
+
+One question, with everything the user could mean:
+
+```ts
+import { action, Rolling } from 'earshot'
+
+const open = action({ id: 'open', say: 'Open thread', hint: 'Shows one conversation', targets, run })
+
+const rolling = new Rolling(life, { compact })
+rolling.add(open, thread.id, thread.latestText)
+
+new Shell(life, glasses, router, { voice: { transcribe, rolling, agents: [send], otherwise: 'A message to send' } })
+```
+
+- **Always:** going back, going home, "none of these", and every action of the screen and the app. Going back and going home are actions of the router, with the ids `back` and `home`. They are in Even's menu too, and an app replaces one by declaring an action with its id.
+- **The rolling set:** items the app adds, each an action on one of its targets, newest first. Adding one again makes it the newest. It holds 255 less the options above, and the oldest leaves. It belongs to the app, so an item can be picked from any screen. A `private` target never enters it.
+- **`otherwise`** names what your other agents take. The navigator offers it only when there is another agent, and picking it passes the words on.
+- **Context,** all optional: a `hint` on an action, `context()` on a screen for what is on it now, and text with a rolling item that tells it from the others.
+- Context can be any length. Over 1,200 characters an item, Earshot asks `compact(text, limit)` for a shorter one in the background and uses the last characters until it is back, or if it fails. Text that is still changing is compacted once it has been still for five seconds. Without `compact`, the last characters are used.
+- A whole question carries at most 240,000 characters. Past that, the oldest rolling items send their name only.
 
 ### Draw it yourself
 

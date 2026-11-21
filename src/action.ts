@@ -23,6 +23,7 @@ export type Outcome =
 export interface Action {
   readonly id: string
   readonly say: string
+  readonly hint?: string
   readonly risk: Risk
   blocked(): string | null
   targets(): readonly TargetInfo[] | null
@@ -32,6 +33,7 @@ export interface Action {
 interface Common {
   id: string
   say: string
+  hint?: string
   risk?: Risk
   blocked?: () => string | null
 }
@@ -51,6 +53,7 @@ export function action<T = never>(spec: PlainSpec | TargetSpec<T>): Action {
   return {
     id: spec.id,
     say: spec.say,
+    ...(spec.hint === undefined ? {} : { hint: spec.hint }),
     risk: spec.risk ?? 'safe',
     blocked,
     targets: () => (spec.targets ? spec.targets().map(t => ({ id: t.id, say: t.say, private: t.private ?? false })) : null),
