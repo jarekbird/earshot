@@ -1,5 +1,7 @@
 import { action, type Action, type TargetInfo } from '../action.js'
+import { joinPcm, problemWith, secondsOf, type Audio } from '../audio.js'
 import { LifetimeEnded, type Lifetime, type Timer } from '../lifetime.js'
+import { BACK, HOME, matchWords, navigator, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
 import type { Router, Screen } from '../router.js'
 import { list, type View } from '../view.js'
 import type { Box } from './frame.js'
@@ -14,12 +16,35 @@ export interface ShellWords {
   confirm: string
   unavailable: string
   more: string
+  listening: string
+  thinking: string
+  noVoice: string
+  noMic: string
+  missed: string
+  noMatch: string
+  slow: string
+  voiceFailed: string
+  which: string
+}
+
+export class SayError extends Error {
+  constructor(readonly say: string) {
+    super(say)
+    this.name = 'SayError'
+  }
+}
+
+export interface VoiceOptions {
+  transcribe: (audio: Audio) => Promise<string>
+  model?: NavigatorModel
+  agents?: Agent[]
+  timeoutMs?: number
 }
 
 export interface ShellOptions {
   noticeMs?: number
   words?: Partial<ShellWords>
-  onHold?: (input: Input) => void
+  voice?: VoiceOptions
 }
 
 const WORDS: ShellWords = {
@@ -28,8 +53,20 @@ const WORDS: ShellWords = {
   confirm: 'Tap to confirm',
   unavailable: 'Not available here',
   more: 'More…',
+  listening: 'Listening',
+  thinking: '…',
+  noVoice: 'Voice is not set up',
+  noMic: 'The microphone did not open',
+  missed: "Didn't catch that",
+  noMatch: 'No match',
+  slow: 'No answer in time',
+  voiceFailed: 'Voice did not work',
+  which: 'Which one?',
 }
 const NOTICE_MS = 3_000
+const HEARD_MS = 1_500
+const VOICE_TIMEOUT_MS = 15_000
+const MAX_HOLD_MS = 60_000
 const SCROLL_LINES = 2
 const MORE = 'earshot.more'
 
@@ -51,13 +88,17 @@ export class Shell {
   readonly #router: Router
   readonly #words: ShellWords
   readonly #noticeMs: number
-  readonly #onHold: (input: Input) => void
+  readonly #voice: VoiceOptions | undefined
   readonly #places = new WeakMap<Screen, Place>()
   readonly #own = new WeakSet<Screen>()
   readonly #items = new Map<string, number>()
   #drawn: Drawn | null = null
   #asking: (() => void) | null = null
-  #notice: Timer | undefined
+  #overlaid = false
+  #fading: Timer | undefined
+  #recording: { chunks: Uint8Array[]; end: () => void } | null = null
+  #turn = 0
+  #deciding = false
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -65,7 +106,7 @@ export class Shell {
     this.#router = router
     this.#words = { ...WORDS, ...options.words }
     this.#noticeMs = options.noticeMs ?? NOTICE_MS
-    this.#onHold = options.onHold ?? (() => {})
+    this.#voice = options.voice
     this.#life.own(glasses.onInput(input => this.#input(input)))
     this.#life.own(router.onChange(() => this.redraw()))
     this.redraw()
@@ -100,15 +141,22 @@ export class Shell {
   }
 
   notice(text: string): void {
-    this.#notice?.cancel()
+    this.#show(text, this.#noticeMs)
+  }
+
+  #show(text: string, ms?: number): void {
+    this.#fading?.cancel()
+    this.#fading = ms === undefined ? undefined : this.#life.timeout(() => this.#clear(), ms)
+    this.#asking = null
+    this.#overlaid = true
     this.#glasses.overlay(text)
-    this.#notice = this.#life.timeout(() => this.#clear(), this.#noticeMs)
   }
 
   #clear(): void {
-    this.#notice?.cancel()
-    this.#notice = undefined
+    this.#fading?.cancel()
+    this.#fading = undefined
     this.#asking = null
+    this.#overlaid = false
     this.#glasses.overlay(null)
   }
 
@@ -135,10 +183,16 @@ export class Shell {
   }
 
   #input(input: Input): void {
-    if (input.kind === 'hold' || input.kind === 'release') return this.#onHold(input)
     if (input.kind === 'foreground' || input.kind === 'background' || input.kind === 'exit') return
+    if (input.kind === 'hold') return this.#hold()
+    if (input.kind === 'release') return this.#release()
+    if (this.#recording || this.#deciding) {
+      if (this.#recording && input.kind !== 'double') return
+      this.#callOff()
+      if (input.kind === 'double') return
+    }
     const confirmed = this.#asking
-    if (this.#notice || confirmed) this.#clear()
+    if (this.#overlaid) this.#clear()
     if (confirmed) return input.kind === 'tap' ? confirmed() : undefined
     if (input.kind === 'double') {
       if (!this.#router.back()) void this.#glasses.leave()
@@ -164,6 +218,121 @@ export class Shell {
     this.redraw()
   }
 
+  #callOff(): void {
+    this.#turn++
+    this.#deciding = false
+    this.#recording?.end()
+    this.#clear()
+  }
+
+  #hold(): void {
+    if (this.#recording) return
+    this.#callOff()
+    if (!this.#voice) return this.notice(this.#words.noVoice)
+    const chunks: Uint8Array[] = []
+    const deaf = this.#glasses.onAudio(pcm => chunks.push(pcm))
+    const limit = this.#life.timeout(() => this.#release(), MAX_HOLD_MS)
+    const recording = {
+      chunks,
+      end: () => {
+        deaf()
+        limit.cancel()
+        this.#recording = null
+        void this.#glasses.closeMic()
+      },
+    }
+    this.#recording = recording
+    this.#show(this.#words.listening)
+    void this.#glasses.openMic().then(open => {
+      if (open || this.#recording !== recording) return
+      recording.end()
+      this.notice(this.#words.noMic)
+    })
+  }
+
+  #release(): void {
+    const recording = this.#recording
+    const voice = this.#voice
+    if (!recording || !voice) return
+    recording.end()
+    const pcm = joinPcm(recording.chunks)
+    if (problemWith(pcm)) return this.notice(this.#words.missed)
+    void this.#decide(voice, { pcm, seconds: secondsOf(pcm) })
+  }
+
+  async #decide(voice: VoiceOptions, audio: Audio): Promise<void> {
+    const turn = ++this.#turn
+    const screen = this.#router.current
+    const mine = () => turn === this.#turn && !this.#life.ended
+    const moved = () => this.#router.current !== screen
+    const finish = (then: () => void) => {
+      if (!mine()) return
+      this.#deciding = false
+      slow.cancel()
+      if (moved()) this.#clear()
+      else then()
+    }
+    const slow = this.#life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), voice.timeoutMs ?? VOICE_TIMEOUT_MS)
+    this.#deciding = true
+    this.#show(this.#words.thinking)
+    try {
+      const words = (await voice.transcribe(audio)).trim()
+      if (!mine() || moved()) return finish(() => {})
+      if (!words) return finish(() => this.notice(this.#words.missed))
+      const heard = `"${words}"`
+      this.#show(heard)
+      const verdict = await this.#ask(voice, words)
+      finish(() => {
+        this.#show(heard, HEARD_MS)
+        this.#act(verdict)
+      })
+    } catch (error) {
+      finish(() => {
+        if (!(error instanceof SayError)) console.error(error)
+        this.notice(error instanceof SayError ? error.say : this.#words.voiceFailed)
+      })
+    }
+  }
+
+  async #ask(voice: VoiceOptions, words: string): Promise<Verdict> {
+    const agents = [navigator(voice.model ?? matchWords), ...(voice.agents ?? [])]
+    for (const [index, agent] of agents.entries()) {
+      const verdict = await agent({
+        words,
+        actions: this.#router.actions(),
+        canGoBack: this.#router.depth > 1,
+        hasNext: index < agents.length - 1,
+      })
+      if (verdict.kind !== 'notMine') return verdict
+    }
+    return { kind: 'none' }
+  }
+
+  #act(verdict: Verdict): void {
+    if (verdict.kind === 'none' || verdict.kind === 'notMine') return this.notice(this.#words.noMatch)
+    if (verdict.kind === 'handled') {
+      if (verdict.say !== undefined) this.notice(verdict.say)
+      return this.redraw()
+    }
+    if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target)
+    const which = action<Pick>({
+      id: 'earshot.which',
+      say: this.#words.which,
+      targets: () => verdict.candidates.map((candidate, index) => ({ id: String(index), say: candidate.say, value: candidate })),
+      run: candidate => this.#do(candidate.action, candidate.target),
+    })
+    this.#clear()
+    this.#openOwn({ id: 'earshot.which', view: () => list({ title: this.#words.which, action: which }) })
+  }
+
+  #do(id: string, targetId?: string): void {
+    if (id === BACK) return void this.#router.back()
+    if (id === HOME) return this.#router.goHome()
+    const found = this.#router.actions().find(a => a.id === id)
+    if (!found) return this.notice(this.#words.unavailable)
+    void this.#start(found, targetId)
+  }
+
   #picked(item: number): void {
     const id = [...this.#items].find(([, number]) => number === item)?.[0]
     const folded = this.#drawn?.folded ?? []
@@ -184,9 +353,8 @@ export class Shell {
     }
     if (chosen.risk !== 'confirm') return this.#run(chosen, targetId)
     const target = targets?.find(candidate => candidate.id === targetId)
-    this.#clear()
+    this.#show(`${chosen.say}${target ? `: ${target.say}` : ''}?\n${this.#words.confirm}`)
     this.#asking = () => void this.#run(chosen, targetId)
-    this.#glasses.overlay(`${chosen.say}${target ? `: ${target.say}` : ''}?\n${this.#words.confirm}`)
   }
 
   async #run(chosen: Action, targetId?: string): Promise<void> {

@@ -5,8 +5,7 @@ import { Router, type Screen } from '../router.js'
 import { boxes, list, text } from '../view.js'
 import { fakeBridge } from './fake.js'
 import { Glasses, OVERLAY_DIM } from './glasses.js'
-import type { Input } from './input.js'
-import { Shell } from './shell.js'
+import { SayError, Shell, type VoiceOptions } from './shell.js'
 
 beforeEach(() => void vi.useFakeTimers())
 afterEach(() => {
@@ -17,7 +16,7 @@ afterEach(() => {
 const settle = async (ms = 400) => void (await vi.advanceTimersByTimeAsync(ms))
 const names = ['Ana', 'Ben', 'Cy']
 
-function world(more: { home?: (parts: Parts) => Screen; appActions?: () => Action[]; onHold?: (input: Input) => void } = {}) {
+function world(more: { home?: (parts: Parts) => Screen; appActions?: () => Action[]; voice?: VoiceOptions } = {}) {
   const ran: string[] = []
   const life = new Lifetime()
   const fake = fakeBridge()
@@ -36,7 +35,7 @@ function world(more: { home?: (parts: Parts) => Screen; appActions?: () => Actio
   const parts: Parts = { open, refresh, ran, people }
   const home = more.home?.(parts) ?? { id: 'people', actions: () => [open, refresh], view: () => list({ title: 'People', action: open }) }
   const router: Router = new Router({ home, actions: more.appActions })
-  const shell = new Shell(life, glasses, router, { onHold: more.onHold })
+  const shell = new Shell(life, glasses, router, { voice: more.voice })
   const menu = () => fake.menuItems().map(item => item.name)
   const front = () => fake.boxes().at(-1)!.text.trim()
   const cursor = () =>
@@ -396,29 +395,279 @@ describe('an action that asks first', () => {
     }
   })
 
-  it('keeps asking through a hold and through what Even reports around its menu', async () => {
+  it('keeps asking through what Even reports around its menu', async () => {
     const { fake, front } = await asked()
-    fake.hold()
-    fake.release()
     fake.foreground()
     fake.background()
     await settle(10_000)
     expect(front()).toBe('Delete: Ben?\nTap to confirm')
   })
+
+  it('is called off by a hold, which starts a voice command', async () => {
+    const { fake, front, ran } = await asked()
+    fake.hold()
+    await settle(50)
+    expect(front()).toBe('Voice is not set up')
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([])
+  })
 })
 
 describe('a hold', () => {
-  it('goes to the one who asked for holds, and moves nothing', async () => {
-    const held: Input[] = []
-    const { fake, cursor } = world({ onHold: input => held.push(input) })
+  const tone = (ms: number, loudness = 8_000) => {
+    const samples = new Int16Array((16_000 * ms) / 1000)
+    for (let at = 0; at < samples.length; at++) samples[at] = Math.round(loudness * Math.sin(at / 5))
+    return new Uint8Array(samples.buffer)
+  }
+  const hearing = (...lines: string[]) => {
+    const asked: number[] = []
+    const voice: VoiceOptions = {
+      transcribe: async audio => {
+        asked.push(audio.seconds)
+        return lines.shift() ?? ''
+      },
+    }
+    return { voice, asked }
+  }
+  const say = async (fake: ReturnType<typeof fakeBridge>, ms = 800, loudness = 8_000) => {
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(ms / 2, loudness))
+    fake.sound(tone(ms / 2, loudness))
+    fake.release()
+    await settle(50)
+  }
+
+  it('says voice is not set up when the app gave no transcriber', async () => {
+    const { fake, front } = world()
     await settle()
-    fake.hold('ring')
-    fake.release('ring')
+    fake.hold()
+    await settle(50)
+    expect(front()).toBe('Voice is not set up')
+    expect(fake.mic).toBeNull()
+  })
+
+  it('opens the microphone and says it is listening, then closes it at the release', async () => {
+    const { fake, front } = world({ voice: hearing('refresh').voice })
     await settle()
-    expect(held).toEqual([
-      { kind: 'hold', source: 'ring' },
-      { kind: 'release', source: 'ring' },
-    ])
-    expect(cursor()).toBe('Ana')
+    fake.hold()
+    await settle(50)
+    expect(fake.mic).toBe('glasses')
+    expect(front()).toBe('Listening')
+    fake.sound(tone(800))
+    fake.release()
+    await settle(50)
+    expect(fake.mic).toBeNull()
+  })
+
+  it('sends what was recorded to the transcriber, shows the words, and runs what they ask for', async () => {
+    const { voice, asked } = hearing('open ben')
+    const { fake, front, ran, router } = world({ voice })
+    await settle()
+    await say(fake)
+    expect(asked).toEqual([0.8])
+    expect(ran).toEqual(['open Ben'])
+    expect(router.current.id).toBe('person')
+    expect(front()).toBe('"open ben"')
+    await settle(2_000)
+    expect(front()).toBe('')
+  })
+
+  it('goes back when asked to', async () => {
+    const { fake, router } = world({ voice: hearing('open cy', 'go back').voice })
+    await settle()
+    await say(fake)
+    expect(router.depth).toBe(2)
+    await say(fake)
+    expect(router.depth).toBe(1)
+  })
+
+  it("didn't catch a recording that is too short, silent or without words, and asks nobody about the first two", async () => {
+    const { voice, asked } = hearing('')
+    const { fake, front } = world({ voice })
+    await settle()
+    await say(fake, 300)
+    expect(front()).toBe("Didn't catch that")
+    await say(fake, 800, 50)
+    expect(front()).toBe("Didn't catch that")
+    expect(asked).toEqual([])
+    await say(fake)
+    expect(front()).toBe("Didn't catch that")
+    expect(asked).toEqual([0.8])
+  })
+
+  it('says so when the microphone does not open', async () => {
+    const { fake, front } = world({ voice: hearing('refresh').voice })
+    await settle()
+    fake.refuse('mic', 1)
+    fake.hold()
+    await settle(50)
+    expect(front()).toBe('The microphone did not open')
+  })
+
+  it('says no match when the words fit nothing and no other agent takes them', async () => {
+    const { fake, front, ran } = world({ voice: hearing('what is the weather').voice })
+    await settle()
+    await say(fake)
+    expect(front()).toBe('No match')
+    expect(ran).toEqual([])
+  })
+
+  it('lists the few candidates to tap when the navigator is unsure', async () => {
+    const { voice } = hearing('ben')
+    const { fake, ran } = world({
+      voice,
+      home: ({ open, people }) => ({
+        id: 'home',
+        actions: () => [
+          open,
+          action({
+            id: 'call',
+            say: 'Call',
+            targets: () => people.map(name => ({ id: name.toLowerCase(), say: name, value: name })),
+            run: () => {},
+          }),
+        ],
+        view: () => text({ title: 'Home', body: 'Hello' }),
+      }),
+    })
+    await settle()
+    await say(fake)
+    expect(fake.lines().slice(0, 3)).toEqual(['Which one?', '> Open: Ben', 'Call: Ben'])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['open Ben'])
+  })
+
+  it('still asks before an action that needs it', async () => {
+    const { voice } = hearing('delete ben')
+    const { fake, front, ran } = world({
+      voice,
+      home: ({ people, ran }) => ({
+        id: 'home',
+        actions: () => [
+          action({
+            id: 'delete',
+            say: 'Delete',
+            risk: 'confirm',
+            targets: () => people.map(name => ({ id: name.toLowerCase(), say: name, value: name })),
+            run: name => void ran.push(`delete ${name}`),
+          }),
+        ],
+        view: () => text({ title: 'Home', body: 'Hello' }),
+      }),
+    })
+    await settle()
+    await say(fake)
+    expect(front()).toBe('Delete: Ben?\nTap to confirm')
+    expect(ran).toEqual([])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['delete Ben'])
+  })
+
+  it("hands words the navigator passes on to the app's agents, in order", async () => {
+    const got: string[] = []
+    const { voice } = hearing('remember the milk')
+    voice.agents = [
+      heard => {
+        got.push(`first ${heard.words} ${heard.hasNext}`)
+        return { kind: 'notMine' }
+      },
+      heard => {
+        got.push(`second ${heard.words} ${heard.hasNext}`)
+        return { kind: 'handled', say: 'Saved' }
+      },
+    ]
+    const { fake, front } = world({ voice })
+    await settle()
+    await say(fake)
+    expect(got).toEqual(['first remember the milk true', 'second remember the milk false'])
+    expect(front()).toBe('Saved')
+  })
+
+  it('shows what a transcriber says went wrong, or that voice did not work', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failures: unknown[] = [new SayError('Set up voice on your phone'), new Error('boom')]
+    const { fake, front } = world({
+      voice: {
+        transcribe: async () => {
+          throw failures.shift()
+        },
+      },
+    })
+    await settle()
+    await say(fake)
+    expect(front()).toBe('Set up voice on your phone')
+    expect(error).not.toHaveBeenCalled()
+    await say(fake)
+    expect(front()).toBe('Voice did not work')
+    expect(error).toHaveBeenCalledOnce()
+  })
+
+  it('gives up on an answer that takes too long, and ignores it when it comes', async () => {
+    let answer = (_: string) => {}
+    const { fake, front, ran } = world({ voice: { transcribe: () => new Promise<string>(done => (answer = done)), timeoutMs: 5_000 } })
+    await settle()
+    await say(fake)
+    expect(front()).toBe('…')
+    await settle(5_000)
+    expect(front()).toBe('No answer in time')
+    answer('refresh')
+    await settle()
+    expect(ran).toEqual([])
+  })
+
+  it('drops the answer when the screen changed while it was deciding', async () => {
+    let answer = (_: string) => {}
+    const { fake, front, ran, router } = world({ voice: { transcribe: () => new Promise<string>(done => (answer = done)) } })
+    await settle()
+    await say(fake)
+    router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })
+    answer('refresh')
+    await settle()
+    expect(ran).toEqual([])
+    expect(front()).toBe('')
+  })
+
+  it('is called off by a double tap, while listening or while deciding', async () => {
+    const { voice, asked } = hearing('refresh', 'refresh')
+    const { fake, front, ran, router } = world({ voice })
+    await settle()
+    router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(800))
+    fake.double()
+    await settle(50)
+    expect(fake.mic).toBeNull()
+    expect(front()).toBe('')
+    fake.release()
+    await settle(50)
+    expect(asked).toEqual([])
+    expect(router.depth).toBe(2)
+
+    let answer = (_: string) => {}
+    voice.transcribe = () => new Promise<string>(done => (answer = done))
+    await say(fake)
+    fake.double()
+    answer('refresh')
+    await settle()
+    expect(ran).toEqual([])
+    expect(router.depth).toBe(2)
+  })
+
+  it('ends by itself after a minute without a release', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, ran } = world({ voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(800))
+    await settle(60_000)
+    expect(fake.mic).toBeNull()
+    expect(asked).toEqual([0.8])
+    expect(ran).toEqual(['refresh'])
   })
 })

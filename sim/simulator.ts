@@ -1,5 +1,5 @@
-import { spawn, type ChildProcess } from 'node:child_process'
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { closeSync, constants, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -34,6 +34,7 @@ export interface SimulatorOptions {
   url: string
   binary?: string
   headless?: boolean
+  mic?: boolean
   env?: Record<string, string>
   limitSeconds?: number
   startMs?: number
@@ -61,6 +62,43 @@ const freePort = () =>
       server.close(() => done(typeof address === 'object' && address ? address.port : 0))
     })
   })
+
+const MIC_RATE = 16_000
+const MIC_CHUNK_MS = 100
+
+// ALSA's default device becomes a file that is read from a pipe, which the driver fills with a tone.
+function standInMic(home: string): () => void {
+  if (process.platform !== 'linux') throw new Error('A stand-in microphone needs Linux.')
+  const pipe = join(home, 'mic.pipe')
+  execFileSync('mkfifo', [pipe])
+  writeFileSync(
+    join(home, '.asoundrc'),
+    `pcm.!default {\n  type plug\n  slave { pcm "standin" format S16_LE rate ${MIC_RATE} channels 1 }\n}\npcm.standin {\n  type file\n  slave.pcm "null"\n  file "/dev/null"\n  infile "${pipe}"\n  format "raw"\n}\n`,
+  )
+  const samples = (MIC_RATE * MIC_CHUNK_MS) / 1000
+  let pipeEnd: number | undefined
+  let sent = 0
+  const feeding = setInterval(() => {
+    const chunk = new Int16Array(samples)
+    for (let at = 0; at < samples; at++) chunk[at] = Math.round(8_000 * Math.sin((sent + at) / 5))
+    sent += samples
+    try {
+      pipeEnd ??= openSync(pipe, constants.O_WRONLY | constants.O_NONBLOCK)
+      writeSync(pipeEnd, new Uint8Array(chunk.buffer))
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'EPIPE' && pipeEnd !== undefined) {
+        closeSync(pipeEnd)
+        pipeEnd = undefined
+      } else if (code !== 'ENXIO' && code !== 'EAGAIN') throw error
+    }
+  }, MIC_CHUNK_MS)
+  feeding.unref()
+  return () => {
+    clearInterval(feeding)
+    if (pipeEnd !== undefined) closeSync(pipeEnd)
+  }
+}
 
 const over = (child: ChildProcess) => child.exitCode !== null || child.signalCode !== null
 
@@ -130,6 +168,7 @@ export class Simulator {
     private readonly sim: Started,
     private readonly display: ChildProcess | undefined,
     private readonly home: string,
+    private readonly quiet: () => void,
   ) {}
 
   static async start(options: SimulatorOptions): Promise<Simulator> {
@@ -138,9 +177,11 @@ export class Simulator {
     const seconds = options.limitSeconds ?? 3600
     let display: { child: ChildProcess; name: string } | undefined
     let simulator: Simulator | undefined
+    let quiet = () => {}
     try {
       const binary = options.binary ?? findBinary(process.cwd())
       if (options.headless ?? (process.platform === 'linux' && !process.env.DISPLAY)) display = await startDisplay(home, log, seconds)
+      if (options.mic) quiet = standInMic(home)
       const port = await freePort()
       const env = {
         ...process.env,
@@ -152,7 +193,7 @@ export class Simulator {
         ...options.env,
       }
       const sim = launch(binary, ['--no-aid', '--no-glow', '--automation-port', String(port), options.url], env, home, log, seconds)
-      simulator = new Simulator(`http://${LOOPBACK}:${port}`, sim, display?.child, home)
+      simulator = new Simulator(`http://${LOOPBACK}:${port}`, sim, display?.child, home, quiet)
       const api = simulator.api
       await simulator.#wait(
         'the simulator to answer',
@@ -167,6 +208,7 @@ export class Simulator {
     } catch (error) {
       if (simulator) await simulator.stop()
       else {
+        quiet()
         await end(display?.child)
         rmSync(home, { recursive: true, force: true })
       }
@@ -281,6 +323,12 @@ export class Simulator {
     if (!response.ok) throw new Error(`The simulator refused ${input} (${response.status}).`)
   }
 
+  async hold(ms = 1_000): Promise<void> {
+    await this.input('press')
+    await pause(ms)
+    await this.input('release')
+  }
+
   async screenshot(of: 'glasses' | 'phone'): Promise<Uint8Array> {
     const response = await fetch(`${this.api}/api/screenshot/${of === 'phone' ? 'webview' : 'glasses'}`)
     if (!response.ok) throw new Error(`The simulator gave no picture of the ${of} (${response.status}).`)
@@ -289,6 +337,7 @@ export class Simulator {
 
   stop(): Promise<void> {
     this.#stopping ??= (async () => {
+      this.quiet()
       await end(this.sim.child)
       await end(this.display)
       rmSync(this.home, { recursive: true, force: true })

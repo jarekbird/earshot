@@ -369,6 +369,49 @@ describe('input', () => {
   })
 })
 
+describe('the microphone', () => {
+  it('opens on the glasses, hands on the sound, and closes', async () => {
+    const { fake, glasses } = setup()
+    const heard: number[] = []
+    glasses.onAudio(pcm => heard.push(pcm.length))
+    expect(await glasses.openMic()).toBe(true)
+    expect(fake.mic).toBe('glasses')
+    fake.sound(new Uint8Array(320))
+    fake.sound(new Uint8Array(160))
+    await glasses.closeMic()
+    expect(fake.mic).toBeNull()
+    expect(heard).toEqual([320, 160])
+  })
+
+  it('says so when it does not open', async () => {
+    const { fake, glasses } = setup()
+    fake.refuse('mic', 1)
+    expect(await glasses.openMic()).toBe(false)
+    fake.refuse('mic', 1, true)
+    expect(await glasses.openMic()).toBe(false)
+    expect(fake.mic).toBeNull()
+  })
+
+  it('stops handing sound to a listener that left, and sound is not input', () => {
+    const { fake, glasses } = setup()
+    const heard: number[] = []
+    const inputs: Input[] = []
+    glasses.onInput(input => inputs.push(input))
+    glasses.onAudio(pcm => heard.push(pcm.length))()
+    fake.sound(new Uint8Array(320))
+    expect(heard).toEqual([])
+    expect(inputs).toEqual([])
+  })
+
+  it('closes when the lifetime ends with it open', async () => {
+    const { life, fake, glasses } = setup()
+    await glasses.openMic()
+    life.end()
+    await settle()
+    expect(fake.mic).toBeNull()
+  })
+})
+
 describe('the end', () => {
   it('stops drawing and listening when its lifetime ends', async () => {
     const { life, fake, glasses } = setup()

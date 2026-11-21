@@ -1,0 +1,43 @@
+import { describe, expect, it } from 'vitest'
+import { joinPcm, peakOf, problemWith, secondsOf, toWav } from './audio.js'
+
+const tone = (ms: number, loudness: number) => {
+  const samples = new Int16Array((16_000 * ms) / 1000)
+  for (let at = 0; at < samples.length; at++) samples[at] = Math.round(loudness * Math.sin(at / 5))
+  return new Uint8Array(samples.buffer)
+}
+
+describe('a recording', () => {
+  it('is joined from its pieces, in order', () => {
+    expect([...joinPcm([new Uint8Array([1, 2]), new Uint8Array([]), new Uint8Array([3])])]).toEqual([1, 2, 3])
+    expect(joinPcm([]).length).toBe(0)
+  })
+
+  it('knows how long and how loud it is', () => {
+    expect(secondsOf(tone(750, 8_000))).toBe(0.75)
+    expect(peakOf(tone(100, 8_000))).toBeGreaterThan(7_900)
+    expect(peakOf(new Uint8Array([0x00, 0x80]))).toBe(32_768)
+    expect(peakOf(new Uint8Array([0x10, 0x00, 0x7f]))).toBe(16)
+    expect(peakOf(new Uint8Array(0))).toBe(0)
+  })
+
+  it('is too short under half a second, and silent when nothing in it is loud', () => {
+    expect(problemWith(tone(499, 8_000))).toBe('short')
+    expect(problemWith(tone(600, 100))).toBe('silent')
+    expect(problemWith(tone(600, 8_000))).toBeNull()
+    expect(problemWith(new Uint8Array(0))).toBe('short')
+  })
+
+  it('becomes a sound file any transcriber reads: 16 kHz, 16 bits, one channel', () => {
+    const pcm = tone(100, 8_000)
+    const wav = toWav(pcm)
+    const view = new DataView(wav.buffer)
+    const text = (at: number, length: number) => String.fromCharCode(...wav.subarray(at, at + length))
+    expect([text(0, 4), text(8, 8), text(36, 4)]).toEqual(['RIFF', 'WAVEfmt ', 'data'])
+    expect([view.getUint32(4, true), view.getUint32(40, true)]).toEqual([36 + pcm.length, pcm.length])
+    expect([view.getUint16(20, true), view.getUint16(22, true), view.getUint32(24, true), view.getUint16(34, true)]).toEqual([
+      1, 1, 16_000, 16,
+    ])
+    expect([...wav.subarray(44, 54)]).toEqual([...pcm.subarray(0, 10)])
+  })
+})

@@ -10,7 +10,7 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 | ----- | ---------------------------------------------------------------------------------------------------------- | ------- |
 | 1     | Actions, the router, lifetimes, text, storage, the store check and the simulator driver                    | here    |
 | 2     | Glasses renderer and touch input; the brightness of the voice overlay is still to be tried on real glasses | here    |
-| 3     | Hold to talk, and the agent stack with an offline navigator                                                | planned |
+| 3     | Hold to talk, and the agent stack with an offline navigator                                                | here    |
 | 4     | Navigation by [Jev](https://typesafe.ai), TypeSafe AI's decision model                                     | planned |
 
 The design is in [`docs/design.md`](docs/design.md).
@@ -20,7 +20,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.9
+npm install github:jarekbird/earshot#v0.0.10
 ```
 
 ## Actions
@@ -126,7 +126,35 @@ const shell = new Shell(life, glasses, router)
 - Even's menu lists the screen's and the app's other actions. Over ten, the rest go behind "More…". An action with targets asks which one in a list.
 - An action that is blocked says why over the page, which dims for a few seconds. An action with `risk: 'confirm'` asks first, and only a tap confirms.
 - Call `shell.redraw()` when what a screen shows has changed. `shell.notice(text)` says something over the page.
-- `new Shell(life, glasses, router, { onHold, words })` hands you holds and releases, and lets you change Earshot's own few words.
+- `new Shell(life, glasses, router, { words })` lets you change Earshot's own few words.
+
+## Hold to talk
+
+Give the shell a transcriber and a hold on the touchpad becomes a voice command.
+
+```ts
+import { SayError, Shell, toWav } from 'earshot'
+
+new Shell(life, glasses, router, {
+  voice: {
+    transcribe: async audio => {
+      const response = await fetch(myServer, { method: 'POST', body: toWav(audio.pcm) })
+      if (response.status === 401) throw new SayError('Set up voice on your phone')
+      return response.text()
+    },
+    agents: [takeNote],
+  },
+})
+```
+
+- A hold opens the glasses' microphone and shows "Listening". The release closes it. A recording under half a second, or a silent one, is not sent anywhere.
+- `transcribe` gets the sound as 16 kHz, 16-bit, one-channel PCM, and gives back the words. Earshot opens no connection itself; where the sound goes is yours to decide.
+- The words show over the page, and the navigator picks from what the app can do now: go back, go home, each action, and each action on each of its targets. A target marked `private` is never offered.
+- When it is sure, the action runs, and one marked `confirm` still asks first. When it is unsure, the few candidates are listed to tap. When nothing fits, it says "No match".
+- `agents` get the words the navigator passes on, in order. An agent answers `{ kind: 'handled', say }`, `{ kind: 'notMine' }`, or with an action to run.
+- `model` is what the navigator asks. The default matches the words against the labels and calls no service. Jev comes in the next slice.
+- A double tap calls a command off. A hold with no release ends after a minute. No answer in fifteen seconds is given up on.
+- Throw `SayError` from a transcriber to say what went wrong in your own words.
 
 ### Draw it yourself
 
@@ -166,6 +194,7 @@ await vi.advanceTimersByTimeAsync(0)
 expect(fake.lines()).toEqual(['Notes', '> First note', 'Second note'])
 fake.down() // also tap, double, up, hold, release, foreground, background, exit
 fake.pick('Refresh') // an item of Even's menu
+fake.sound(pcm) // what the microphone hears, between a hold and a release
 ```
 
 The stand-in refuses what Even's simulator refuses: a ninth text box, text of 1,000 bytes, a second page. `fake.refuse('rebuild', 2)` makes it refuse on request.
@@ -268,5 +297,6 @@ await sim.stop()
 - Each run has its own home folder, removed by `stop`. Every process it starts has a hard time limit, an hour unless you pass `limitSeconds`.
 - On Linux without a display it starts a hidden one, which needs `Xvfb`. A bare CI machine also needs the simulator's libraries: on Ubuntu, `xvfb libwebkit2gtk-4.1-0 libasound2t64`.
 - Input reaches the app only when its page has a container that captures events.
+- `Simulator.start({ url, mic: true })` gives the simulator a microphone that hears a steady tone, on Linux, and `await sim.hold(1200)` holds the touchpad that long. With a scripted transcriber in your app, that tests a voice command end to end.
 - `new Glasses(life, bridge, { trace: true })` writes what the glasses show to the console. Then `await sim.shows('Threads')` waits for it, `sim.shown()` gives the lines, `sim.menu()` the items of Even's menu, and `await sim.pick('Refresh')` picks one.
 - The simulator is not the glasses: check fonts, scrolling and timing on the device.

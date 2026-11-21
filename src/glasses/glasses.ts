@@ -1,4 +1,5 @@
 import {
+  AudioInputSource,
   CreateStartUpPageContainer,
   MenuContainerProperty,
   MenuItemProperty,
@@ -25,7 +26,12 @@ import { cleanText, fitText, wrapText } from './text.js'
 
 export type GlassesBridge = Pick<
   EvenAppBridge,
-  'createStartUpPageContainer' | 'rebuildPageContainer' | 'textContainerUpgrade' | 'onEvenHubEvent' | 'shutDownPageContainer'
+  | 'createStartUpPageContainer'
+  | 'rebuildPageContainer'
+  | 'textContainerUpgrade'
+  | 'onEvenHubEvent'
+  | 'shutDownPageContainer'
+  | 'audioControl'
 >
 
 export interface GlassesOptions {
@@ -125,6 +131,8 @@ export class Glasses {
   readonly #now: () => number
   readonly #trace: ((line: string) => void) | undefined
   readonly #listeners = new Set<(input: Input) => void>()
+  readonly #ears = new Set<(pcm: Uint8Array) => void>()
+  #micOpen = false
   #frame: Frame = { boxes: [] }
   #overlay: string | null = null
   #wanted: Page | null = null
@@ -143,6 +151,24 @@ export class Glasses {
     this.#now = options.now ?? Date.now
     this.#trace = options.trace === true ? line => console.info(line) : options.trace || undefined
     this.#life.own(bridge.onEvenHubEvent(event => this.#hear(event)))
+    this.#life.own(() => void this.closeMic())
+  }
+
+  async openMic(): Promise<boolean> {
+    if (this.#life.ended) return false
+    this.#micOpen = (await attempt(() => this.#bridge.audioControl(true, AudioInputSource.Glasses))) === true
+    return this.#micOpen
+  }
+
+  async closeMic(): Promise<void> {
+    if (!this.#micOpen) return
+    this.#micOpen = false
+    await attempt(() => this.#bridge.audioControl(false))
+  }
+
+  onAudio(listener: (pcm: Uint8Array) => void): () => void {
+    this.#ears.add(listener)
+    return () => void this.#ears.delete(listener)
   }
 
   draw(frame: Frame): void {
@@ -193,6 +219,8 @@ export class Glasses {
   }
 
   #hear(event: GlassesEvent): void {
+    const sound = event.audioEvent?.audioPcm
+    if (sound) for (const ear of [...this.#ears]) ear(sound instanceof Uint8Array ? sound : new Uint8Array(sound))
     const input = decode(event)
     if (!input) return
     this.#trace?.(`${INPUT_TAG} ${JSON.stringify(input)}`)

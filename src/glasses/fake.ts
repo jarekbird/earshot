@@ -3,7 +3,7 @@ import { byteLength, linesOf, type Brightness, type MenuItem } from './frame.js'
 import type { GlassesEvent, HoldSource } from './input.js'
 import { MAX_BOXES, MAX_BRIGHTNESS, MAX_TEXT_BOXES, MAX_TEXT_BYTES } from './limits.js'
 
-export type FakeOp = 'create' | 'rebuild' | 'update'
+export type FakeOp = 'create' | 'rebuild' | 'update' | 'mic'
 
 export interface FakeBox {
   id: number
@@ -21,7 +21,12 @@ export interface FakeBox {
 type Page = Parameters<EvenAppBridge['rebuildPageContainer']>[0]
 type Bridge = Pick<
   EvenAppBridge,
-  'createStartUpPageContainer' | 'rebuildPageContainer' | 'textContainerUpgrade' | 'onEvenHubEvent' | 'shutDownPageContainer'
+  | 'createStartUpPageContainer'
+  | 'rebuildPageContainer'
+  | 'textContainerUpgrade'
+  | 'onEvenHubEvent'
+  | 'shutDownPageContainer'
+  | 'audioControl'
 >
 
 const SOURCES: Record<HoldSource, number | undefined> = { right: 1, ring: 2, left: 3, unknown: undefined }
@@ -32,6 +37,7 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
     create: { times: 0, throws: false },
     rebuild: { times: 0, throws: false },
     update: { times: 0, throws: false },
+    mic: { times: 0, throws: false },
   }
   let page: FakeBox[] | null = null
   let menu: MenuItem[] = []
@@ -97,6 +103,12 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
       fake.exits.push(mode ?? 0)
       return true
     },
+    audioControl: async (open, source) => {
+      fake.calls.push(open ? 'mic open' : 'mic close')
+      if (open && refused('mic')) return false
+      fake.mic = open ? (source ?? 'glasses') : null
+      return true
+    },
     onEvenHubEvent: listener => {
       listeners.add(listener)
       return () => void listeners.delete(listener)
@@ -117,6 +129,8 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
     bridge,
     calls: [] as string[],
     exits: [] as number[],
+    mic: null as string | null,
+    sound: (pcm: Uint8Array) => emit({ audioEvent: { audioPcm: pcm } }),
     listening: () => listeners.size,
     boxes: (): FakeBox[] => [...(page ?? [])].sort((a, b) => a.order - b.order),
     lines: (): string[] => linesOf(page ?? []),

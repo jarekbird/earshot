@@ -22,8 +22,8 @@ describe('the example app in the real Even Hub simulator', () => {
   })
   afterAll(() => void server.close())
 
-  const start = async () => {
-    const sim = await Simulator.start({ url, limitSeconds: 300 })
+  const start = async (more = '', mic = false) => {
+    const sim = await Simulator.start({ url: url + more, limitSeconds: 300, mic })
     onTestFinished(() => sim.stop())
     await sim.shows('Earshot example', 60_000)
     return sim
@@ -68,5 +68,15 @@ describe('the example app in the real Even Hub simulator', () => {
     await sim.shows('Taps: 0')
     await sim.input('tap')
     await sim.shows('Taps: 1')
+  })
+
+  it.runIf(process.platform === 'linux')("hears a hold: runs what the words ask for, and hands the rest to the app's agent", async () => {
+    const sim = await start('&say=open%20voice|remember%20buy%20milk', true)
+    await sim.hold(1_200)
+    await sim.shows('Hold to talk comes')
+    await sim.input('double')
+    await sim.shows('Earshot example')
+    await sim.hold(1_200)
+    expect(await sim.shows('Saved')).toEqual(['Earshot example', '> Welcome', 'Voice', 'A long note', 'buy milk', 'Saved'])
   })
 })

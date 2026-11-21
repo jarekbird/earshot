@@ -1,0 +1,53 @@
+export const SAMPLE_RATE = 16_000
+export const MIN_SPEECH_MS = 500
+export const SILENCE_PEAK = 250
+const BYTES_PER_SECOND = SAMPLE_RATE * 2
+
+export interface Audio {
+  pcm: Uint8Array
+  seconds: number
+}
+
+export function joinPcm(chunks: readonly Uint8Array[]): Uint8Array {
+  const joined = new Uint8Array(chunks.reduce((length, chunk) => length + chunk.length, 0))
+  let at = 0
+  for (const chunk of chunks) {
+    joined.set(chunk, at)
+    at += chunk.length
+  }
+  return joined
+}
+
+export const secondsOf = (pcm: Uint8Array): number => pcm.length / BYTES_PER_SECOND
+
+export function peakOf(pcm: Uint8Array): number {
+  const view = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength - (pcm.byteLength % 2))
+  let peak = 0
+  for (let at = 0; at < view.byteLength; at += 2) peak = Math.max(peak, Math.abs(view.getInt16(at, true)))
+  return peak
+}
+
+export function problemWith(pcm: Uint8Array): 'short' | 'silent' | null {
+  if (secondsOf(pcm) * 1000 < MIN_SPEECH_MS) return 'short'
+  return peakOf(pcm) < SILENCE_PEAK ? 'silent' : null
+}
+
+export function toWav(pcm: Uint8Array): Uint8Array {
+  const wav = new Uint8Array(44 + pcm.length)
+  const view = new DataView(wav.buffer)
+  const tag = (at: number, text: string) => [...text].forEach((char, index) => view.setUint8(at + index, char.charCodeAt(0)))
+  tag(0, 'RIFF')
+  view.setUint32(4, 36 + pcm.length, true)
+  tag(8, 'WAVEfmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, SAMPLE_RATE, true)
+  view.setUint32(28, BYTES_PER_SECOND, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  tag(36, 'data')
+  view.setUint32(40, pcm.length, true)
+  wav.set(pcm, 44)
+  return wav
+}

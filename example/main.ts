@@ -1,5 +1,5 @@
 import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
-import { action, boxes, Glasses, Lifetime, LINE_HEIGHT, list, Router, SCREEN_WIDTH, Shell, text } from '../src/index.js'
+import { action, boxes, Glasses, Lifetime, LINE_HEIGHT, list, Router, SCREEN_WIDTH, Shell, text, type Agent } from '../src/index.js'
 
 interface Note {
   id: string
@@ -19,8 +19,11 @@ const notes: Note[] = [
 const targets = () => notes.map(note => ({ id: note.id, say: note.title, value: note }))
 let taps = 0
 
+const flags = new URLSearchParams(location.hash.slice(1))
+const scripted = flags.get('say')?.split('|')
+
 const life = new Lifetime()
-const glasses = new Glasses(life, await waitForEvenAppBridge(), { trace: location.hash === '#trace' })
+const glasses = new Glasses(life, await waitForEvenAppBridge(), { trace: flags.has('trace') })
 
 const open = action({
   id: 'open',
@@ -67,4 +70,13 @@ const router: Router = new Router({
     view: () => list({ title: 'Earshot example', action: open, empty: 'No notes' }),
   },
 })
-const shell: Shell = new Shell(life, glasses, router)
+const takeNote: Agent = heard => {
+  const [, body] = /^remember (.+)/i.exec(heard.words) ?? []
+  if (!body) return { kind: 'notMine' }
+  notes.push({ id: `said${notes.length}`, title: body, body })
+  return { kind: 'handled', say: 'Saved' }
+}
+
+const shell: Shell = new Shell(life, glasses, router, {
+  voice: scripted && { transcribe: async () => scripted.shift() ?? '', agents: [takeNote] },
+})

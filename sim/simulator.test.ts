@@ -22,6 +22,15 @@ say('home=' + process.env.HOME + ' pid=' + process.pid + ' display=' + (process.
 if (mode === 'later') setTimeout(() => say('ready later'), 300)
 if (mode.startsWith('frames')) say('[earshot frame] {"lines":["Threads","One"],"menu":["Refresh","About"]}')
 if (mode === 'dies') setTimeout(() => process.exit(0), 300)
+if (mode === 'mic') {
+  const { createReadStream, readFileSync } = await import('node:fs')
+  const fifo = /infile "([^"]+)"/.exec(readFileSync(process.env.HOME + '/.asoundrc', 'utf8'))[1]
+  let bytes = 0
+  createReadStream(fifo).on('data', chunk => {
+    bytes += chunk.length
+    if (bytes >= 6400) say('mic heard enough')
+  })
+}
 if (mode === 'silent') setInterval(() => {}, 1000)
 else
   createServer((request, response) => {
@@ -219,6 +228,26 @@ describe('what the glasses show', () => {
 
   it('uses the tag the renderer writes', () => {
     expect(readFileSync(new URL('./simulator.ts', import.meta.url), 'utf8')).toContain(`const FRAME_TAG = '${FRAME_TAG}'`)
+  })
+})
+
+describe('a stand-in microphone', () => {
+  it.runIf(process.platform === 'linux')('lets the simulator hear a steady tone', async () => {
+    const sim = await Simulator.start({ url: 'http://127.0.0.1:1/app', binary, headless: false, mic: true, env: { FAKE_SIM: 'mic' } })
+    onTestFinished(() => sim.stop())
+    expect((await sim.logged('mic heard enough', 5_000)).message).toBe('mic heard enough')
+  })
+
+  it('holds the touchpad for a while and lets go', async () => {
+    const sim = await start()
+    const before = Date.now()
+    await sim.hold(300)
+    expect(Date.now() - before).toBeGreaterThanOrEqual(300)
+    await sim.read()
+    expect(sim.entries.map(entry => entry.message).filter(message => message.startsWith('input '))).toEqual([
+      'input long_press',
+      'input long_press_release',
+    ])
   })
 })
 

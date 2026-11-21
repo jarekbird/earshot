@@ -16,7 +16,7 @@ export interface GlassesEvent {
   listEvent?: object
   textEvent?: object
   sysEvent?: object
-  audioEvent?: unknown
+  audioEvent?: { audioPcm?: Uint8Array | ArrayLike<number> }
   menuItemClickEvent?: { itemID?: number }
   jsonData?: unknown
 }

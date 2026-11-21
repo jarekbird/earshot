@@ -116,7 +116,19 @@ What the simulator showed, which the code follows where it differs from Even's p
 Not built: images, which no app on Earshot uses yet. Still to try on real glasses: how the dimmed page reads behind
 the overlay, and which levels to use. It is 1 now.
 
-## Hold and the agent stack (slice 3)
+## Hold and the agent stack (slice 3, built)
+
+Built: the shell owns the hold. It opens the glasses' microphone, records until the release, drops a recording under
+half a second or with no sound in it, and gives the rest to the app's transcriber. The words go to the navigator and
+then to the app's agents. The navigator asks one question of a model behind one interface; the model built in is
+`matchWords`, the offline stand-in (E4), which compares the words with the labels. A double tap calls a command off, a
+hold without a release ends after a minute, and an answer that takes over fifteen seconds is given up on. A hold while
+a question is up calls the question off.
+
+Not built yet, and belonging to the next slice: Jev as the model, the rolling queue of items, context and its
+compaction, and the default transports with the user's own key.
+
+The design it follows:
 
 Hold always opens the mic. Earshot owns the hold, the recording and the checks for a recording that is too short or
 silent. The hold is one trigger of this path; a wake word can be a second (below). Release sends the audio to a
