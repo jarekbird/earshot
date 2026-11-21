@@ -250,7 +250,9 @@ glasses.onInput(input => {
 - A change of text or brightness is updated in place, without a flicker. The page is rebuilt only when a box is added, removed, moved, resized or renamed, or the menu changes, and never more than about three times a second.
 - A draw the glasses refuse is tried again, after half a second, then one, two and four.
 - `input.kind` is `tap`, `double`, `up`, `down`, `hold`, `release`, `menu`, `foreground`, `background` or `exit`. A hold says where it was pressed: `right`, `left` or `ring`.
-- An app gets six text boxes. Earshot keeps one behind them for input and one in front for the overlay. Text over 999 bytes in a box is cut, with an ellipsis.
+- An app gets seven text boxes. Earshot keeps one behind them for input, and writes its overlay there. Text over 999 bytes in a box is cut, with an ellipsis.
+- A frame can carry up to four `pictures`, each `{ id, x, y, w, h, key, data }`, from 20 to 288 wide and 20 to 144 high. A picture is sent again only when its `key` changes.
+- `draw` returns the frame's number. Pass `watch` in the options to be told of each frame's begin and end, each call to the glasses with its answer and time, and each retry: for your own log.
 - `brightness` runs from 0 to 4, and 4 is the default.
 - Even reports `foreground` when its menu opens and `background` when it closes, so Earshot keeps drawing through both.
 
