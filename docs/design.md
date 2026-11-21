@@ -84,10 +84,10 @@ containers change, and maps the touchpad to actions: swipe moves, tap runs, doub
 - One draw at a time, and only the newest frame waits. Text and brightness change in place; anything else about a box,
   or a change of menu, rebuilds the page, at most once in 300 ms. A refused draw is retried after 0.5, 1, 2 and then
   4 seconds.
-- A full-screen empty box behind the others takes the input, because the firmware animates a bounce on the box that
-  takes the swipes. One box in front of the others, three lines along the bottom, is the overlay's. That leaves an
-  app six of the eight text boxes. It sets the front-to-back order of all of them.
-- `overlay(text)` lowers the brightness of the page in place and writes the text, bright, in the front box.
+- A full-screen box behind the others takes the input. It holds no text of the page's, because the firmware animates
+  a bounce on the box that takes the swipes. The overlay's text goes there, on the last three lines, so the overlay
+  costs no box: an app has seven of the eight text boxes. Earshot sets the front-to-back order of all of them.
+- `overlay(text)` lowers the brightness of the page in place and writes the text, bright, in that box.
 - Input is one type: tap, double, up, down, hold, release, menu, foreground, background, exit.
 
 `Shell` draws the router's current screen and runs actions from touch.
@@ -146,11 +146,11 @@ heard lines.
 ### The voice overlay
 
 The same in every app, so a user learns it once. During a hold, and while the words are shown and decided on, Earshot
-lowers the brightness of the page's text in place and writes its own lines, bright, in the front box: listening, the
+lowers the brightness of the page's text in place and writes its own lines, bright, along the bottom: listening, the
 words heard, and what went wrong. When it is done the page's brightness returns. Nothing is rebuilt, so nothing
 flickers.
 
-- The display has no fill: black is see-through. A box in front cannot hide what is behind it, so dimming is what
+- The display has no fill: black is see-through. No box can hide what is behind it, so dimming is what
   keeps the overlay readable.
 - The overlay and its words are Earshot's. Everything else on the page is the app's.
 

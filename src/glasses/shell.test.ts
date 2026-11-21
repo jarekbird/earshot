@@ -42,7 +42,7 @@ function world(more: { home?: (parts: Parts) => Screen; appActions?: () => Actio
   if (more.voice) more.voice.rolling ??= rolling
   const shell = new Shell(life, glasses, router, { voice: more.voice })
   const menu = () => fake.menuItems().map(item => item.name)
-  const front = () => fake.boxes().at(-1)!.text.trim()
+  const front = () => fake.boxes()[0].text.trim()
   const cursor = () =>
     fake
       .boxes()

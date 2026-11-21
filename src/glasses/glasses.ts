@@ -64,21 +64,16 @@ const RETRY_FIRST_MS = 500
 const RETRY_MAX_MS = 4_000
 export const OVERLAY_DIM: Brightness = 1
 const OVERLAY_LINES = 3
-const APP_BOXES = MAX_TEXT_BOXES - 2
+const SCREEN_LINES = Math.floor(SCREEN_HEIGHT / LINE_HEIGHT)
+const APP_BOXES = MAX_TEXT_BOXES - 1
 const ASK_THE_USER = 1
-const FRONT = MAX_TEXT_BOXES
-const FIRST_PICTURE = FRONT + 1
+const INPUT = 1
+const FIRST_PICTURE = MAX_TEXT_BOXES + 1
 const INPUT_ORDER = 1
 const PICTURE_ORDER = INPUT_ORDER + 1
 const BOX_ORDER = PICTURE_ORDER + MAX_IMAGE_BOXES - 2
-const FRONT_BOX: Box = {
-  id: 'front',
-  x: 0,
-  y: SCREEN_HEIGHT - OVERLAY_LINES * LINE_HEIGHT,
-  w: SCREEN_WIDTH,
-  h: OVERLAY_LINES * LINE_HEIGHT,
-  text: ' ',
-}
+// The firmware animates a bounce on the box that takes the swipes, so that box holds no text of the page's.
+const INPUT_BOX: Box = { id: 'input', x: 0, y: 0, w: SCREEN_WIDTH, h: SCREEN_HEIGHT, text: ' ' }
 
 interface Placed {
   id: number
@@ -116,7 +111,7 @@ function overlayText(text: string): string {
   const lines = wrapText(cleanText(text).trim(), SCREEN_WIDTH)
   const shown = lines.slice(0, OVERLAY_LINES)
   if (lines.length > OVERLAY_LINES) shown[OVERLAY_LINES - 1] = fitText(`${shown[OVERLAY_LINES - 1]} …`, SCREEN_WIDTH)
-  return '\n'.repeat(OVERLAY_LINES - shown.length) + shown.join('\n')
+  return '\n'.repeat(SCREEN_LINES - shown.length) + shown.join('\n')
 }
 
 const stateOf = ({ text, brightness }: Placed) => `${brightness}\n${text}`
@@ -128,22 +123,6 @@ const attempt = async <T>(call: () => Promise<T>): Promise<T | undefined> => {
     return undefined
   }
 }
-
-// The firmware animates a bounce on the box that takes the swipes, so that box stays empty.
-const inputBox = () =>
-  new TextContainerProperty({
-    xPosition: 0,
-    yPosition: 0,
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
-    containerID: 1,
-    containerName: 'input',
-    content: ' ',
-    isEventCapture: 1,
-    paddingLength: 0,
-    borderWidth: 0,
-    zOrderIndex: INPUT_ORDER,
-  })
 
 const pictureBox = ({ id, name, picture }: Hung, index: number) =>
   new ImageContainerProperty({
@@ -166,10 +145,10 @@ const textBox = ({ id, name, box, text, brightness }: Placed) =>
     containerName: name,
     content: text,
     textColor: brightness,
-    isEventCapture: 0,
+    isEventCapture: id === INPUT ? 1 : 0,
     paddingLength: 0,
     borderWidth: 0,
-    zOrderIndex: BOX_ORDER + id,
+    zOrderIndex: id === INPUT ? INPUT_ORDER : BOX_ORDER + id,
   })
 
 export class Glasses {
@@ -250,21 +229,23 @@ export class Glasses {
 
   #place(): void {
     const over = this.#overlay
-    const boxes: Placed[] = this.#frame.boxes.slice(0, APP_BOXES).map((box, index) => ({
-      id: index + 2,
-      name: box.id.slice(0, MAX_NAME_CHARS),
-      box,
-      text: clipBytes(box.text),
-      brightness:
-        over === null ? (box.brightness ?? MAX_BRIGHTNESS) : (Math.min(box.brightness ?? MAX_BRIGHTNESS, OVERLAY_DIM) as Brightness),
-    }))
-    boxes.push({
-      id: FRONT,
-      name: FRONT_BOX.id,
-      box: FRONT_BOX,
-      text: over === null ? FRONT_BOX.text : overlayText(over),
-      brightness: MAX_BRIGHTNESS,
-    })
+    const boxes: Placed[] = [
+      {
+        id: INPUT,
+        name: INPUT_BOX.id,
+        box: INPUT_BOX,
+        text: over === null ? INPUT_BOX.text : overlayText(over),
+        brightness: MAX_BRIGHTNESS,
+      },
+      ...this.#frame.boxes.slice(0, APP_BOXES).map((box, index) => ({
+        id: index + 2,
+        name: box.id.slice(0, MAX_NAME_CHARS),
+        box,
+        text: clipBytes(box.text),
+        brightness:
+          over === null ? (box.brightness ?? MAX_BRIGHTNESS) : (Math.min(box.brightness ?? MAX_BRIGHTNESS, OVERLAY_DIM) as Brightness),
+      })),
+    ]
     const menu = (this.#frame.menu ?? [])
       .slice(0, MAX_MENU_ITEMS)
       .map(({ id, name }) => ({ id, name: clipBytes(name, MAX_MENU_NAME_BYTES) }))
@@ -351,16 +332,17 @@ export class Glasses {
   async #build({ frame, boxes, pictures, menu }: Page, shape: string): Promise<boolean> {
     const menuItems = menu.map(({ id, name }) => new MenuItemProperty({ itemID: id, itemName: name }))
     const page = {
-      containerTotalNum: boxes.length + pictures.length + 1,
-      textObject: [inputBox(), ...boxes.map(textBox)],
+      containerTotalNum: boxes.length + pictures.length,
+      textObject: boxes.map(textBox),
       ...(pictures.length ? { imageObject: pictures.map(pictureBox) } : {}),
       ...(menuItems.length ? { menuObject: new MenuContainerProperty({ menuItems }) } : {}),
     }
     const create = () => this.#bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page))
     const rebuild = () => this.#bridge.rebuildPageContainer(new RebuildPageContainer(page))
-    let drawn = !this.#created && (await this.#ask(frame, 'create', boxes.length, create, StartUpPageCreateResult.success))
+    const shown = boxes.length - 1
+    let drawn = !this.#created && (await this.#ask(frame, 'create', shown, create, StartUpPageCreateResult.success))
     // A reloaded web view already owns a page, so a create is refused and a rebuild takes it over.
-    if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', boxes.length, rebuild, true)
+    if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, rebuild, true)
     if (!drawn) return false
     this.#created = true
     this.#shape = shape

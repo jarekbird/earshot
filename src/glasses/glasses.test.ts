@@ -32,7 +32,6 @@ describe('the first draw', () => {
       { name: 'input', text: ' ', capture: true, brightness: 4 },
       { name: 'title', text: 'Threads', capture: false, brightness: 4 },
       { name: 'body', text: 'One\nTwo', capture: false, brightness: 2 },
-      { name: 'front', text: ' ', capture: false, brightness: 4 },
     ])
     expect(fake.boxes()[0]).toMatchObject({ x: 0, y: 0, w: 576, h: 288 })
     expect(fake.lines()).toEqual(['Threads', 'One', 'Two'])
@@ -189,7 +188,7 @@ describe('the limits of the glasses', () => {
     const { fake, glasses } = setup()
     glasses.draw(frame(...Array.from({ length: 9 }, (_, n) => box(`box${n}`, `line ${n}`, { y: n * 27 }))))
     await settle()
-    expect(fake.lines()).toEqual(['line 0', 'line 1', 'line 2', 'line 3', 'line 4', 'line 5'])
+    expect(fake.lines()).toEqual(['line 0', 'line 1', 'line 2', 'line 3', 'line 4', 'line 5', 'line 6'])
     expect(error).toHaveBeenCalledOnce()
   })
 
@@ -212,17 +211,25 @@ describe('the overlay', () => {
   const look = (fake: ReturnType<typeof fakeBridge>) =>
     fake.boxes().map(({ name, text, brightness }) => `${name} ${brightness} ${JSON.stringify(text)}`)
 
-  it('has a box in front of the others, along the bottom, on every page', async () => {
-    const { fake } = await drawn()
-    expect(fake.boxes().at(-1)).toMatchObject({ name: 'front', x: 0, y: 207, w: 576, h: 81, text: ' ' })
+  it('needs no box of its own: it writes in the box that takes the input, so an app keeps seven of the eight', async () => {
+    const { fake, glasses } = await drawn()
+    expect(fake.boxes().map(({ name }) => name)).toEqual(['input', 'title', 'body'])
+    glasses.overlay('Listening')
+    await settle()
+    expect(fake.lines().at(-1)).toBe('Listening')
+    expect(fake.boxes()[0].text.split('\n').length).toBe(10)
   })
 
   it('dims the page in place and writes over it, bright, at the bottom', async () => {
     const { fake, glasses } = await drawn()
     glasses.overlay('Listening')
     await settle()
-    expect(fake.calls).toEqual(['update title', 'update front'])
-    expect(look(fake)).toEqual(['input 4 " "', `title ${OVERLAY_DIM} "Threads"`, 'body 0 "One"', 'front 4 "\\n\\nListening"'])
+    expect(fake.calls).toEqual(['update input', 'update title'])
+    expect(look(fake)).toEqual([
+      `input 4 ${JSON.stringify('\n'.repeat(9) + 'Listening')}`,
+      `title ${OVERLAY_DIM} "Threads"`,
+      'body 0 "One"',
+    ])
   })
 
   it('gives the page its brightness back when it goes', async () => {
@@ -231,7 +238,7 @@ describe('the overlay', () => {
     await settle()
     glasses.overlay(null)
     await settle()
-    expect(look(fake)).toEqual(['input 4 " "', 'title 3 "Threads"', 'body 0 "One"', 'front 4 " "'])
+    expect(look(fake)).toEqual(['input 4 " "', 'title 3 "Threads"', 'body 0 "One"'])
     expect(fake.calls.includes('rebuild')).toBe(false)
   })
 
@@ -240,7 +247,7 @@ describe('the overlay', () => {
     glasses.overlay('Listening')
     glasses.draw(frame(box('title', 'Chats', { brightness: 3 }), box('body', 'Two', { y: 27, brightness: 0 })))
     await settle()
-    expect(look(fake)).toEqual(['input 4 " "', `title ${OVERLAY_DIM} "Chats"`, 'body 0 "Two"', 'front 4 "\\n\\nListening"'])
+    expect(look(fake)).toEqual([`input 4 ${JSON.stringify('\n'.repeat(9) + 'Listening')}`, `title ${OVERLAY_DIM} "Chats"`, 'body 0 "Two"'])
   })
 
   it('can be shown before anything is drawn', async () => {
@@ -254,8 +261,9 @@ describe('the overlay', () => {
     const { fake, glasses } = await drawn()
     glasses.overlay('one two three four five six seven eight nine ten '.repeat(8))
     await settle()
-    const lines = fake.boxes().at(-1)!.text.split('\n')
+    const lines = fake.boxes()[0].text.split('\n').slice(7)
     expect(lines.length).toBe(3)
+    expect(fake.boxes()[0].text.startsWith('\n'.repeat(7))).toBe(true)
     expect(lines[2].endsWith('…')).toBe(true)
     for (const line of lines) expect(textWidth(line)).toBeLessThanOrEqual(576)
   })
@@ -520,7 +528,7 @@ describe('pictures', () => {
     await settle()
     expect(fake.calls).toEqual(['create', 'picture chart'])
     expect(fake.pictures()).toEqual([{ name: 'chart', x: 376, y: 54, w: 200, h: 100, data: [1, 2, 3, 2] }])
-    expect(fake.stack()).toEqual(['input', 'chart', 'title', 'front'])
+    expect(fake.stack()).toEqual(['input', 'chart', 'title'])
   })
 
   it('sends a picture again only when its key changes, and rebuilds nothing for it', async () => {
@@ -619,7 +627,7 @@ describe('watching the draws', () => {
     await settle(REBUILD_GAP_MS)
     expect(told()).toEqual(['begin 1', 'call 1 create', 'answer 1 create', 'end 1'])
     expect(seen[0]).toEqual({ at: 'begin', frame: 1, rebuild: true })
-    expect(seen[2]).toMatchObject({ ok: true, got: 0, boxes: 2 })
+    expect(seen[2]).toMatchObject({ ok: true, got: 0, boxes: 1 })
     expect(seen[3]).toEqual({ at: 'end', frame: 1, drawn: true })
     seen.length = 0
     glasses.draw(frame(box('title', 'Chats')))
