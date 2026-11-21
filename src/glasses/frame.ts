@@ -12,6 +12,16 @@ export interface Box {
   brightness?: Brightness
 }
 
+export interface Picture {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  key: string
+  data: Uint8Array
+}
+
 export interface MenuItem {
   id: number
   name: string
@@ -19,6 +29,7 @@ export interface MenuItem {
 
 export interface Frame {
   boxes: Box[]
+  pictures?: Picture[]
   menu?: MenuItem[]
 }
 

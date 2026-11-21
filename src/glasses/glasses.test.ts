@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Lifetime } from '../lifetime.js'
 import { fakeBridge } from './fake.js'
-import type { Box, Frame } from './frame.js'
+import type { Box, Frame, Picture } from './frame.js'
 import { FRAME_TAG, Glasses, INPUT_TAG, OVERLAY_DIM, REBUILD_GAP_MS } from './glasses.js'
 import type { Input } from './input.js'
 import { textWidth } from './text.js'
@@ -498,5 +498,100 @@ describe('the trace', () => {
     glasses.draw(frame(box('title', 'Threads')))
     await settle()
     expect(traced).toEqual([])
+  })
+})
+
+describe('pictures', () => {
+  const picture = (id: string, key: string, more: Partial<Picture> = {}): Picture => ({
+    id,
+    x: 376,
+    y: 54,
+    w: 200,
+    h: 100,
+    key,
+    data: new Uint8Array([1, 2, 3, key.length]),
+    ...more,
+  })
+  const withPictures = (...pictures: Picture[]): Frame => ({ boxes: [box('title', 'Deploys')], pictures })
+
+  it('puts a picture behind the text and in front of the input box, then sends what it shows', async () => {
+    const { fake, glasses } = setup()
+    glasses.draw(withPictures(picture('chart', 'v1')))
+    await settle()
+    expect(fake.calls).toEqual(['create', 'picture chart'])
+    expect(fake.pictures()).toEqual([{ name: 'chart', x: 376, y: 54, w: 200, h: 100, data: [1, 2, 3, 2] }])
+    expect(fake.stack()).toEqual(['input', 'chart', 'title', 'front'])
+  })
+
+  it('sends a picture again only when its key changes, and rebuilds nothing for it', async () => {
+    const { fake, glasses } = setup()
+    glasses.draw(withPictures(picture('chart', 'v1')))
+    await settle(REBUILD_GAP_MS)
+    fake.calls.length = 0
+    glasses.draw(withPictures(picture('chart', 'v1')))
+    await settle()
+    expect(fake.calls).toEqual([])
+    glasses.draw(withPictures(picture('chart', 'v22')))
+    await settle()
+    expect(fake.calls).toEqual(['picture chart'])
+    expect(fake.pictures()[0].data).toEqual([1, 2, 3, 3])
+  })
+
+  it('rebuilds the page when a picture comes, moves or goes, and sends every picture again after a rebuild', async () => {
+    const { fake, glasses } = setup()
+    glasses.draw(withPictures())
+    await settle(REBUILD_GAP_MS)
+    for (const pictures of [
+      [picture('chart', 'v1')],
+      [picture('chart', 'v1', { x: 300 })],
+      [picture('chart', 'v1', { x: 300 }), picture('logo', 'a', { y: 160 })],
+    ]) {
+      fake.calls.length = 0
+      glasses.draw(withPictures(...pictures))
+      await settle(REBUILD_GAP_MS)
+      expect(fake.calls).toEqual(['rebuild', ...pictures.map(({ id }) => `picture ${id}`)])
+    }
+    fake.calls.length = 0
+    glasses.draw(withPictures())
+    await settle(REBUILD_GAP_MS)
+    expect(fake.calls).toEqual(['rebuild'])
+    expect(fake.pictures()).toEqual([])
+  })
+
+  it('tries a picture the glasses refused again, without drawing the page again', async () => {
+    const { fake, glasses } = setup()
+    fake.refuse('picture')
+    glasses.draw(withPictures(picture('chart', 'v1')))
+    await settle()
+    expect(fake.calls).toEqual(['create', 'picture chart'])
+    expect(fake.pictures()[0].data).toEqual([])
+    await settle(500)
+    expect(fake.calls).toEqual(['create', 'picture chart', 'picture chart'])
+    expect(fake.pictures()[0].data).toEqual([1, 2, 3, 2])
+  })
+
+  it('leaves out, and reports, a fifth picture and one whose size the glasses do not take', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { fake, glasses } = setup()
+    glasses.draw(
+      withPictures(
+        picture('wide', 'a', { x: 0, w: 289 }),
+        picture('tall', 'a', { h: 145 }),
+        picture('small', 'a', { w: 19 }),
+        ...Array.from({ length: 5 }, (_, n) => picture(`p${n}`, 'a', { x: n * 100, w: 90 })),
+      ),
+    )
+    await settle()
+    expect(fake.pictures().map(({ name }) => name)).toEqual(['p0', 'p1', 'p2', 'p3'])
+    expect(error).toHaveBeenCalledTimes(4)
+  })
+
+  it('still draws the text when a frame has pictures and the overlay is up', async () => {
+    const { fake, glasses } = setup()
+    glasses.draw(withPictures(picture('chart', 'v1')))
+    glasses.overlay('Listening')
+    await settle()
+    expect(fake.lines()).toEqual(['Deploys', 'Listening'])
+    expect(fake.pictures().length).toBe(1)
   })
 })

@@ -1,6 +1,9 @@
 import {
   AudioInputSource,
   CreateStartUpPageContainer,
+  ImageContainerProperty,
+  ImageRawDataUpdate,
+  ImageRawDataUpdateResult,
   MenuContainerProperty,
   MenuItemProperty,
   RebuildPageContainer,
@@ -10,15 +13,19 @@ import {
   type EvenAppBridge,
 } from '@evenrealities/even_hub_sdk'
 import type { Lifetime, Timer } from '../lifetime.js'
-import { clipBytes, linesOf, type Box, type Brightness, type Frame, type MenuItem } from './frame.js'
+import { clipBytes, linesOf, type Box, type Brightness, type Frame, type MenuItem, type Picture } from './frame.js'
 import { decode, type GlassesEvent, type Input } from './input.js'
 import {
   LINE_HEIGHT,
   MAX_BRIGHTNESS,
+  MAX_IMAGE_BOXES,
+  MAX_IMAGE_HEIGHT,
+  MAX_IMAGE_WIDTH,
   MAX_MENU_ITEMS,
   MAX_MENU_NAME_BYTES,
   MAX_NAME_CHARS,
   MAX_TEXT_BOXES,
+  MIN_IMAGE_SIDE,
   SCREEN_HEIGHT,
   SCREEN_WIDTH,
 } from './limits.js'
@@ -29,6 +36,7 @@ export type GlassesBridge = Pick<
   | 'createStartUpPageContainer'
   | 'rebuildPageContainer'
   | 'textContainerUpgrade'
+  | 'updateImageRawData'
   | 'onEvenHubEvent'
   | 'shutDownPageContainer'
   | 'audioControl'
@@ -49,6 +57,10 @@ const OVERLAY_LINES = 3
 const APP_BOXES = MAX_TEXT_BOXES - 2
 const ASK_THE_USER = 1
 const FRONT = MAX_TEXT_BOXES
+const FIRST_PICTURE = FRONT + 1
+const INPUT_ORDER = 1
+const PICTURE_ORDER = INPUT_ORDER + 1
+const BOX_ORDER = PICTURE_ORDER + MAX_IMAGE_BOXES - 2
 const FRONT_BOX: Box = {
   id: 'front',
   x: 0,
@@ -68,13 +80,26 @@ interface Placed {
 
 const retryDelay = (failures: number) => Math.min(RETRY_MAX_MS, RETRY_FIRST_MS * 2 ** (failures - 1))
 
+interface Hung {
+  id: number
+  name: string
+  picture: Picture
+}
+
 interface Page {
   boxes: Placed[]
+  pictures: Hung[]
   menu: MenuItem[]
 }
 
-const shapeOf = ({ boxes, menu }: Page) =>
-  JSON.stringify([boxes.map(({ box }) => [box.id, box.x, box.y, box.w, box.h]), menu.map(item => [item.id, item.name])])
+const shapeOf = ({ boxes, pictures, menu }: Page) =>
+  JSON.stringify([
+    boxes.map(({ box }) => [box.id, box.x, box.y, box.w, box.h]),
+    menu.map(item => [item.id, item.name]),
+    pictures.map(({ picture }) => [picture.id, picture.x, picture.y, picture.w, picture.h]),
+  ])
+
+const fits = ({ w, h }: Picture) => w >= MIN_IMAGE_SIDE && w <= MAX_IMAGE_WIDTH && h >= MIN_IMAGE_SIDE && h <= MAX_IMAGE_HEIGHT
 
 function overlayText(text: string): string {
   const lines = wrapText(cleanText(text).trim(), SCREEN_WIDTH)
@@ -106,7 +131,18 @@ const inputBox = () =>
     isEventCapture: 1,
     paddingLength: 0,
     borderWidth: 0,
-    zOrderIndex: 1,
+    zOrderIndex: INPUT_ORDER,
+  })
+
+const pictureBox = ({ id, name, picture }: Hung, index: number) =>
+  new ImageContainerProperty({
+    xPosition: picture.x,
+    yPosition: picture.y,
+    width: picture.w,
+    height: picture.h,
+    containerID: id,
+    containerName: name,
+    zOrderIndex: PICTURE_ORDER + index,
   })
 
 const textBox = ({ id, name, box, text, brightness }: Placed) =>
@@ -122,7 +158,7 @@ const textBox = ({ id, name, box, text, brightness }: Placed) =>
     isEventCapture: 0,
     paddingLength: 0,
     borderWidth: 0,
-    zOrderIndex: id,
+    zOrderIndex: BOX_ORDER + id,
   })
 
 export class Glasses {
@@ -138,6 +174,7 @@ export class Glasses {
   #wanted: Page | null = null
   #shape = ''
   #sent = new Map<number, string>()
+  #hung = new Map<number, string>()
   #created = false
   #drawing = false
   #failures = 0
@@ -176,6 +213,16 @@ export class Glasses {
     if (boxes > 0) console.error(`Earshot: the glasses take ${APP_BOXES} boxes from an app. The last ${boxes} of this frame are left out.`)
     const items = (frame.menu?.length ?? 0) - MAX_MENU_ITEMS
     if (items > 0) console.error(`Earshot: Even's menu takes ${MAX_MENU_ITEMS} items. The last ${items} of this frame are left out.`)
+    for (const picture of frame.pictures ?? []) {
+      if (!fits(picture)) {
+        console.error(
+          `Earshot: the glasses take a picture from ${MIN_IMAGE_SIDE} to ${MAX_IMAGE_WIDTH} wide and ${MAX_IMAGE_HEIGHT} high. "${picture.id}" is left out.`,
+        )
+      }
+    }
+    const pictures = (frame.pictures ?? []).filter(fits).length - MAX_IMAGE_BOXES
+    if (pictures > 0)
+      console.error(`Earshot: the glasses take ${MAX_IMAGE_BOXES} pictures. The last ${pictures} of this frame are left out.`)
     this.#frame = frame
     this.#place()
   }
@@ -205,7 +252,11 @@ export class Glasses {
     const menu = (this.#frame.menu ?? [])
       .slice(0, MAX_MENU_ITEMS)
       .map(({ id, name }) => ({ id, name: clipBytes(name, MAX_MENU_NAME_BYTES) }))
-    this.#wanted = { boxes, menu }
+    const pictures = (this.#frame.pictures ?? [])
+      .filter(fits)
+      .slice(0, MAX_IMAGE_BOXES)
+      .map((picture, index) => ({ id: FIRST_PICTURE + index, name: picture.id.slice(0, MAX_NAME_CHARS), picture }))
+    this.#wanted = { boxes, pictures, menu }
     void this.#run()
   }
 
@@ -239,7 +290,7 @@ export class Glasses {
         const rebuild = shape !== this.#shape
         const wait = rebuild ? this.#rebuildAt - this.#now() : 0
         if (wait > 0) return this.#later(wait)
-        const drawn = rebuild ? await this.#build(page, shape) : await this.#update(page.boxes)
+        const drawn = (rebuild ? await this.#build(page, shape) : await this.#update(page.boxes)) && (await this.#hang(page.pictures))
         if (this.#life.ended) return
         if (!drawn) return this.#later(retryDelay(++this.#failures))
         this.#failures = 0
@@ -258,11 +309,12 @@ export class Glasses {
     }, ms)
   }
 
-  async #build({ boxes, menu }: Page, shape: string): Promise<boolean> {
+  async #build({ boxes, pictures, menu }: Page, shape: string): Promise<boolean> {
     const menuItems = menu.map(({ id, name }) => new MenuItemProperty({ itemID: id, itemName: name }))
     const page = {
-      containerTotalNum: boxes.length + 1,
+      containerTotalNum: boxes.length + pictures.length + 1,
       textObject: [inputBox(), ...boxes.map(textBox)],
+      ...(pictures.length ? { imageObject: pictures.map(pictureBox) } : {}),
       ...(menuItems.length ? { menuObject: new MenuContainerProperty({ menuItems }) } : {}),
     }
     const create = () => this.#bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page))
@@ -274,6 +326,7 @@ export class Glasses {
     this.#created = true
     this.#shape = shape
     this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
+    this.#hung = new Map()
     this.#rebuildAt = this.#now() + REBUILD_GAP_MS
     return true
   }
@@ -291,6 +344,19 @@ export class Glasses {
       const accepted = (await attempt(() => this.#bridge.textContainerUpgrade(upgrade))) === true
       if (this.#life.ended) return false
       if (accepted) this.#sent.set(box.id, stateOf(box))
+      else drawn = false
+    }
+    return drawn
+  }
+
+  async #hang(pictures: Hung[]): Promise<boolean> {
+    let drawn = true
+    for (const { id, name, picture } of pictures) {
+      if (this.#hung.get(id) === picture.key) continue
+      const update = new ImageRawDataUpdate({ containerID: id, containerName: name, imageData: picture.data })
+      const accepted = (await attempt(() => this.#bridge.updateImageRawData(update))) === ImageRawDataUpdateResult.success
+      if (this.#life.ended) return false
+      if (accepted) this.#hung.set(id, picture.key)
       else drawn = false
     }
     return drawn

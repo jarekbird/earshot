@@ -1,9 +1,9 @@
-import { validateEvenHubPageContainer, type EvenAppBridge, type EvenHubEvent } from '@evenrealities/even_hub_sdk'
+import { ImageRawDataUpdateResult, validateEvenHubPageContainer, type EvenAppBridge, type EvenHubEvent } from '@evenrealities/even_hub_sdk'
 import { byteLength, linesOf, type Brightness, type MenuItem } from './frame.js'
 import type { GlassesEvent, HoldSource } from './input.js'
 import { MAX_BOXES, MAX_BRIGHTNESS, MAX_TEXT_BOXES, MAX_TEXT_BYTES } from './limits.js'
 
-export type FakeOp = 'create' | 'rebuild' | 'update' | 'mic'
+export type FakeOp = 'create' | 'rebuild' | 'update' | 'picture' | 'mic'
 
 export interface FakeBox {
   id: number
@@ -18,12 +18,24 @@ export interface FakeBox {
   order: number
 }
 
+export interface FakePicture {
+  id: number
+  name: string
+  x: number
+  y: number
+  w: number
+  h: number
+  data: number[]
+  order: number
+}
+
 type Page = Parameters<EvenAppBridge['rebuildPageContainer']>[0]
 type Bridge = Pick<
   EvenAppBridge,
   | 'createStartUpPageContainer'
   | 'rebuildPageContainer'
   | 'textContainerUpgrade'
+  | 'updateImageRawData'
   | 'onEvenHubEvent'
   | 'shutDownPageContainer'
   | 'audioControl'
@@ -37,9 +49,11 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
     create: { times: 0, throws: false },
     rebuild: { times: 0, throws: false },
     update: { times: 0, throws: false },
+    picture: { times: 0, throws: false },
     mic: { times: 0, throws: false },
   }
   let page: FakeBox[] | null = null
+  let pictures: FakePicture[] = []
   let menu: MenuItem[] = []
   let owned = options.owned ?? false
 
@@ -58,6 +72,16 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
     if (texts.filter(text => text.isEventCapture === 1).length > 1) return null
     if (texts.some(text => byteLength(text.content ?? '') > MAX_TEXT_BYTES)) return null
     menu = (container.menuObject?.menuItems ?? []).map(item => ({ id: item.itemID ?? 0, name: item.itemName ?? '' }))
+    pictures = (container.imageObject ?? []).map((image, index) => ({
+      id: image.containerID ?? 0,
+      name: image.containerName ?? '',
+      x: image.xPosition ?? 0,
+      y: image.yPosition ?? 0,
+      w: image.width ?? 0,
+      h: image.height ?? 0,
+      data: [],
+      order: image.zOrderIndex ?? index,
+    }))
     return texts.map((text, index) => ({
       id: text.containerID ?? 0,
       name: text.containerName ?? '',
@@ -99,6 +123,14 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
       if (upgrade.textColor !== undefined) box.brightness = upgrade.textColor as Brightness
       return true
     },
+    updateImageRawData: async update => {
+      fake.calls.push(`picture ${update.containerName}`)
+      if (refused('picture')) return ImageRawDataUpdateResult.sendFailed
+      const picture = pictures.find(candidate => candidate.id === update.containerID && candidate.name === update.containerName)
+      if (!picture) return ImageRawDataUpdateResult.imageException
+      picture.data = Array.from(update.imageData as Uint8Array)
+      return ImageRawDataUpdateResult.success
+    },
     shutDownPageContainer: async mode => {
       fake.exits.push(mode ?? 0)
       return true
@@ -133,6 +165,8 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
     sound: (pcm: Uint8Array) => emit({ audioEvent: { audioPcm: pcm } }),
     listening: () => listeners.size,
     boxes: (): FakeBox[] => [...(page ?? [])].sort((a, b) => a.order - b.order),
+    pictures: () => pictures.map(({ name, x, y, w, h, data }) => ({ name, x, y, w, h, data })),
+    stack: (): string[] => [...(page ?? []), ...pictures].sort((a, b) => a.order - b.order).map(({ name }) => name),
     lines: (): string[] => linesOf(page ?? []),
     menuItems: (): MenuItem[] => [...menu],
     pick: (name: string) => {

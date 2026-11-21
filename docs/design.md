@@ -113,7 +113,11 @@ What the simulator showed, which the code follows where it differs from Even's p
 - Even's menu opens with its first item chosen and wraps at both ends. It ignores a press while it is closing, and
   taps do not reach the app until it has closed.
 
-Not built: images, which no app on Earshot uses yet. Still to try on real glasses: how the dimmed page reads behind
+A frame can carry up to four pictures, each a box with a key and its data. They sit behind the text and in front of
+the input box. The data is sent after the page is built and again only when the key changes, so a new picture rebuilds
+nothing; a picture the glasses refuse is tried again like any draw.
+
+Still to try on real glasses: how the dimmed page reads behind
 the overlay, and which levels to use. It is 1 now.
 
 ## Hold and the agent stack (slice 3, built)
