@@ -946,6 +946,38 @@ describe('a hold', () => {
     expect(sent).toEqual([])
   })
 
+  it('tells the app when it starts to listen, and is busy from then until the command is done', async () => {
+    let listens = 0
+    const { voice } = hearing('refresh')
+    const { fake, shell } = world({ voice: { ...voice, onListen: () => listens++ } })
+    await settle()
+    expect(shell.busy).toBe(false)
+    fake.hold()
+    fake.hold()
+    await settle(50)
+    expect(listens).toBe(1)
+    expect(shell.busy).toBe(true)
+    fake.sound(tone(800))
+    fake.release()
+    await settle()
+    expect(shell.busy).toBe(false)
+  })
+
+  it('drops what was said when the screen changed while it listened', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, front, ran, router } = world({ voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(800))
+    router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })
+    fake.release()
+    await settle()
+    expect(asked).toEqual([])
+    expect(ran).toEqual([])
+    expect(front()).toBe('')
+  })
+
   it('ends by itself after a minute without a release', async () => {
     const { voice, asked } = hearing('refresh')
     const { fake, ran } = world({ voice })

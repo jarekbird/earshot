@@ -44,6 +44,7 @@ export interface VoiceOptions {
   rolling?: Rolling
   timeoutMs?: number
   maxHoldMs?: number
+  onListen?: () => void
 }
 
 export interface ShellOptions {
@@ -117,7 +118,7 @@ export class Shell {
   #asking: (() => void) | null = null
   #overlaid = false
   #fading: Timer | undefined
-  #recording: { chunks: Uint8Array[]; end: () => void } | null = null
+  #recording: { chunks: Uint8Array[]; screen: Screen; end: () => void } | null = null
   #turn = 0
   #deciding: Lifetime | null = null
   #asked: Array<{ frame: number; screen: Screen }> = []
@@ -132,6 +133,10 @@ export class Shell {
     this.#life.own(glasses.onInput(input => this.#input(input)))
     this.#life.own(router.onChange(() => this.redraw()))
     this.redraw()
+  }
+
+  get busy(): boolean {
+    return this.#recording !== null || this.#deciding !== null
   }
 
   redraw(): void {
@@ -330,6 +335,7 @@ export class Shell {
     const limit = this.#life.timeout(() => this.#release(), this.#voice.maxHoldMs ?? MAX_HOLD_MS)
     const recording = {
       chunks,
+      screen: this.#router.current,
       end: () => {
         deaf()
         limit.cancel()
@@ -339,6 +345,7 @@ export class Shell {
       },
     }
     this.#recording = recording
+    this.#voice.onListen?.()
     listening()
     void this.#glasses.openMic().then(open => {
       if (open || this.#recording !== recording) return
@@ -353,6 +360,7 @@ export class Shell {
     if (!recording || !voice) return
     recording.end()
     const pcm = joinPcm(recording.chunks)
+    if (this.#router.current !== recording.screen) return this.#clear()
     if (problemWith(pcm)) return this.notice(this.#words.missed)
     void this.#decide(voice, { pcm, seconds: secondsOf(pcm) })
   }
