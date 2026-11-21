@@ -295,6 +295,8 @@ and one check can prove it for any screen.
 Built: a `boxes` view binds a tap and each swipe to an action (`on`), and takes no raw input; those actions go to the
 model and stay out of Even's menu. The shell adds its own for what its views do by touch: scroll a long text, move a
 list's cursor, choose the row under it. The row under the cursor goes to the model as context unless it is private.
+A pick from Even's menu is ignored while the glasses still show another screen's menu. While a command is being
+decided, a touch only calls it off: an agent's pending work ends with the turn's lifetime, and a new hold starts over.
 Not built yet: a submenu as one sentence.
 
 ## Wake word (built with the first app that uses it, E8)

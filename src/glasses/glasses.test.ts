@@ -220,6 +220,18 @@ describe('the overlay', () => {
     expect(fake.boxes()[0].text.split('\n').length).toBe(10)
   })
 
+  it('blanks a box that sits under its lines, so two texts never share a row', async () => {
+    const { fake, glasses } = setup()
+    glasses.draw(frame(box('body', 'One', { y: 27, h: 216 }), box('status', 'hold to talk', { y: 261, h: 27 })))
+    await settle(REBUILD_GAP_MS)
+    glasses.overlay('Listening')
+    await settle()
+    expect(look(fake).slice(1)).toEqual([`body ${OVERLAY_DIM} "One"`, `status ${OVERLAY_DIM} " "`])
+    glasses.overlay(null)
+    await settle()
+    expect(look(fake).slice(1)).toEqual(['body 4 "One"', 'status 4 "hold to talk"'])
+  })
+
   it('dims the page in place and writes over it, bright, at the bottom', async () => {
     const { fake, glasses } = await drawn()
     glasses.overlay('Listening')
@@ -609,7 +621,7 @@ describe('watching the draws', () => {
     const seen: Drawing[] = []
     const life = new Lifetime()
     const fake = fakeBridge(options)
-    const glasses = new Glasses(life, fake.bridge, { watch: event => seen.push(event) })
+    const glasses = new Glasses(life, fake.bridge, { watch: event => event.at === 'ask' || seen.push(event) })
     const told = () =>
       seen.map(({ at, frame, ...rest }) => [at, frame, 'op' in rest ? rest.op : '', 'box' in rest ? (rest.box ?? '') : ''].join(' ').trim())
     return { fake, glasses, seen, told }
@@ -619,6 +631,23 @@ describe('watching the draws', () => {
     const { glasses } = watched()
     expect(glasses.draw(frame(box('title', 'One')))).toBe(1)
     expect(glasses.draw(frame(box('title', 'Two')))).toBe(2)
+  })
+
+  it('tells of a frame the moment it is asked for, with what it holds', () => {
+    const asked: Drawing[] = []
+    const glasses = new Glasses(new Lifetime(), fakeBridge().bridge, { watch: event => event.at === 'ask' && asked.push(event) })
+    const page = frame(box('title', 'One'))
+    glasses.draw(page)
+    expect(asked).toEqual([{ at: 'ask', frame: 1, page }])
+  })
+
+  it('knows the newest frame that is on the glasses', async () => {
+    const { glasses } = watched()
+    expect(glasses.shown).toBe(0)
+    glasses.draw(frame(box('title', 'One')))
+    expect(glasses.shown).toBe(0)
+    await settle()
+    expect(glasses.shown).toBe(1)
   })
 
   it('tells of a frame from its start to its end, with each call to the glasses and its answer', async () => {
@@ -673,7 +702,7 @@ describe('a draw that has to wait', () => {
   const watched = () => {
     const seen: Drawing[] = []
     const fake = fakeBridge()
-    const glasses = new Glasses(new Lifetime(), fake.bridge, { watch: event => seen.push(event) })
+    const glasses = new Glasses(new Lifetime(), fake.bridge, { watch: event => event.at === 'ask' || seen.push(event) })
     return { fake, glasses, seen }
   }
 
@@ -708,7 +737,7 @@ describe('while the microphone opens', () => {
   const held = async () => {
     const seen: Drawing[] = []
     const fake = fakeBridge()
-    const glasses = new Glasses(new Lifetime(), fake.bridge, { watch: event => seen.push(event) })
+    const glasses = new Glasses(new Lifetime(), fake.bridge, { watch: event => event.at === 'ask' || seen.push(event) })
     glasses.draw({ boxes: [box('title', 'Threads')], menu: [{ id: 1, name: 'Refresh' }] })
     await settle(REBUILD_GAP_MS)
     fake.calls.length = 0

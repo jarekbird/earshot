@@ -148,13 +148,14 @@ new Shell(life, glasses, router, {
 })
 ```
 
-- A hold opens the glasses' microphone and shows "Listening". The release closes it. A recording under half a second, or a silent one, is not sent anywhere.
-- `transcribe` gets the sound as 16 kHz, 16-bit, one-channel PCM, and gives back the words. Earshot opens no connection itself; where the sound goes is yours to decide.
+- A hold opens the glasses' microphone and shows "Listening" with eight bars that rise with the voice. The release closes it. A recording under half a second, or a silent one, is not sent anywhere.
+- `transcribe` gets the sound as 16 kHz, 16-bit, one-channel PCM, and gives back the words. Earshot opens no connection itself; where the sound goes is yours to decide. A transcriber that cannot transcribe gives back `null`: no model is asked, and the agents get the recording with no words.
 - The words show over the page, and the navigator picks from what the app can do now: go back, go home, each action, and the items of the rolling set.
 - When it is sure, the action runs, and one marked `confirm` still asks first. When it is unsure, the few candidates are listed to tap. When nothing fits, it says "No match".
-- `agents` get the words the navigator passes on, in order. An agent answers `{ kind: 'handled', say }`, `{ kind: 'notMine' }`, or with an action to run.
+- `agents` get the words the navigator passes on, in order, with the recording (`audio`) and the turn's lifetime (`life`). An agent answers `{ kind: 'handled', say }`, `{ kind: 'notMine' }`, or with an action to run.
+- An agent that waits before it acts waits through `life`. Any touch while a command is being decided calls it off and does nothing else; a hold calls it off and listens again. Both end `life`.
 - `model` is what the navigator asks. It gets the question and gives each option a chance. Over 0.7 the navigator is sure; under that it lists the options over 0.15. The default matches the words against the labels and calls no service.
-- A double tap calls a command off. A hold with no release ends after a minute. No answer in fifteen seconds is given up on.
+- A double tap calls a command off while it listens. A hold with no release ends after a minute (`maxHoldMs`). No answer in fifteen seconds is given up on (`timeoutMs`).
 - Throw `SayError` from a transcriber to say what went wrong in your own words.
 
 ### What the navigator is offered
@@ -251,9 +252,9 @@ glasses.onInput(input => {
 - A change of text or brightness is updated in place, without a flicker. The page is rebuilt only when a box is added, removed, moved, resized or renamed, or the menu changes, and never more than about three times a second.
 - A draw the glasses refuse is tried again, after half a second, then one, two and four.
 - `input.kind` is `tap`, `double`, `up`, `down`, `hold`, `release`, `menu`, `foreground`, `background` or `exit`. A hold says where it was pressed: `right`, `left` or `ring`.
-- An app gets seven text boxes. Earshot keeps one behind them for input, and writes its overlay there. Text over 999 bytes in a box is cut, with an ellipsis.
+- An app gets seven text boxes. Earshot keeps one behind them for input, and writes its overlay there; a box of yours that sits under the overlay's lines is blank while it shows. Text over 999 bytes in a box is cut, with an ellipsis.
 - A frame can carry up to four `pictures`, each `{ id, x, y, w, h, key, data }`, from 20 to 288 wide and 20 to 144 high. A picture is sent again only when its `key` changes.
-- `draw` returns the frame's number. Pass `watch` in the options to be told of each frame's begin and end, each call to the glasses with its answer and time, each retry, and each time a frame has to wait: for your own log.
+- `draw` returns the frame's number, and `shown` is the number of the newest frame on the glasses. Pass `watch` in the options to be told of each frame when it is asked for, its begin and end, each call to the glasses with its answer and time, each retry, and each time a frame has to wait: for your own log.
 - No rebuild starts while the microphone opens, because the Even app answers one call at a time. If your app opens the microphone itself, pass that promise to `holdRebuilds`.
 - `brightness` runs from 0 to 4, and 4 is the default.
 - Even reports `foreground` when its menu opens and `background` when it closes, so Earshot keeps drawing through both.

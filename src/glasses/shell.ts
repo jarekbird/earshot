@@ -1,5 +1,5 @@
 import { action, type Action, type TargetInfo } from '../action.js'
-import { joinPcm, problemWith, secondsOf, type Audio } from '../audio.js'
+import { joinPcm, levelOf, problemWith, QUIET, secondsOf, type Audio } from '../audio.js'
 import { LifetimeEnded, type Lifetime, type Timer } from '../lifetime.js'
 import { ITEM_LIMIT } from '../context.js'
 import { matchWords, navigator, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
@@ -37,12 +37,13 @@ export interface ShellWords {
 }
 
 export interface VoiceOptions {
-  transcribe: (audio: Audio) => Promise<string>
+  transcribe: (audio: Audio) => Promise<string | null>
   model?: NavigatorModel
   agents?: Agent[]
   otherwise?: string
   rolling?: Rolling
   timeoutMs?: number
+  maxHoldMs?: number
 }
 
 export interface ShellOptions {
@@ -77,6 +78,8 @@ const NOTICE_MS = 3_000
 const HEARD_MS = 1_500
 const VOICE_TIMEOUT_MS = 15_000
 const MAX_HOLD_MS = 60_000
+const METER_BARS = 8
+const METER_MS = 300
 const SCROLL_LINES = 2
 const SCREENFUL = 8
 const MORE = 'earshot.more'
@@ -92,6 +95,7 @@ interface Place {
 }
 
 interface Drawn {
+  frame: number
   screen: Screen
   view: View
   targets: readonly TargetInfo[]
@@ -115,7 +119,8 @@ export class Shell {
   #fading: Timer | undefined
   #recording: { chunks: Uint8Array[]; end: () => void } | null = null
   #turn = 0
-  #deciding = false
+  #deciding: Lifetime | null = null
+  #asked: Array<{ frame: number; screen: Screen }> = []
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -160,8 +165,17 @@ export class Shell {
     const shown = fold ? offered.slice(0, MAX_MENU_ITEMS - 1) : offered
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
-    this.#drawn = { screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
-    this.#glasses.draw({ boxes, pictures, menu })
+    this.#shown()
+    const frame = this.#glasses.draw({ boxes, pictures, menu })
+    this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
+    this.#asked.push({ frame, screen })
+  }
+
+  #shown(): Screen | undefined {
+    const shown = this.#glasses.shown
+    const at = this.#asked.findLastIndex(asked => asked.frame <= shown)
+    if (at > 0) this.#asked.splice(0, at)
+    return this.#asked[0] && this.#asked[0].frame <= shown ? this.#asked[0].screen : undefined
   }
 
   #bound(view: View): Action[] {
@@ -257,9 +271,8 @@ export class Shell {
     if (input.kind === 'hold') return this.#hold()
     if (input.kind === 'release') return this.#release()
     if (this.#recording || this.#deciding) {
-      if (this.#recording && input.kind !== 'double') return
-      this.#callOff()
-      if (input.kind === 'double') return
+      if (!this.#recording || input.kind === 'double') this.#callOff()
+      return
     }
     const confirmed = this.#asking
     if (this.#overlaid) this.#clear()
@@ -290,7 +303,8 @@ export class Shell {
 
   #callOff(): void {
     this.#turn++
-    this.#deciding = false
+    this.#deciding?.end()
+    this.#deciding = null
     this.#recording?.end()
     this.#clear()
   }
@@ -300,19 +314,31 @@ export class Shell {
     this.#callOff()
     if (!this.#voice) return this.notice(this.#words.noVoice)
     const chunks: Uint8Array[] = []
-    const deaf = this.#glasses.onAudio(pcm => chunks.push(pcm))
-    const limit = this.#life.timeout(() => this.#release(), MAX_HOLD_MS)
+    const bars = Array<string>(METER_BARS).fill(QUIET)
+    const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`)
+    let meter: Timer | undefined
+    const deaf = this.#glasses.onAudio(pcm => {
+      chunks.push(pcm)
+      bars.push(levelOf(pcm))
+      bars.shift()
+      meter ??= this.#life.timeout(() => {
+        meter = undefined
+        listening()
+      }, METER_MS)
+    })
+    const limit = this.#life.timeout(() => this.#release(), this.#voice.maxHoldMs ?? MAX_HOLD_MS)
     const recording = {
       chunks,
       end: () => {
         deaf()
         limit.cancel()
+        meter?.cancel()
         this.#recording = null
         void this.#glasses.closeMic()
       },
     }
     this.#recording = recording
-    this.#show(this.#words.listening)
+    listening()
     void this.#glasses.openMic().then(open => {
       if (open || this.#recording !== recording) return
       recording.end()
@@ -333,31 +359,37 @@ export class Shell {
   async #decide(voice: VoiceOptions, audio: Audio): Promise<void> {
     const turn = ++this.#turn
     const screen = this.#router.current
+    const life = this.#life.child()
     const mine = () => turn === this.#turn && !this.#life.ended
     const moved = () => this.#router.current !== screen
     const finish = (then: () => void) => {
       if (!mine()) return
-      this.#deciding = false
+      this.#deciding = null
       slow.cancel()
+      life.end()
       if (moved()) this.#clear()
       else then()
     }
     const slow = this.#life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), voice.timeoutMs ?? VOICE_TIMEOUT_MS)
-    this.#deciding = true
+    this.#deciding = life
     this.#show(this.#words.thinking)
     try {
-      const words = (await voice.transcribe(audio)).trim()
+      const transcript = await voice.transcribe(audio)
+      const words = transcript?.trim() ?? ''
       if (!mine() || moved()) return finish(() => {})
-      if (!words) return finish(() => this.notice(this.#words.missed))
-      const heard = `"${words}"`
+      if (transcript !== null && !words) return finish(() => this.notice(this.#words.missed))
+      const heard = words ? `"${words}"` : this.#words.thinking
       this.#show(heard)
-      const verdict = await this.#ask(voice, words)
+      const verdict = await this.#ask(voice, { words, audio, life }, transcript !== null)
       finish(() => {
-        this.#show(heard, HEARD_MS)
+        if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
+        if (words) this.#show(heard, HEARD_MS)
+        else this.#clear()
         this.#act(verdict)
       })
     } catch (error) {
       finish(() => {
+        if (error instanceof LifetimeEnded) return this.#clear()
         if (!(error instanceof SayError)) console.error(error)
         this.notice(error instanceof SayError ? error.say : this.#words.voiceFailed)
       })
@@ -372,12 +404,12 @@ export class Shell {
     return [current.context?.() ?? '', selected].filter(Boolean).join('\n').slice(-ITEM_LIMIT)
   }
 
-  async #ask(voice: VoiceOptions, words: string): Promise<Verdict> {
-    const agents = [navigator(voice.model ?? matchWords), ...(voice.agents ?? [])]
+  async #ask(voice: VoiceOptions, said: { words: string; audio: Audio; life: Lifetime }, navigate: boolean): Promise<Verdict> {
+    const agents = [...(navigate ? [navigator(voice.model ?? matchWords)] : []), ...(voice.agents ?? [])]
     for (const [index, agent] of agents.entries()) {
       const screen = this.#context()
       const verdict = await agent({
-        words,
+        ...said,
         actions: this.#reachable(),
         rolling: voice.rolling?.items() ?? [],
         hasNext: index < agents.length - 1,
@@ -414,6 +446,8 @@ export class Shell {
   }
 
   #picked(item: number): void {
+    const shown = this.#shown()
+    if (shown && shown !== this.#router.current) return
     const id = [...this.#items].find(([, number]) => number === item)?.[0]
     const folded = this.#drawn?.folded ?? []
     if (id === MORE && folded.length) {

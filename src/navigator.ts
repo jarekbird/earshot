@@ -1,4 +1,6 @@
 import type { Action } from './action.js'
+import type { Audio } from './audio.js'
+import type { Lifetime } from './lifetime.js'
 import type { RollingItem } from './rolling.js'
 
 export interface Option {
@@ -33,6 +35,8 @@ export type Verdict =
 
 export interface Heard {
   words: string
+  audio?: Audio
+  life?: Lifetime
   actions: readonly Action[]
   rolling: readonly RollingItem[]
   hasNext: boolean

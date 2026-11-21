@@ -316,6 +316,23 @@ describe("Even's menu", () => {
     expect(front()).toBe('Not available here')
   })
 
+  it('ignores a pick from the menu of a screen that is no longer the current one, while the glasses still show it', async () => {
+    const { fake, ran, router } = world()
+    await settle()
+    const refresh = fake.menuItems().find(item => item.name === 'Refresh')!
+    router.open({
+      id: 'other',
+      actions: () => [action({ id: 'refresh', say: 'Refresh', run: () => void ran.push('other refresh') })],
+      view: () => text({ body: 'Other' }),
+    })
+    fake.menu(refresh.id)
+    await settle()
+    expect(ran).toEqual([])
+    fake.menu(refresh.id)
+    await settle()
+    expect(ran).toEqual(['other refresh'])
+  })
+
   it('folds what is over ten into a list behind More', async () => {
     const many = Array.from({ length: 12 }, (_, n) => action({ id: `a${n}`, say: `Action ${n}`, run: () => {} }))
     const { fake, menu, ran } = world({
@@ -503,7 +520,7 @@ describe('a hold', () => {
     fake.hold()
     await settle(50)
     expect(fake.mic).toBe('glasses')
-    expect(front()).toBe('Listening')
+    expect(front()).toBe('Listening ▁▁▁▁▁▁▁▁')
     fake.sound(tone(800))
     fake.release()
     await settle(50)
@@ -781,6 +798,116 @@ describe('a hold', () => {
     await settle()
     expect(ran).toEqual([])
     expect(router.depth).toBe(2)
+  })
+
+  it('shows how loud it hears the speaker, in bars beside the word', async () => {
+    const { fake, front } = world({ voice: hearing('refresh').voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(100, 30_000))
+    fake.sound(tone(100, 300))
+    await settle(300)
+    expect(front()).toBe('Listening ▁▁▁▁▁▁█▃')
+    fake.release()
+    await settle(600)
+    expect(front()).not.toContain('Listening')
+  })
+
+  it('stops what an agent has pending at any touch, without running what was touched', async () => {
+    const sent: string[] = []
+    let ended = false
+    const voice: VoiceOptions = {
+      transcribe: async () => 'tell the team',
+      model: { choose: async ({ options }) => ({ [options.find(option => option.role === 'pass')!.id]: 1 }) },
+      agents: [
+        async ({ words, life }) => {
+          life!.own(() => (ended = true))
+          await life!.guard(new Promise<void>(done => life!.timeout(done, 3_000)))
+          sent.push(words)
+          return { kind: 'handled' }
+        },
+      ],
+    }
+    const { fake, front, ran, router } = world({ voice })
+    await settle()
+    await say(fake)
+    expect(front()).toBe('"tell the team"')
+    fake.tap()
+    await settle(5_000)
+    expect(ended).toBe(true)
+    expect(sent).toEqual([])
+    expect(ran).toEqual([])
+    expect(router.depth).toBe(1)
+    expect(front()).toBe('')
+
+    await say(fake)
+    await settle(3_000)
+    expect(sent).toEqual(['tell the team'])
+  })
+
+  it('starts over when the touchpad is held again while an agent has something pending', async () => {
+    const sent: string[] = []
+    const lines = ['first try', 'second try']
+    const voice: VoiceOptions = {
+      transcribe: async () => lines.shift() ?? '',
+      model: { choose: async ({ options }) => ({ [options.find(option => option.role === 'pass')!.id]: 1 }) },
+      agents: [
+        async ({ words, life }) => {
+          await life!.guard(new Promise<void>(done => life!.timeout(done, 3_000)))
+          sent.push(words)
+          return { kind: 'handled' }
+        },
+      ],
+    }
+    const { fake } = world({ voice })
+    await settle()
+    await say(fake)
+    await say(fake)
+    await settle(5_000)
+    expect(sent).toEqual(['second try'])
+  })
+
+  it("hands the recording to the app's agents when the transcriber cannot transcribe, and asks no model", async () => {
+    const got: Array<{ words: string; seconds: number | undefined }> = []
+    const choose = vi.fn(async () => ({}))
+    const voice: VoiceOptions = {
+      transcribe: async () => null,
+      model: { choose },
+      agents: [
+        ({ words, audio }) => {
+          got.push({ words, seconds: audio?.seconds })
+          return { kind: 'handled', say: 'Sent as a recording' }
+        },
+      ],
+    }
+    const { fake, front } = world({ voice })
+    await settle()
+    await say(fake)
+    expect(got).toEqual([{ words: '', seconds: 0.8 }])
+    expect(choose).not.toHaveBeenCalled()
+    expect(front()).toBe('Sent as a recording')
+  })
+
+  it("didn't catch a recording nobody could transcribe and no agent took", async () => {
+    const { fake, front } = world({ voice: { transcribe: async () => null } })
+    await settle()
+    await say(fake)
+    expect(front()).toBe("Didn't catch that")
+  })
+
+  it('listens for as long as the app allows', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake } = world({ voice: { ...voice, maxHoldMs: 300_000 } })
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(800))
+    await settle(60_000)
+    expect(fake.mic).toBe('glasses')
+    await settle(240_000)
+    expect(fake.mic).toBeNull()
+    expect(asked).toEqual([0.8])
   })
 
   it('ends by itself after a minute without a release', async () => {

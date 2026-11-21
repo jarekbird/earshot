@@ -27,6 +27,14 @@ export function peakOf(pcm: Uint8Array): number {
   return peak
 }
 
+const LEVELS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█']
+export const QUIET = LEVELS[0]
+
+export function levelOf(pcm: Uint8Array): string {
+  const share = Math.log10(1 + peakOf(pcm) / 120) / Math.log10(1 + 32_768 / 120)
+  return LEVELS[Math.round(Math.max(0, Math.min(1, share)) * (LEVELS.length - 1))]
+}
+
 export function problemWith(pcm: Uint8Array): 'short' | 'silent' | null {
   if (secondsOf(pcm) * 1000 < MIN_SPEECH_MS) return 'short'
   return peakOf(pcm) < SILENCE_PEAK ? 'silent' : null

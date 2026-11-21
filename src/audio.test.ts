@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { joinPcm, peakOf, problemWith, secondsOf, toWav } from './audio.js'
+import { joinPcm, levelOf, peakOf, problemWith, secondsOf, toWav } from './audio.js'
 
 const tone = (ms: number, loudness: number) => {
   const samples = new Int16Array((16_000 * ms) / 1000)
@@ -11,6 +11,12 @@ describe('a recording', () => {
   it('is joined from its pieces, in order', () => {
     expect([...joinPcm([new Uint8Array([1, 2]), new Uint8Array([]), new Uint8Array([3])])]).toEqual([1, 2, 3])
     expect(joinPcm([]).length).toBe(0)
+  })
+
+  it('has a bar for how loud a piece of it is, from the lowest for silence to the highest', () => {
+    expect(levelOf(new Uint8Array(320))).toBe('▁')
+    expect(levelOf(tone(20, 300))).toBe('▃')
+    expect(levelOf(tone(20, 32_000))).toBe('█')
   })
 
   it('knows how long and how loud it is', () => {

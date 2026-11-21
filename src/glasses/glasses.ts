@@ -45,6 +45,7 @@ export type GlassesBridge = Pick<
 export type DrawOp = 'create' | 'rebuild' | 'update' | 'picture'
 
 export type Drawing =
+  | { at: 'ask'; frame: number; page: Frame }
   | { at: 'wait'; frame: number; inMs?: number }
   | { at: 'begin'; frame: number; rebuild: boolean }
   | { at: 'call'; frame: number; op: DrawOp; box?: string }
@@ -109,12 +110,14 @@ const shapeOf = (page: Page) => JSON.stringify([layoutOf(page), page.menu.map(it
 
 const fits = ({ w, h }: Picture) => w >= MIN_IMAGE_SIDE && w <= MAX_IMAGE_WIDTH && h >= MIN_IMAGE_SIDE && h <= MAX_IMAGE_HEIGHT
 
-function overlayText(text: string): string {
+function overlayLines(text: string): string[] {
   const lines = wrapText(cleanText(text).trim(), SCREEN_WIDTH)
   const shown = lines.slice(0, OVERLAY_LINES)
   if (lines.length > OVERLAY_LINES) shown[OVERLAY_LINES - 1] = fitText(`${shown[OVERLAY_LINES - 1]} …`, SCREEN_WIDTH)
-  return '\n'.repeat(SCREEN_LINES - shown.length) + shown.join('\n')
+  return shown
 }
+
+const under = (box: Box, lines: number) => box.y + box.h / 2 >= (SCREEN_LINES - lines) * LINE_HEIGHT
 
 const stateOf = ({ text, brightness }: Placed) => `${brightness}\n${text}`
 
@@ -178,6 +181,7 @@ export class Glasses {
   #retry: Timer | undefined
   #retryAt = 0
   #traced = ''
+  #shown = 0
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
@@ -187,6 +191,10 @@ export class Glasses {
     this.#watch = options.watch ?? (() => {})
     this.#life.own(bridge.onEvenHubEvent(event => this.#hear(event)))
     this.#life.own(() => void this.closeMic())
+  }
+
+  get shown(): number {
+    return this.#shown
   }
 
   async openMic(): Promise<boolean> {
@@ -235,6 +243,7 @@ export class Glasses {
       console.error(`Earshot: the glasses take ${MAX_IMAGE_BOXES} pictures. The last ${pictures} of this frame are left out.`)
     this.#frame = frame
     this.#frames++
+    this.#watch({ at: 'ask', frame: this.#frames, page: frame })
     this.#place()
     return this.#frames
   }
@@ -245,20 +254,20 @@ export class Glasses {
   }
 
   #place(): void {
-    const over = this.#overlay
+    const over = this.#overlay === null ? null : overlayLines(this.#overlay)
     const boxes: Placed[] = [
       {
         id: INPUT,
         name: INPUT_BOX.id,
         box: INPUT_BOX,
-        text: over === null ? INPUT_BOX.text : overlayText(over),
+        text: over === null ? INPUT_BOX.text : '\n'.repeat(SCREEN_LINES - over.length) + over.join('\n'),
         brightness: MAX_BRIGHTNESS,
       },
       ...this.#frame.boxes.slice(0, APP_BOXES).map((box, index) => ({
         id: index + 2,
         name: box.id.slice(0, MAX_NAME_CHARS),
         box,
-        text: clipBytes(box.text),
+        text: over !== null && under(box, over.length) ? ' ' : clipBytes(box.text),
         brightness:
           over === null ? (box.brightness ?? MAX_BRIGHTNESS) : (Math.min(box.brightness ?? MAX_BRIGHTNESS, OVERLAY_DIM) as Brightness),
       })),
@@ -334,6 +343,7 @@ export class Glasses {
           return this.#later(inMs)
         }
         this.#watch({ at: 'end', frame, drawn })
+        this.#shown = frame
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
         this.#report(page)
