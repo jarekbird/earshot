@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
-import { FRAME_TAG } from '../src/glasses/glasses.js'
+import { FRAME_TAG, INPUT_TAG } from '../src/glasses/glasses.js'
 import { findBinary, limited, Simulator } from './simulator.js'
 
 const FAKE = `#!/usr/bin/env node
@@ -16,10 +16,11 @@ if (mode === 'exits') {
 }
 const entries = []
 const say = message => entries.push({ id: entries.length, level: 'log', message, ts: 1 })
+let presses = 0
 say('started ' + args.join(' '))
 say('home=' + process.env.HOME + ' pid=' + process.pid + ' display=' + (process.env.DISPLAY ?? ''))
 if (mode === 'later') setTimeout(() => say('ready later'), 300)
-if (mode === 'frames') say('[earshot frame] {"lines":["Threads","One"]}')
+if (mode.startsWith('frames')) say('[earshot frame] {"lines":["Threads","One"],"menu":["Refresh","About"]}')
 if (mode === 'dies') setTimeout(() => process.exit(0), 300)
 if (mode === 'silent') setInterval(() => {}, 1000)
 else
@@ -37,6 +38,11 @@ else
         const { action } = JSON.parse(body)
         if (mode === 'refuses') response.statusCode = 400
         else say('input ' + action)
+        if (action === 'context_menu' && (mode === 'frames' || presses++ > 0)) say('[earshot input] {"kind":"foreground"}')
+        if (action === 'click' && mode.startsWith('frames')) {
+          say('[earshot input] {"kind":"menu","item":2}')
+          setTimeout(() => say('[earshot input] {"kind":"background"}'), 200)
+        }
         if (mode === 'frames') setTimeout(() => say('[earshot frame] {"lines":["Threads","after ' + action + '"]}'), 200)
         response.end()
       })
@@ -182,6 +188,33 @@ describe('what the glasses show', () => {
     await sim.input('tap')
     expect(await sim.shows('after click')).toEqual(['Threads', 'after click'])
     await expect(sim.shows('never', 300)).rejects.toThrow(/Timed out waiting for the glasses to show "never"/)
+  })
+
+  it("picks an item from Even's menu by its name", async () => {
+    const sim = await start('frames')
+    expect(sim.menu()).toEqual([])
+    await sim.pick('About')
+    expect(sim.entries.map(entry => entry.message).filter(message => message.startsWith('input '))).toEqual([
+      'input context_menu',
+      'input down',
+      'input click',
+    ])
+    expect(sim.entries.map(entry => entry.message)).toContain('[earshot input] {"kind":"background"}')
+    await expect(sim.pick('Missing')).rejects.toThrow(/No menu item "Missing"/)
+  })
+
+  it('presses for the menu again when the first press was ignored', async () => {
+    const sim = await start('frames-deaf')
+    await sim.pick('Refresh')
+    expect(sim.entries.map(entry => entry.message).filter(message => message.startsWith('input '))).toEqual([
+      'input context_menu',
+      'input context_menu',
+      'input click',
+    ])
+  }, 15_000)
+
+  it('uses the tags the renderer writes', () => {
+    expect(readFileSync(new URL('./simulator.ts', import.meta.url), 'utf8')).toContain(`const INPUT_TAG = '${INPUT_TAG}'`)
   })
 
   it('uses the tag the renderer writes', () => {

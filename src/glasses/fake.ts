@@ -1,5 +1,5 @@
 import { validateEvenHubPageContainer, type EvenAppBridge, type EvenHubEvent } from '@evenrealities/even_hub_sdk'
-import { byteLength, linesOf, type Brightness } from './frame.js'
+import { byteLength, linesOf, type Brightness, type MenuItem } from './frame.js'
 import type { GlassesEvent, HoldSource } from './input.js'
 import { MAX_BOXES, MAX_BRIGHTNESS, MAX_TEXT_BOXES, MAX_TEXT_BYTES } from './limits.js'
 
@@ -34,6 +34,7 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
     update: { times: 0, throws: false },
   }
   let page: FakeBox[] | null = null
+  let menu: MenuItem[] = []
   let owned = options.owned ?? false
 
   const refused = (op: FakeOp): boolean => {
@@ -50,6 +51,7 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
     if (texts.length > MAX_TEXT_BOXES || count > MAX_BOXES || !validateEvenHubPageContainer(container).valid) return null
     if (texts.filter(text => text.isEventCapture === 1).length > 1) return null
     if (texts.some(text => byteLength(text.content ?? '') > MAX_TEXT_BYTES)) return null
+    menu = (container.menuObject?.menuItems ?? []).map(item => ({ id: item.itemID ?? 0, name: item.itemName ?? '' }))
     return texts.map((text, index) => ({
       id: text.containerID ?? 0,
       name: text.containerName ?? '',
@@ -118,6 +120,12 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
     listening: () => listeners.size,
     boxes: (): FakeBox[] => [...(page ?? [])].sort((a, b) => a.order - b.order),
     lines: (): string[] => linesOf(page ?? []),
+    menuItems: (): MenuItem[] => [...menu],
+    pick: (name: string) => {
+      const item = menu.find(candidate => candidate.name === name)
+      if (!item) throw new Error(`No menu item "${name}". The menu is: ${menu.map(candidate => candidate.name).join(', ') || 'empty'}.`)
+      emit({ menuItemClickEvent: { itemID: item.id } })
+    },
     refuse: (op: FakeOp, times = 1, throws = false) => void (refusals[op] = { times, throws }),
     emit,
     tap: () => system(undefined, 1),

@@ -28,23 +28,44 @@ describe('the example app in the real Even Hub simulator', () => {
     await sim.shows('Earshot example', 60_000)
     return sim
   }
-  const picture = async (sim: Simulator) => Buffer.from(await sim.screenshot('glasses')).toString('base64')
 
-  it('draws its boxes, and changes text in place on a tap', async () => {
+  it('draws a list, moves the cursor, opens an item and comes back to it', async () => {
     const sim = await start()
-    expect(sim.shown()).toEqual(['Earshot example', 'Taps: 0'])
+    expect(sim.shown()).toEqual(['Earshot example', '> Welcome', 'Voice', 'A long note'])
+    expect(sim.menu()).toEqual(['Delete note', 'Tap counter', 'Send'])
+    await sim.input('down')
+    await sim.shows('> Voice')
     await sim.input('tap')
-    expect(await sim.shows('Taps: 1')).toEqual(['Earshot example', 'Taps: 1'])
-    await sim.input('tap')
-    await sim.shows('Taps: 2')
+    await sim.shows('Hold to talk comes')
+    await sim.input('double')
+    expect(await sim.shows('> Voice')).toEqual(['Earshot example', 'Welcome', '> Voice', 'A long note'])
   })
 
-  it('rebuilds the page when a box moves', async () => {
+  it("runs actions from Even's menu: says why one cannot run, and asks before one that needs it", async () => {
     const sim = await start()
-    const before = await picture(sim)
+    await sim.pick('Send')
+    await sim.shows('Nothing to send')
+    await sim.pick('Delete note')
+    expect(await sim.shows('Delete note')).toEqual(['Delete note', '> Welcome', 'Voice', 'A long note'])
+    await sim.input('tap')
+    await sim.shows('Tap to confirm')
+    await sim.input('tap')
+    expect(await sim.shows('> Voice')).toEqual(['Earshot example', '> Voice', 'A long note'])
+  })
+
+  it('scrolls a long text, and hands taps to a screen of boxes', async () => {
+    const sim = await start()
     await sim.input('down')
-    await sim.until('the line to move', async () => (await picture(sim)) !== before)
-    expect(sim.shown()).toEqual(['Earshot example', 'Taps: 0'])
+    await sim.input('down')
+    await sim.shows('> A long note')
+    await sim.input('tap')
+    await sim.shows('Line 9 of a long note.')
+    await sim.input('down')
+    await sim.shows('Line 11 of a long note.')
+    await sim.input('double')
+    await sim.shows('Earshot example')
+    await sim.pick('Tap counter')
+    await sim.shows('Taps: 0')
     await sim.input('tap')
     await sim.shows('Taps: 1')
   })

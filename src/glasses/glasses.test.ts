@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Lifetime } from '../lifetime.js'
 import { fakeBridge } from './fake.js'
 import type { Box, Frame } from './frame.js'
-import { FRAME_TAG, Glasses, REBUILD_GAP_MS } from './glasses.js'
+import { FRAME_TAG, Glasses, INPUT_TAG, OVERLAY_DIM, REBUILD_GAP_MS } from './glasses.js'
 import type { Input } from './input.js'
+import { textWidth } from './text.js'
 
 beforeEach(() => void vi.useFakeTimers())
 afterEach(() => {
@@ -31,6 +32,7 @@ describe('the first draw', () => {
       { name: 'input', text: ' ', capture: true, brightness: 4 },
       { name: 'title', text: 'Threads', capture: false, brightness: 4 },
       { name: 'body', text: 'One\nTwo', capture: false, brightness: 2 },
+      { name: 'front', text: ' ', capture: false, brightness: 4 },
     ])
     expect(fake.boxes()[0]).toMatchObject({ x: 0, y: 0, w: 576, h: 288 })
     expect(fake.lines()).toEqual(['Threads', 'One', 'Two'])
@@ -187,7 +189,7 @@ describe('the limits of the glasses', () => {
     const { fake, glasses } = setup()
     glasses.draw(frame(...Array.from({ length: 9 }, (_, n) => box(`box${n}`, `line ${n}`, { y: n * 27 }))))
     await settle()
-    expect(fake.lines()).toEqual(['line 0', 'line 1', 'line 2', 'line 3', 'line 4', 'line 5', 'line 6'])
+    expect(fake.lines()).toEqual(['line 0', 'line 1', 'line 2', 'line 3', 'line 4', 'line 5'])
     expect(error).toHaveBeenCalledOnce()
   })
 
@@ -196,6 +198,120 @@ describe('the limits of the glasses', () => {
     glasses.draw(frame(box('a-very-long-box-name-indeed', 'x')))
     await settle()
     expect(fake.boxes()[1].name).toBe('a-very-long-box-')
+  })
+})
+
+describe('the overlay', () => {
+  const drawn = async () => {
+    const made = setup()
+    made.glasses.draw(frame(box('title', 'Threads', { brightness: 3 }), box('body', 'One', { y: 27, brightness: 0 })))
+    await settle(REBUILD_GAP_MS)
+    made.fake.calls.length = 0
+    return made
+  }
+  const look = (fake: ReturnType<typeof fakeBridge>) =>
+    fake.boxes().map(({ name, text, brightness }) => `${name} ${brightness} ${JSON.stringify(text)}`)
+
+  it('has a box in front of the others, along the bottom, on every page', async () => {
+    const { fake } = await drawn()
+    expect(fake.boxes().at(-1)).toMatchObject({ name: 'front', x: 0, y: 207, w: 576, h: 81, text: ' ' })
+  })
+
+  it('dims the page in place and writes over it, bright, at the bottom', async () => {
+    const { fake, glasses } = await drawn()
+    glasses.overlay('Listening')
+    await settle()
+    expect(fake.calls).toEqual(['update title', 'update front'])
+    expect(look(fake)).toEqual(['input 4 " "', `title ${OVERLAY_DIM} "Threads"`, 'body 0 "One"', 'front 4 "\\n\\nListening"'])
+  })
+
+  it('gives the page its brightness back when it goes', async () => {
+    const { fake, glasses } = await drawn()
+    glasses.overlay('Listening')
+    await settle()
+    glasses.overlay(null)
+    await settle()
+    expect(look(fake)).toEqual(['input 4 " "', 'title 3 "Threads"', 'body 0 "One"', 'front 4 " "'])
+    expect(fake.calls.includes('rebuild')).toBe(false)
+  })
+
+  it('stays over a frame drawn while it is up', async () => {
+    const { fake, glasses } = await drawn()
+    glasses.overlay('Listening')
+    glasses.draw(frame(box('title', 'Chats', { brightness: 3 }), box('body', 'Two', { y: 27, brightness: 0 })))
+    await settle()
+    expect(look(fake)).toEqual(['input 4 " "', `title ${OVERLAY_DIM} "Chats"`, 'body 0 "Two"', 'front 4 "\\n\\nListening"'])
+  })
+
+  it('can be shown before anything is drawn', async () => {
+    const { fake, glasses } = setup()
+    glasses.overlay('Set up voice on your phone')
+    await settle()
+    expect(fake.lines()).toEqual(['Set up voice on your phone'])
+  })
+
+  it('shows three lines at most, split to fit, the last one cut', async () => {
+    const { fake, glasses } = await drawn()
+    glasses.overlay('one two three four five six seven eight nine ten '.repeat(8))
+    await settle()
+    const lines = fake.boxes().at(-1)!.text.split('\n')
+    expect(lines.length).toBe(3)
+    expect(lines[2].endsWith('…')).toBe(true)
+    for (const line of lines) expect(textWidth(line)).toBeLessThanOrEqual(576)
+  })
+})
+
+describe('the menu', () => {
+  const menu = [
+    { id: 1, name: 'Refresh' },
+    { id: 2, name: 'Settings' },
+  ]
+
+  it('goes on the page, and is gone from a page drawn without one', async () => {
+    const { fake, glasses } = setup()
+    glasses.draw({ boxes: [box('title', 'Threads')], menu })
+    await settle(REBUILD_GAP_MS)
+    expect(fake.menuItems()).toEqual(menu)
+    glasses.draw({ boxes: [box('title', 'Threads')] })
+    await settle()
+    expect(fake.menuItems()).toEqual([])
+  })
+
+  it('rebuilds the page only when it changes', async () => {
+    const { fake, glasses } = setup()
+    glasses.draw({ boxes: [box('title', 'One')], menu })
+    await settle(REBUILD_GAP_MS)
+    glasses.draw({ boxes: [box('title', 'Two')], menu: [...menu] })
+    await settle(REBUILD_GAP_MS)
+    glasses.draw({ boxes: [box('title', 'Two')], menu: [menu[0], { id: 2, name: 'About' }] })
+    await settle(REBUILD_GAP_MS)
+    expect(fake.calls).toEqual(['create', 'update title', 'rebuild'])
+  })
+
+  it('cuts a name that is too long for the glasses', async () => {
+    const { fake, glasses } = setup()
+    glasses.draw({ boxes: [], menu: [{ id: 1, name: 'A very long name for a menu item indeed' }] })
+    await settle()
+    expect(fake.menuItems()).toEqual([{ id: 1, name: 'A very long name for a menu i…' }])
+  })
+
+  it('leaves out what is over ten items, and reports it', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { fake, glasses } = setup()
+    glasses.draw({ boxes: [], menu: Array.from({ length: 11 }, (_, n) => ({ id: n + 1, name: `Item ${n + 1}` })) })
+    await settle()
+    expect(fake.menuItems().length).toBe(10)
+    expect(error).toHaveBeenCalledOnce()
+  })
+
+  it('tells the listeners which item was picked', async () => {
+    const { fake, glasses } = setup()
+    const heard: Input[] = []
+    glasses.onInput(input => heard.push(input))
+    glasses.draw({ boxes: [], menu })
+    await settle()
+    fake.pick('Settings')
+    expect(heard).toEqual([{ kind: 'menu', item: 2 }])
   })
 })
 
@@ -307,7 +423,28 @@ describe('the trace', () => {
     await settle()
     glasses.draw(frame(box('body', 'Three', { y: 27 }), box('title', 'Threads')))
     await settle()
-    expect(traced).toEqual([`${FRAME_TAG} {"lines":["Threads","One","Two"]}`, `${FRAME_TAG} {"lines":["Threads","Three"]}`])
+    expect(traced).toEqual([
+      `${FRAME_TAG} {"lines":["Threads","One","Two"],"menu":[]}`,
+      `${FRAME_TAG} {"lines":["Threads","Three"],"menu":[]}`,
+    ])
+  })
+
+  it('includes the menu and the overlay', async () => {
+    const traced: string[] = []
+    const { glasses } = setup({ trace: line => traced.push(line) })
+    glasses.draw({ boxes: [box('title', 'Threads')], menu: [{ id: 1, name: 'Refresh' }] })
+    glasses.overlay('Listening')
+    await settle()
+    expect(traced).toEqual([`${FRAME_TAG} {"lines":["Threads","Listening"],"menu":["Refresh"]}`])
+  })
+
+  it('writes each thing the user did', () => {
+    const traced: string[] = []
+    const { fake } = setup({ trace: line => traced.push(line) })
+    fake.tap()
+    fake.menu(3)
+    fake.emit({ audioEvent: { audioPcm: new Uint8Array(2) } })
+    expect(traced).toEqual([`${INPUT_TAG} {"kind":"tap"}`, `${INPUT_TAG} {"kind":"menu","item":3}`])
   })
 
   it('writes nothing for a draw the glasses refused', async () => {

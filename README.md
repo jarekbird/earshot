@@ -6,12 +6,12 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 
 **Status: early.** Only the first slice exists. The API will change until two apps run on it.
 
-| Slice | What                                                                                                    | State   |
-| ----- | ------------------------------------------------------------------------------------------------------- | ------- |
-| 1     | Actions, the router, lifetimes, text, storage, the store check and the simulator driver                 | here    |
-| 2     | Glasses renderer and touch input: drawing and input are here; lists, text screens and the menu are next | partly  |
-| 3     | Hold to talk, and the agent stack with an offline navigator                                             | planned |
-| 4     | Navigation by [Jev](https://typesafe.ai), TypeSafe AI's decision model                                  | planned |
+| Slice | What                                                                                                       | State   |
+| ----- | ---------------------------------------------------------------------------------------------------------- | ------- |
+| 1     | Actions, the router, lifetimes, text, storage, the store check and the simulator driver                    | here    |
+| 2     | Glasses renderer and touch input; the brightness of the voice overlay is still to be tried on real glasses | here    |
+| 3     | Hold to talk, and the agent stack with an offline navigator                                                | planned |
+| 4     | Navigation by [Jev](https://typesafe.ai), TypeSafe AI's decision model                                     | planned |
 
 The design is in [`docs/design.md`](docs/design.md).
 
@@ -20,7 +20,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.8
+npm install github:jarekbird/earshot#v0.0.9
 ```
 
 ## Actions
@@ -57,11 +57,8 @@ A screen has an id, its own actions, and a lifetime that ends what it started.
 ```ts
 import { Router } from 'earshot'
 
-const router = new Router({
-  home: listScreen,
-  actions: () => [pages, refresh],
-  onChange: screen => draw(screen),
-})
+const router = new Router({ home: listScreen, actions: () => [pages, refresh] })
+router.onChange(screen => draw(screen))
 
 router.open({
   id: 'thread',
@@ -98,38 +95,64 @@ async function load(life: Lifetime) {
 - `life.child()` is a shorter lifetime inside this one, for one task.
 - When it ends, every cleanup runs, newest first, even if one throws. The failures are then thrown together as an `AggregateError`.
 
-## Draw on the glasses
+## Screens on the glasses
 
-`Glasses` draws frames of text boxes and tells you what the user did. It is the only part of Earshot that talks to Even's SDK, which your app installs.
+A screen says what to show with `view`. The shell draws the current screen and runs your actions from the touchpad.
 
 ```ts
 import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
-import { Glasses, Lifetime, LINE_HEIGHT, SCREEN_WIDTH } from 'earshot'
+import { action, Glasses, Lifetime, list, Router, Shell, text } from 'earshot'
+
+const open = action({
+  id: 'open',
+  say: 'Open note',
+  targets: () => notes.map(note => ({ id: note.id, say: note.title, value: note })),
+  run: note => router.open({ id: 'note', view: () => text({ title: note.title, body: note.body }) }),
+})
+
+const router = new Router({
+  home: { id: 'notes', actions: () => [open, refresh], view: () => list({ title: 'Notes', action: open }) },
+})
 
 const life = new Lifetime()
 const glasses = new Glasses(life, await waitForEvenAppBridge())
+const shell = new Shell(life, glasses, router)
+```
 
+- `list({ title, action, empty })` shows the targets of one action as lines of text. A swipe moves the cursor and a tap runs the action on that item.
+- `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines.
+- `boxes(boxes, input)` places each box yourself, and gets the taps and swipes. A screen with no `view` lists its actions.
+- A double tap goes back. From the home screen it asks Even to close the app.
+- Even's menu lists the screen's and the app's other actions. Over ten, the rest go behind "More…". An action with targets asks which one in a list.
+- An action that is blocked says why over the page, which dims for a few seconds. An action with `risk: 'confirm'` asks first, and only a tap confirms.
+- Call `shell.redraw()` when what a screen shows has changed. `shell.notice(text)` says something over the page.
+- `new Shell(life, glasses, router, { onHold, words })` hands you holds and releases, and lets you change Earshot's own few words.
+
+### Draw it yourself
+
+Under the shell, `Glasses` draws frames of text boxes and tells you what the user did. It is the only part of Earshot that talks to Even's SDK, which your app installs.
+
+```ts
 glasses.draw({
   boxes: [
     { id: 'title', x: 0, y: 0, w: SCREEN_WIDTH, h: LINE_HEIGHT, text: 'Threads' },
     { id: 'body', x: 0, y: LINE_HEIGHT, w: SCREEN_WIDTH, h: 200, text: 'One\nTwo', brightness: 2 },
   ],
+  menu: [{ id: 1, name: 'Refresh' }],
 })
-
+glasses.overlay('Listening') // dims the page and writes over it; null takes it away
 glasses.onInput(input => {
   if (input.kind === 'double') void glasses.leave()
 })
 ```
 
 - Draw as often as you like. One draw is sent at a time, and only the newest frame waits.
-- A change of text or brightness is updated in place, without a flicker. The page is rebuilt only when a box is added, removed, moved, resized or renamed, and never more than about three times a second.
+- A change of text or brightness is updated in place, without a flicker. The page is rebuilt only when a box is added, removed, moved, resized or renamed, or the menu changes, and never more than about three times a second.
 - A draw the glasses refuse is tried again, after half a second, then one, two and four.
 - `input.kind` is `tap`, `double`, `up`, `down`, `hold`, `release`, `menu`, `foreground`, `background` or `exit`. A hold says where it was pressed: `right`, `left` or `ring`.
-- An app gets seven text boxes. Text over 999 bytes in a box is cut, with an ellipsis.
+- An app gets six text boxes. Earshot keeps one behind them for input and one in front for the overlay. Text over 999 bytes in a box is cut, with an ellipsis.
 - `brightness` runs from 0 to 4, and 4 is the default.
-- Even reports `foreground` and `background` around its own menu too, so Earshot keeps drawing through both.
-
-Lists, text screens and Even's menu, drawn from your actions, come next.
+- Even reports `foreground` when its menu opens and `background` when it closes, so Earshot keeps drawing through both.
 
 ### Test without the glasses
 
@@ -138,10 +161,11 @@ import { fakeBridge } from 'earshot/testing'
 
 const fake = fakeBridge()
 const glasses = new Glasses(life, fake.bridge)
-glasses.draw(frame)
+new Shell(life, glasses, router)
 await vi.advanceTimersByTimeAsync(0)
-expect(fake.lines()).toEqual(['Threads', 'One', 'Two'])
-fake.tap() // also double, up, down, hold, release, menu, foreground, background, exit
+expect(fake.lines()).toEqual(['Notes', '> First note', 'Second note'])
+fake.down() // also tap, double, up, hold, release, foreground, background, exit
+fake.pick('Refresh') // an item of Even's menu
 ```
 
 The stand-in refuses what Even's simulator refuses: a ninth text box, text of 1,000 bytes, a second page. `fake.refuse('rebuild', 2)` makes it refuse on request.
@@ -243,5 +267,5 @@ await sim.stop()
 - Each run has its own home folder, removed by `stop`. Every process it starts has a hard time limit, an hour unless you pass `limitSeconds`.
 - On Linux without a display it starts a hidden one, which needs `Xvfb`. A bare CI machine also needs the simulator's libraries: on Ubuntu, `xvfb libwebkit2gtk-4.1-0 libasound2t64`.
 - Input reaches the app only when its page has a container that captures events.
-- `new Glasses(life, bridge, { trace: true })` writes what the glasses show to the console, and then `await sim.shows('Threads')` waits for it and `sim.shown()` gives the lines.
+- `new Glasses(life, bridge, { trace: true })` writes what the glasses show to the console. Then `await sim.shows('Threads')` waits for it, `sim.shown()` gives the lines, `sim.menu()` the items of Even's menu, and `await sim.pick('Refresh')` picks one.
 - The simulator is not the glasses: check fonts, scrolling and timing on the device.

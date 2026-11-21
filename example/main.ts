@@ -1,25 +1,70 @@
 import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
-import { Glasses, Lifetime, LINE_HEIGHT, SCREEN_WIDTH } from '../src/index.js'
+import { action, boxes, Glasses, Lifetime, LINE_HEIGHT, list, Router, SCREEN_WIDTH, Shell, text } from '../src/index.js'
+
+interface Note {
+  id: string
+  title: string
+  body: string
+}
+
+const notes: Note[] = [
+  {
+    id: 'welcome',
+    title: 'Welcome',
+    body: 'Earshot draws this list from one action and its targets. Swipe to move, tap to open, double tap to go back.',
+  },
+  { id: 'voice', title: 'Voice', body: 'Hold to talk comes in the next slice. Everything you will be able to say is already in the menu.' },
+  { id: 'long', title: 'A long note', body: Array.from({ length: 40 }, (_, n) => `Line ${n + 1} of a long note.`).join('\n') },
+]
+const targets = () => notes.map(note => ({ id: note.id, say: note.title, value: note }))
+let taps = 0
 
 const life = new Lifetime()
 const glasses = new Glasses(life, await waitForEvenAppBridge(), { trace: location.hash === '#trace' })
-let taps = 0
-let low = false
 
-const draw = () =>
-  glasses.draw({
-    boxes: [
-      { id: 'title', x: 0, y: 0, w: SCREEN_WIDTH, h: LINE_HEIGHT, text: 'Earshot example' },
-      { id: 'count', x: 0, y: (low ? 4 : 2) * LINE_HEIGHT, w: SCREEN_WIDTH, h: LINE_HEIGHT, text: `Taps: ${taps}`, brightness: 2 },
-    ],
-  })
-
-glasses.onInput(input => {
-  if (input.kind === 'double') return void glasses.leave()
-  if (input.kind === 'tap') taps++
-  else if (input.kind === 'down') low = true
-  else if (input.kind === 'up') low = false
-  else return
-  draw()
+const open = action({
+  id: 'open',
+  say: 'Open note',
+  targets,
+  run: note => router.open({ id: 'note', view: () => text({ title: note.title, body: note.body }) }),
 })
-draw()
+
+const remove = action({
+  id: 'delete',
+  say: 'Delete note',
+  risk: 'confirm',
+  targets,
+  run: note => void notes.splice(notes.indexOf(note), 1),
+})
+
+const send = action({ id: 'send', say: 'Send', blocked: () => 'Nothing to send', run: () => {} })
+
+const counter = action({
+  id: 'counter',
+  say: 'Tap counter',
+  run: () =>
+    router.open({
+      id: 'counter',
+      view: () =>
+        boxes(
+          [
+            { id: 'title', x: 0, y: 0, w: SCREEN_WIDTH, h: LINE_HEIGHT, text: 'Tap counter', brightness: 2 },
+            { id: 'count', x: 0, y: 2 * LINE_HEIGHT, w: SCREEN_WIDTH, h: LINE_HEIGHT, text: `Taps: ${taps}` },
+          ],
+          input => {
+            if (input.kind !== 'tap') return
+            taps++
+            shell.redraw()
+          },
+        ),
+    }),
+})
+
+const router: Router = new Router({
+  home: {
+    id: 'notes',
+    actions: () => [open, remove, counter, send],
+    view: () => list({ title: 'Earshot example', action: open, empty: 'No notes' }),
+  },
+})
+const shell: Shell = new Shell(life, glasses, router)

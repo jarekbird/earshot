@@ -74,26 +74,35 @@ would turn down: the manifest rules, and any URL in the build outside the networ
 outside `src`, because it needs Node; nothing in `src` imports it. What belongs on an app's whitelist stays the app's
 own test.
 
-## Renderer and touch (slice 2, step 1 of 3 built)
+## Renderer and touch (slice 2, built)
 
 The only code that imports the SDK (E1). It owns the device limits as tested constants, redraws a page only when its
 containers change, and maps the touchpad to actions: swipe moves, tap runs, double tap goes back.
 
-- It sets the front-to-back order of every container, and keeps one text box in front of the rest for the voice
-  overlay. That box is one of the eight containers a page may have besides images.
-- Lists are drawn as text, not as the SDK's list container: text can be dimmed in place, a list cannot.
-- A screen hands it a `list`, a `text` or its own `boxes`. A list shows the targets of one action; `boxes` is the
-  level under both.
+`Glasses` draws frames of boxes and reports input.
 
-Step 1, built: `Glasses` draws a frame of boxes and reports input.
-
-- One draw at a time, and only the newest frame waits. Text and brightness change in place; anything else about a box
-  rebuilds the page, at most once in 300 ms. A refused draw is retried after 0.5, 1, 2 and then 4 seconds.
+- One draw at a time, and only the newest frame waits. Text and brightness change in place; anything else about a box,
+  or a change of menu, rebuilds the page, at most once in 300 ms. A refused draw is retried after 0.5, 1, 2 and then
+  4 seconds.
 - A full-screen empty box behind the others takes the input, because the firmware animates a bounce on the box that
-  takes the swipes.
+  takes the swipes. One box in front of the others, three lines along the bottom, is the overlay's. That leaves an
+  app six of the eight text boxes. It sets the front-to-back order of all of them.
+- `overlay(text)` lowers the brightness of the page in place and writes the text, bright, in the front box.
 - Input is one type: tap, double, up, down, hold, release, menu, foreground, background, exit.
-- `earshot/testing` is a stand-in bridge for tests, and a traced frame is what `earshot/sim` reads back as the
-  glasses' text.
+
+`Shell` draws the router's current screen and runs actions from touch.
+
+- A screen's `view` is a `list`, a `text` or its own `boxes`. A list shows the targets of one action. Lists are drawn
+  as text, not as the SDK's list container: text can be dimmed in place, a list cannot. The row under the cursor is in
+  a box of its own, so moving the cursor changes text and rebuilds nothing.
+- Even's menu lists the other actions. Each action keeps one item number on every screen, so a pick that arrives from
+  an old menu cannot run a different action. Over ten, the rest fold into a list.
+- A blocked action says why in the overlay for three seconds. A `confirm` action asks there first, and only a tap
+  confirms. An action that needs a target and has none opens a list of its targets.
+- Holds are handed on untouched; slice 3 takes them.
+
+`earshot/testing` is a stand-in bridge for tests, and a traced frame is what `earshot/sim` reads back as the glasses'
+text and menu.
 
 What the simulator showed, which the code follows where it differs from Even's pages:
 
@@ -101,9 +110,11 @@ What the simulator showed, which the code follows where it differs from Even's p
 - It reports `foreground` when Even's menu opens and `background` when it closes, so Earshot keeps drawing through
   both and only reports them.
 - A second create is refused, so a reloaded web view takes its old page over with a rebuild.
+- Even's menu opens with its first item chosen and wraps at both ends. It ignores a press while it is closing, and
+  taps do not reach the app until it has closed.
 
-Step 2: `list`, `text`, touch running actions, and Even's menu from the action list. Step 3: the front box and
-dimming.
+Not built: images, which no app on Earshot uses yet. Still to try on real glasses: how the dimmed page reads behind
+the overlay, and which levels to use. It is 1 now.
 
 ## Hold and the agent stack (slice 3)
 
@@ -233,8 +244,9 @@ stack. A hold ends at release; after the phrase, a pause in speech or a longest 
 
 ## Open
 
-- How dimmed text behind bright text reads on real glasses, and which brightness levels to use. To be tested
-  first in slice 2; a reserved row is the fallback.
+- How dimmed text behind bright text reads on real glasses, and which brightness levels to use. The overlay is
+  built and dims to level 1; it is to be tried on real glasses before slice 3 relies on it. A reserved row is the
+  fallback.
 - Whether OpenRouter's sign-in redirect works inside the Even app's web view. To be tested before building on it.
 - Whether screens get declared ids and parameters (`thread/:id`), so context and deep links attach to a route.
 - The two context limits and how long text must be still before it is compacted. First guess: 1,200 characters an

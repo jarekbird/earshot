@@ -1,16 +1,17 @@
 import type { Action, Outcome } from './action.js'
 import { Lifetime } from './lifetime.js'
+import type { View } from './view.js'
 
 export interface Screen {
   readonly id: string
   actions?(): readonly Action[]
+  view?(): View
   enter?(life: Lifetime): void
 }
 
 export interface RouterOptions {
   home: Screen
   actions?: () => readonly Action[]
-  onChange?: (current: Screen) => void
 }
 
 interface Entry {
@@ -21,11 +22,10 @@ interface Entry {
 export class Router {
   readonly #stack: Entry[]
   readonly #appActions: () => readonly Action[]
-  readonly #onChange: (current: Screen) => void
+  readonly #listeners = new Set<(current: Screen) => void>()
 
   constructor(options: RouterOptions) {
     this.#appActions = options.actions ?? (() => [])
-    this.#onChange = options.onChange ?? (() => {})
     this.#stack = [this.#enter(options.home)]
   }
 
@@ -35,6 +35,11 @@ export class Router {
 
   get depth(): number {
     return this.#stack.length
+  }
+
+  onChange(listener: (current: Screen) => void): () => void {
+    this.#listeners.add(listener)
+    return () => void this.#listeners.delete(listener)
   }
 
   open(screen: Screen): void {
@@ -75,6 +80,10 @@ export class Router {
   async run(id: string, targetId?: string): Promise<Outcome> {
     const found = this.actions().find(a => a.id === id)
     return found ? found.run(targetId) : { done: false, why: 'unknown' }
+  }
+
+  #onChange(current: Screen): void {
+    for (const listener of [...this.#listeners]) listener(current)
   }
 
   #enter(screen: Screen): Entry {

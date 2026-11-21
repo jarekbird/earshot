@@ -55,9 +55,23 @@ describe('the screen stack', () => {
     expect(router.depth).toBe(1)
   })
 
+  it('tells every listener of a change, and stops telling one that left', () => {
+    const router = new Router({ home: screen('list') })
+    const first: string[] = []
+    const second: string[] = []
+    const leave = router.onChange(s => first.push(s.id))
+    router.onChange(s => second.push(s.id))
+    router.open(screen('thread'))
+    leave()
+    router.back()
+    expect(first).toEqual(['thread'])
+    expect(second).toEqual(['thread', 'list'])
+  })
+
   it('tells the app each time the current screen changes, and only then', () => {
     const seen: string[] = []
-    const router = new Router({ home: screen('list'), onChange: s => seen.push(s.id) })
+    const router = new Router({ home: screen('list') })
+    router.onChange(s => seen.push(s.id))
     router.open(screen('thread'))
     router.replace(screen('other'))
     router.back()
@@ -120,7 +134,8 @@ describe('E7: what a screen starts ends with it', () => {
         },
       })
     const onChange = vi.fn()
-    const router = new Router({ home: screen('list'), onChange })
+    const router = new Router({ home: screen('list') })
+    router.onChange(onChange)
     router.open(failing('a'))
     router.open(failing('b'))
     onChange.mockClear()

@@ -9,6 +9,8 @@ import { setTimeout as pause } from 'node:timers/promises'
 const LOOPBACK = '127.0.0.1'
 const POLL_MS = 100
 const FRAME_TAG = '[earshot frame]'
+const INPUT_TAG = '[earshot input]'
+const MENU_OPENS_MS = 1_500
 const ACTIONS = {
   tap: 'click',
   double: 'double_click',
@@ -209,16 +211,54 @@ export class Simulator {
     )
   }
 
-  shown(): string[] {
+  #frame(): { lines: string[]; menu: string[] } {
     for (let at = this.entries.length - 1; at >= 0; at--) {
       const tagged = this.entries[at].message.indexOf(FRAME_TAG)
       if (tagged < 0) continue
       try {
         const frame: unknown = JSON.parse(this.entries[at].message.slice(tagged + FRAME_TAG.length))
-        if (frame && typeof frame === 'object' && 'lines' in frame && Array.isArray(frame.lines)) return frame.lines.map(String)
+        if (!frame || typeof frame !== 'object') continue
+        const strings = (key: string) => {
+          const value = (frame as Record<string, unknown>)[key]
+          return Array.isArray(value) ? value.map(String) : []
+        }
+        return { lines: strings('lines'), menu: strings('menu') }
       } catch {}
     }
-    return []
+    return { lines: [], menu: [] }
+  }
+
+  shown(): string[] {
+    return this.#frame().lines
+  }
+
+  menu(): string[] {
+    return this.#frame().menu
+  }
+
+  async pick(name: string, ms = 15_000): Promise<void> {
+    await this.read()
+    const at = this.menu().indexOf(name)
+    if (at < 0) throw new Error(`No menu item ${JSON.stringify(name)}. The menu is: ${this.menu().join(', ') || 'empty'}.`)
+    const saysSince = (from: number, text: string) => this.entries.slice(from).some(entry => entry.message.includes(text))
+    const deadline = Date.now() + ms
+    // Even's menu ignores a press while it is still closing, so a press is repeated until the app reports it open.
+    for (let open = false; !open;) {
+      if (Date.now() > deadline) throw new Error(`Even's menu did not open for ${JSON.stringify(name)}.`)
+      const from = this.entries.length
+      await this.input('menu')
+      const until = Date.now() + MENU_OPENS_MS
+      while (!open && Date.now() < until) {
+        await pause(POLL_MS)
+        await this.read()
+        open = saysSince(from, `${INPUT_TAG} {"kind":"foreground"}`)
+      }
+    }
+    for (let moved = 0; moved < at; moved++) await this.input('down')
+    const from = this.entries.length
+    await this.input('tap')
+    const heard = () => saysSince(from, `${INPUT_TAG} {"kind":"menu"`) && saysSince(from, `${INPUT_TAG} {"kind":"background"}`)
+    await this.until(`the app to hear the pick of ${JSON.stringify(name)} and the menu to close`, heard, Math.max(1, deadline - Date.now()))
   }
 
   shows(text: string, ms = 20_000): Promise<string[]> {

@@ -1,4 +1,4 @@
-import { MAX_TEXT_BYTES } from './limits.js'
+import { LINE_HEIGHT, MAX_TEXT_BYTES } from './limits.js'
 
 export type Brightness = 0 | 1 | 2 | 3 | 4
 
@@ -12,8 +12,14 @@ export interface Box {
   brightness?: Brightness
 }
 
+export interface MenuItem {
+  id: number
+  name: string
+}
+
 export interface Frame {
   boxes: Box[]
+  menu?: MenuItem[]
 }
 
 const encoder = new TextEncoder()
@@ -35,8 +41,21 @@ export function clipBytes(text: string, max: number = MAX_TEXT_BYTES): string {
   return kept + ELLIPSIS
 }
 
-export const linesOf = (boxes: readonly Pick<Box, 'x' | 'y' | 'text'>[]): string[] =>
-  [...boxes]
-    .sort((a, b) => a.y - b.y || a.x - b.x)
-    .flatMap(box => box.text.split('\n'))
-    .filter(line => line.trim())
+export function linesOf(boxes: readonly Pick<Box, 'x' | 'y' | 'text'>[], lineHeight: number = LINE_HEIGHT): string[] {
+  const rows = new Map<number, { x: number; text: string }[]>()
+  for (const box of boxes) {
+    box.text.split('\n').forEach((text, index) => {
+      if (!text.trim()) return
+      const y = box.y + index * lineHeight
+      rows.set(y, [...(rows.get(y) ?? []), { x: box.x, text: text.trim() }])
+    })
+  }
+  return [...rows]
+    .sort(([a], [b]) => a - b)
+    .map(([, parts]) =>
+      parts
+        .sort((a, b) => a.x - b.x)
+        .map(part => part.text)
+        .join(' '),
+    )
+}
