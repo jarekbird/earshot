@@ -1,0 +1,202 @@
+import { describe, expect, it } from 'vitest'
+import { openRouter, MODELS } from '../src/openrouter/openrouter.js'
+import { DEFAULT_MODELS, relay } from './relay.js'
+
+interface Sent {
+  url: string
+  key: string | null
+  body: Record<string, unknown>
+}
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'x-upstream-secret': 'hidden' } })
+
+function setup(answers: (Response | Error)[] = [], more: { models?: string[]; maxBytes?: number } = {}) {
+  const sent: Sent[] = []
+  const handle = relay({
+    key: 'sk-developer',
+    upstream: 'https://upstream.example/',
+    ...more,
+    fetch: async (url, init) => {
+      sent.push({ url: String(url), key: new Headers(init?.headers).get('authorization'), body: JSON.parse(String(init?.body)) })
+      const answer = answers.shift() ?? json({})
+      if (answer instanceof Error) throw answer
+      return answer
+    },
+  })
+  const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+    handle(
+      new Request(`https://relay.example${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: typeof body === 'string' ? body : JSON.stringify(body),
+      }),
+    )
+  return { sent, handle, post }
+}
+
+const speech = { model: 'openai/whisper-large-v3-turbo', input_audio: { data: 'UklGRg==', format: 'wav' } }
+
+describe('a call from the app', () => {
+  it("goes to the upstream with the developer's key, and its answer comes back", async () => {
+    const { sent, post } = setup([json({ text: 'open voice' })])
+    const answer = await post('/api/v1/audio/transcriptions', { ...speech, language: 'en' })
+    expect(answer.status).toBe(200)
+    expect(await answer.json()).toEqual({ text: 'open voice' })
+    expect(sent).toEqual([
+      { url: 'https://upstream.example/api/v1/audio/transcriptions', key: 'Bearer sk-developer', body: { ...speech, language: 'en' } },
+    ])
+  })
+
+  it('may come from any page, and gets none of the headers of the upstream', async () => {
+    const { post } = setup([json({ text: 'x' })])
+    const answer = await post('/api/v1/audio/transcriptions', speech)
+    expect(answer.headers.get('access-control-allow-origin')).toBe('*')
+    expect(answer.headers.get('content-type')).toBe('application/json')
+    expect(answer.headers.get('x-upstream-secret')).toBeNull()
+  })
+
+  it('is forwarded for Jev and for shortening too', async () => {
+    const { sent, post } = setup()
+    await post('/api/alpha/decisions', { model: 'typesafe/jev-1.14', state: 's', questions: { pick: { type: 'choice' } } })
+    await post('/api/v1/chat/completions', { model: 'mistralai/mistral-nemo', max_tokens: 200, messages: [{ role: 'user', content: 'x' }] })
+    expect(sent.map(call => call.url)).toEqual([
+      'https://upstream.example/api/alpha/decisions',
+      'https://upstream.example/api/v1/chat/completions',
+    ])
+    expect(sent[0].body).toEqual({ model: 'typesafe/jev-1.14', state: 's', questions: { pick: { type: 'choice' } } })
+    expect(sent[1].body).toEqual({ model: 'mistralai/mistral-nemo', max_tokens: 200, messages: [{ role: 'user', content: 'x' }] })
+  })
+
+  it('carries only the fields Earshot sends', async () => {
+    const { sent, post } = setup()
+    await post('/api/v1/chat/completions', {
+      model: 'mistralai/mistral-nemo',
+      messages: [],
+      models: ['openai/gpt-5'],
+      plugins: [{ id: 'web' }],
+      provider: { order: ['x'] },
+      stream: true,
+      state: 'not for this call',
+    })
+    expect(sent[0].body).toEqual({ model: 'mistralai/mistral-nemo', messages: [] })
+  })
+
+  it("gets the upstream's refusal as it is", async () => {
+    const { post } = setup([json({ error: { message: 'Rate limited' } }, 429)])
+    const answer = await post('/api/v1/audio/transcriptions', speech)
+    expect(answer.status).toBe(429)
+    expect(answer.headers.get('access-control-allow-origin')).toBe('*')
+    expect(await answer.json()).toEqual({ error: { message: 'Rate limited' } })
+  })
+})
+
+describe('what it refuses, without calling the upstream', () => {
+  const refused = async (answer: Promise<Response>, status: number, sent: Sent[]) => {
+    const got = await answer
+    expect(got.status).toBe(status)
+    expect(got.headers.get('access-control-allow-origin')).toBe('*')
+    expect(typeof ((await got.json()) as { error: unknown }).error).toBe('string')
+    expect(sent).toEqual([])
+  }
+
+  it('a model the developer did not list', async () => {
+    const { sent, post } = setup()
+    await refused(post('/api/v1/chat/completions', { model: 'openai/gpt-5', messages: [] }), 400, sent)
+    await refused(post('/api/v1/chat/completions', { messages: [] }), 400, sent)
+  })
+
+  it('any other path', async () => {
+    const { sent, post } = setup()
+    await refused(post('/api/v1/embeddings', { model: 'mistralai/mistral-nemo' }), 404, sent)
+    await refused(post('/api/v1/keys', {}), 404, sent)
+    await refused(post('/', {}), 404, sent)
+  })
+
+  it('any other method', async () => {
+    const { sent, handle } = setup()
+    await refused(handle(new Request('https://relay.example/api/v1/chat/completions')), 405, sent)
+  })
+
+  it('a body that is not a JSON object', async () => {
+    const { sent, post } = setup()
+    await refused(post('/api/v1/chat/completions', 'not json'), 400, sent)
+    await refused(post('/api/v1/chat/completions', '[1]'), 400, sent)
+    await refused(post('/api/v1/chat/completions', 'null'), 400, sent)
+  })
+
+  it('a body over the size limit, whatever length it claims', async () => {
+    const { sent, post, handle } = setup([], { maxBytes: 1_000 })
+    const big = { model: 'mistralai/mistral-nemo', messages: [{ role: 'user', content: 'x'.repeat(1_000) }] }
+    await refused(post('/api/v1/chat/completions', big), 413, sent)
+    const stream = new Blob([JSON.stringify(big)]).stream()
+    const unsized = new Request('https://relay.example/api/v1/chat/completions', {
+      method: 'POST',
+      body: stream,
+      duplex: 'half',
+    } as RequestInit)
+    await refused(handle(unsized), 413, sent)
+  })
+})
+
+describe('the models', () => {
+  it("are Earshot's own unless the developer lists others", async () => {
+    expect(DEFAULT_MODELS).toEqual(Object.values(MODELS))
+    const { sent, post } = setup([], { models: ['openai/whisper-1'] })
+    expect((await post('/api/v1/audio/transcriptions', { ...speech, model: 'openai/whisper-1' })).status).toBe(200)
+    expect((await post('/api/v1/audio/transcriptions', speech)).status).toBe(400)
+    expect(sent.length).toBe(1)
+  })
+})
+
+describe('the check a browser makes first', () => {
+  it('is answered without calling the upstream', async () => {
+    const { sent, handle } = setup()
+    const answer = await handle(new Request('https://relay.example/api/alpha/decisions', { method: 'OPTIONS' }))
+    expect(answer.status).toBe(204)
+    expect(answer.headers.get('access-control-allow-origin')).toBe('*')
+    expect(answer.headers.get('access-control-allow-methods')).toBe('POST')
+    expect(answer.headers.get('access-control-allow-headers')).toBe('content-type')
+    expect(sent).toEqual([])
+  })
+})
+
+describe('when the upstream cannot be reached', () => {
+  it('says so, and never shows the key', async () => {
+    const { post } = setup([new TypeError('connect failed for Bearer sk-developer')])
+    const answer = await post('/api/v1/audio/transcriptions', speech)
+    expect(answer.status).toBe(502)
+    expect(await answer.text()).not.toContain('sk-developer')
+  })
+})
+
+describe("Earshot's own transports through the relay", () => {
+  it('get their answers, and send no key of their own', async () => {
+    const { sent, handle } = setup([
+      json({ text: 'open voice' }),
+      json({ answers: { pick: { type: 'choice', probabilities: { o1: 0.9 } } } }),
+      json({ choices: [{ message: { content: 'short' } }] }),
+    ])
+    const seen: (string | null)[] = []
+    const service = openRouter({
+      host: 'https://relay.example',
+      language: 'en',
+      fetch: (url, init) => {
+        seen.push(new Headers(init?.headers).get('authorization'))
+        return handle(new Request(url, init))
+      },
+    })
+    const pcm = new Uint8Array(new Int16Array(1_600).fill(4_000).buffer)
+    expect(await service.transcribe({ pcm, seconds: 0.1 })).toBe('open voice')
+    const question = { words: 'open voice', screen: 'Notes', options: [{ id: 'o1', say: 'Open note: Voice', context: 'About voice' }] }
+    expect(await service.model.choose(question)).toEqual({ o1: 0.9 })
+    expect(await service.compact('a long text', 400)).toBe('short')
+    expect(seen).toEqual([null, null, null])
+    expect(sent.map(call => call.key)).toEqual(['Bearer sk-developer', 'Bearer sk-developer', 'Bearer sk-developer'])
+    expect(sent.map(call => Object.keys(call.body).sort())).toEqual([
+      ['input_audio', 'language', 'model'],
+      ['model', 'questions', 'state'],
+      ['max_tokens', 'messages', 'model'],
+    ])
+  })
+})

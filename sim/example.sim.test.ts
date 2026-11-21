@@ -3,13 +3,37 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { build } from 'esbuild'
 import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
+import { serve } from '../relay/node.js'
 import { Simulator } from './simulator.js'
 
 describe('the example app in the real Even Hub simulator', () => {
   let server: Server
+  let relay: Server
   let url: string
+  const forwarded: string[] = []
   beforeAll(async () => {
-    const bundle = await build({ entryPoints: ['example/main.ts'], bundle: true, format: 'esm', write: false, logLevel: 'silent' })
+    relay = await serve({
+      key: 'sk-developer',
+      upstream: 'https://upstream.example',
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: async (address, init) => {
+        const { pathname } = new URL(String(address))
+        forwarded.push(pathname)
+        if (pathname.endsWith('/transcriptions')) return Response.json({ text: 'open voice' })
+        const criteria: Record<string, string> = JSON.parse(String(init?.body)).questions.pick.criteria
+        const wanted = Object.keys(criteria).find(id => criteria[id].startsWith('Open note: Voice')) ?? 'none'
+        return Response.json({ answers: { pick: { type: 'choice', choice: wanted, probabilities: { [wanted]: 0.95 } } } })
+      },
+    })
+    const bundle = await build({
+      entryPoints: ['example/main.ts'],
+      bundle: true,
+      format: 'esm',
+      write: false,
+      logLevel: 'silent',
+      define: { EARSHOT_RELAY: JSON.stringify(`http://127.0.0.1:${(relay.address() as AddressInfo).port}`) },
+    })
     const script = bundle.outputFiles[0].text
     const page = readFileSync('example/index.html')
     server = createServer((request, response) => {
@@ -20,7 +44,10 @@ describe('the example app in the real Even Hub simulator', () => {
     await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
     url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/#trace`
   })
-  afterAll(() => void server.close())
+  afterAll(() => {
+    server.close()
+    relay.close()
+  })
 
   const start = async (more = '', mic = false) => {
     const sim = await Simulator.start({ url: url + more, limitSeconds: 300, mic })
@@ -36,7 +63,7 @@ describe('the example app in the real Even Hub simulator', () => {
     await sim.input('down')
     await sim.shows('> Voice')
     await sim.input('tap')
-    await sim.shows('Hold to talk comes')
+    await sim.shows('Hold the touchpad and say')
     await sim.input('double')
     expect(await sim.shows('> Voice')).toEqual(['Earshot example', 'Welcome', '> Voice', 'A long note'])
   })
@@ -73,10 +100,18 @@ describe('the example app in the real Even Hub simulator', () => {
   it.runIf(process.platform === 'linux')("hears a hold: runs what the words ask for, and hands the rest to the app's agent", async () => {
     const sim = await start('&say=open%20voice|remember%20buy%20milk', true)
     await sim.hold(1_200)
-    await sim.shows('Hold to talk comes')
+    await sim.shows('Hold the touchpad and say')
     await sim.input('double')
     await sim.shows('Earshot example')
     await sim.hold(1_200)
     expect(await sim.shows('Saved')).toEqual(['Earshot example', '> Welcome', 'Voice', 'A long note', 'buy milk', 'Saved'])
+  })
+
+  it.runIf(process.platform === 'linux')("sends a hold through the developer's relay: speech to words, then Jev's pick", async () => {
+    const sim = await start('', true)
+    forwarded.length = 0
+    await sim.hold(1_200)
+    await sim.shows('Hold the touchpad and say')
+    expect(forwarded).toEqual(['/api/v1/audio/transcriptions', '/api/alpha/decisions'])
   })
 })

@@ -2,8 +2,6 @@ import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
 import {
   action,
   boxes,
-  createStore,
-  evenPlace,
   Glasses,
   Lifetime,
   LINE_HEIGHT,
@@ -14,9 +12,10 @@ import {
   SCREEN_WIDTH,
   Shell,
   text,
-  webPlace,
   type Agent,
 } from '../src/index.js'
+
+declare const EARSHOT_RELAY: string
 
 interface Note {
   id: string
@@ -30,7 +29,7 @@ const notes: Note[] = [
     title: 'Welcome',
     body: 'Earshot draws this list from one action and its targets. Swipe to move, tap to open, double tap to go back.',
   },
-  { id: 'voice', title: 'Voice', body: 'Hold to talk comes in the next slice. Everything you will be able to say is already in the menu.' },
+  { id: 'voice', title: 'Voice', body: 'Hold the touchpad and say what you want. Everything you can say is in the menu too.' },
   { id: 'long', title: 'A long note', body: Array.from({ length: 40 }, (_, n) => `Line ${n + 1} of a long note.`).join('\n') },
 ]
 const targets = () => notes.map(note => ({ id: note.id, say: note.title, value: note }))
@@ -42,7 +41,7 @@ const scripted = flags.get('say')?.split('|')
 const life = new Lifetime()
 const bridge = await waitForEvenAppBridge()
 const glasses = new Glasses(life, bridge, { trace: flags.has('trace') })
-const service = openRouter({ host: 'https://openrouter.ai', store: createStore([evenPlace(bridge), webPlace()]) })
+const service = EARSHOT_RELAY ? openRouter({ host: EARSHOT_RELAY }) : undefined
 
 const open = action({
   id: 'open',
@@ -92,7 +91,7 @@ const router: Router = new Router({
   },
 })
 
-const rolling = new Rolling(life, { compact: service.compact })
+const rolling = new Rolling(life, service ? { compact: service.compact } : {})
 for (const note of notes) rolling.add(open, note.id, note.body)
 const takeNote: Agent = heard => {
   const [, body] = /^remember (.+)/i.exec(heard.words) ?? []
@@ -103,35 +102,16 @@ const takeNote: Agent = heard => {
   return { kind: 'handled', say: 'Saved' }
 }
 
-const shell: Shell = new Shell(life, glasses, router, {
-  voice: {
-    ...(scripted ? { transcribe: async () => scripted.shift() ?? '' } : { transcribe: service.transcribe, model: service.model }),
-    agents: [takeNote],
-    otherwise: 'Something to remember as a new note',
-    rolling,
-  },
-})
+const hears = scripted
+  ? { transcribe: async () => scripted.shift() ?? '' }
+  : service && { transcribe: service.transcribe, model: service.model }
+const shell: Shell = new Shell(
+  life,
+  glasses,
+  router,
+  hears ? { voice: { ...hears, agents: [takeNote], otherwise: 'Something to remember as a new note', rolling } } : {},
+)
 
-const part = (id: string) => document.getElementById(id) as HTMLInputElement
-const showAccount = async () => {
-  const signedIn = await service.signedIn()
-  part('status').textContent = signedIn ? 'Voice is set up. Hold the touchpad and speak.' : 'Voice needs an OpenRouter account.'
-  part('signout').hidden = !signedIn
-}
-if (new URLSearchParams(location.search).has('code')) {
-  await service.finishSignIn(location.href)
-  history.replaceState(null, '', location.pathname + location.hash)
-}
-part('signin').onclick = async () => {
-  const back = location.protocol === 'https:' ? { callbackUrl: location.origin + location.pathname } : {}
-  location.assign(await service.signInUrl({ label: 'Earshot example', ...back }))
-}
-part('use').onclick = async () => {
-  part('status').textContent = (await service.finishSignIn(part('code').value)) ? 'Signed in.' : 'That code did not work.'
-  await showAccount()
-}
-part('signout').onclick = async () => {
-  await service.signOut()
-  await showAccount()
-}
-await showAccount()
+document.getElementById('status')!.textContent = hears
+  ? 'Hold the touchpad and say what you want.'
+  : 'This build has no voice: it was packed without a relay.'

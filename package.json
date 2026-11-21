@@ -1,11 +1,12 @@
 {
   "name": "earshot",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "description": "A voice-first app framework for Even Realities G2 glasses: declare what your app can do, then hold and say it.",
   "license": "MIT",
   "type": "module",
   "sideEffects": [
-    "./dist/check/cli.js"
+    "./dist/check/cli.js",
+    "./dist/relay/cli.js"
   ],
   "repository": {
     "type": "git",
@@ -27,11 +28,20 @@
     "./sim": {
       "types": "./dist/sim/index.d.ts",
       "default": "./dist/sim/index.js"
+    },
+    "./relay": {
+      "types": "./dist/relay/relay.d.ts",
+      "default": "./dist/relay/relay.js"
+    },
+    "./relay/node": {
+      "types": "./dist/relay/node.d.ts",
+      "default": "./dist/relay/node.js"
     }
   },
   "types": "./dist/index.d.ts",
   "bin": {
-    "earshot-check": "./dist/check/cli.js"
+    "earshot-check": "./dist/check/cli.js",
+    "earshot-relay": "./dist/relay/cli.js"
   },
   "files": [
     "dist"
@@ -40,7 +50,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.check.json && tsc -p tsconfig.sim.json",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.check.json && tsc -p tsconfig.sim.json && tsc -p tsconfig.relay.json",
     "prepare": "npm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

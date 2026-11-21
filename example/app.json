@@ -7,11 +7,6 @@
   "entrypoint": "index.html",
   "permissions": [
     {
-      "name": "network",
-      "desc": "Sends your voice commands to OpenRouter, with your own account, to turn them into actions.",
-      "whitelist": ["https://openrouter.ai"]
-    },
-    {
       "name": "g2-microphone",
       "desc": "Hears a voice command while you hold the touchpad."
     }

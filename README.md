@@ -6,12 +6,12 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 
 **Status: early.** Only the first slice exists. The API will change until two apps run on it.
 
-| Slice | What                                                                                                                  | State |
-| ----- | --------------------------------------------------------------------------------------------------------------------- | ----- |
-| 1     | Actions, the router, lifetimes, text, storage, the store check and the simulator driver                               | here  |
-| 2     | Glasses renderer and touch input; the brightness of the voice overlay is still to be tried on real glasses            | here  |
-| 3     | Hold to talk, and the agent stack with an offline navigator                                                           | here  |
-| 4     | Navigation by [Jev](https://typesafe.ai), with speech-to-text and compaction through OpenRouter on the user's own key | here  |
+| Slice | What                                                                                                                                   | State |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| 1     | Actions, the router, lifetimes, text, storage, the store check and the simulator driver                                                | here  |
+| 2     | Glasses renderer and touch input; the brightness of the voice overlay is still to be tried on real glasses                             | here  |
+| 3     | Hold to talk, and the agent stack with an offline navigator                                                                            | here  |
+| 4     | Navigation by [Jev](https://typesafe.ai), with speech-to-text and compaction through OpenRouter, paid by the developer through a relay | here  |
 
 The design is in [`docs/design.md`](docs/design.md).
 
@@ -180,25 +180,53 @@ new Shell(life, glasses, router, { voice: { transcribe, rolling, agents: [send],
 
 ### Jev, through OpenRouter
 
-Earshot ships the three transports for [OpenRouter](https://openrouter.ai): speech-to-text, Jev as the navigator's model, and compaction. Each user signs in with their own OpenRouter account and pays their own use, so an app needs no back end.
+Earshot ships the three transports for [OpenRouter](https://openrouter.ai): speech-to-text, Jev as the navigator's model, and compaction. The developer pays for them, not the user: nobody signs in, and a user just holds and speaks.
 
 ```ts
-import { createStore, evenPlace, openRouter, Rolling, Shell, webPlace } from 'earshot'
+import { openRouter, Rolling, Shell } from 'earshot'
 
-const service = openRouter({ host: 'https://openrouter.ai', store: createStore([evenPlace(bridge), webPlace()]) })
+const service = openRouter({ host: 'https://relay.example.com' })
 const rolling = new Rolling(life, { compact: service.compact })
 new Shell(life, glasses, router, { voice: { transcribe: service.transcribe, model: service.model, rolling } })
-
-// on the phone page
-signIn.onclick = async () => location.assign(await service.signInUrl({ callbackUrl: location.href, label: 'My app' }))
-await service.finishSignIn(location.href) // after the way back, or with a code the user pasted
 ```
 
-- The app names the host. Earshot holds no address of its own, so an app that uses its own back end has no OpenRouter address in its build. List the host in your `app.json` whitelist, with the `g2-microphone` permission.
-- The key is made by OpenRouter's sign-in (OAuth with PKCE), kept in the store on the device, and sent only to that host.
-- Without a key nothing is called and the glasses say "Set up voice on your phone". A lost connection, a refused key, no credit, too many requests and a busy service each say so in a few words; after any but the first of those Earshot holds back for thirty seconds.
+- `host` is your relay (below), not OpenRouter. List it in your `app.json` whitelist, with the `g2-microphone` permission. Earshot holds no address of its own.
+- A lost connection, too many requests and a busy service each say so in a few words. When the relay is refused or out of credit the glasses say "Voice is off for now". After any but the first of those Earshot holds back for thirty seconds.
 - `models: { speech, decide, compact }` and `language` change the defaults: `openai/whisper-large-v3-turbo`, `typesafe/jev-1.14` and `mistralai/mistral-nemo`.
 - Tried live on 20 November 2026: Jev answered in about 0.2 seconds, picked the wanted option on 12 of 12 test phrases, and 24 questions cost $0.0006.
+
+### The relay
+
+A glasses app is web files on the user's phone, and anyone can read a key out of them. So your OpenRouter key stays on a small server of yours, the relay, and the app calls that. Earshot ships it: one function with no dependencies that takes a request and gives a response.
+
+On Node, on any host that keeps a process running:
+
+```sh
+EARSHOT_RELAY_KEY=sk-or-... EARSHOT_RELAY_UPSTREAM=https://openrouter.ai npx earshot-relay
+```
+
+It listens on `PORT` (8787 unless set) and on `HOST` when set. `EARSHOT_RELAY_MODELS` is a comma-separated list when your app uses other models than the defaults. Put it behind HTTPS: the Even app loads your page over HTTPS and will not call a plain HTTP address.
+
+As a Cloudflare Worker, or on anything else that speaks web requests:
+
+```ts
+import { relay } from 'earshot/relay'
+
+export default {
+  fetch: (request: Request, env: { OPENROUTER_KEY: string; UPSTREAM: string }) =>
+    relay({ key: env.OPENROUTER_KEY, upstream: env.UPSTREAM })(request),
+}
+```
+
+`serve` from `earshot/relay/node` starts the same Node server from your own code.
+
+What the relay does:
+
+- It forwards only Earshot's three calls, only for the models you list, and only the fields Earshot sends. It is not a general key for anyone who finds its address.
+- It refuses a request over four megabytes (`maxBytes`), and answers the cross-origin check a web view makes first.
+- It adds your key on the way out and passes back only the answer.
+
+What it does not do: tell one user from another. Anyone who finds the address can spend your credit on those three calls, so **set a spending limit on the key at OpenRouter**, for example a few dollars a month. That limit is the most a stranger can cost you; when it is reached, voice is off for everyone until it resets.
 
 ### Draw it yourself
 

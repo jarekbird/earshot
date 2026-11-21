@@ -126,7 +126,7 @@ hold without a release ends after a minute, and an answer that takes over fiftee
 a question is up calls the question off.
 
 Not built yet, and belonging to the next slice: Jev as the model, the rolling queue of items, context and its
-compaction, and the default transports with the user's own key.
+compaction, and the default transports.
 
 The design it follows:
 
@@ -163,12 +163,12 @@ matches words in front of the model.
 
 Built: the one question with its system set and rolling set, going back and going home as actions of the router,
 context with its two limits and its compaction, the thresholds that turn the model's chances into a verdict, and the
-three OpenRouter transports with sign-in. The numbers are first guesses: sure from 0.7, a candidate from 0.15, at most
+three OpenRouter transports, and the relay that holds the developer's key. The numbers are first guesses: sure from 0.7, a candidate from 0.15, at most
 three candidates, 1,200 characters an item, 240,000 a question, five seconds of stillness.
 
 Tried live on 2026-11-20 with `typesafe/jev-1.14`: an answer in about 0.2 seconds, the wanted option on 12 of 12 test
 phrases, each sure pick at 0.82 or more, and 24 questions for $0.0006. Speech-to-text and compaction answered
-correctly in form; speech-to-text has not been tried with real speech, nor sign-in inside the Even app.
+correctly in form; speech-to-text has not been tried with real speech, nor the relay from inside the Even app.
 
 The design it follows:
 
@@ -222,13 +222,23 @@ The app hands Earshot the text whenever it changes, at any length. Earshot makes
 ### Transports and keys
 
 Three transports, each one interface an app can replace: the transcriber, the navigator's model and, for apps that
-use it, compaction. Earshot ships all three for OpenRouter with the user's own key: the user signs in with OpenRouter
-on the phone page (OAuth PKCE), the key stays on the device, and the user pays their own use. No back end is needed.
-An app with a back end plugs in its own transports, and then its audio and context go only there.
+use it, compaction. Earshot ships all three for OpenRouter, paid by the developer: no user signs in.
 
-The app names the host (E2). Earshot holds no address of its own, so the OpenRouter address is in an app's build
-only when that app uses it, and the store check holds it to the app's whitelist. Sign-in comes back by a redirect to
-the app's page, or by a code the user pastes when the page cannot be redirected to.
+- **The key cannot be in the app.** An app is web files on the user's phone; anyone can read them, and the key
+  travels in every request. So the key stays on a server of the developer's, the relay, and the app calls the relay.
+- **Earshot ships the relay** as one function on web standards, request in and response out, with no dependencies.
+  It runs unchanged on Node, where Earshot also ships a server and a command, and as a Cloudflare Worker, Deno or
+  Bun. Earshot is tied to none of them.
+- **It forwards little.** Only the three calls, only the models the developer lists, only the fields Earshot sends,
+  and nothing over a size limit. A stranger who finds the address gets those three calls, not a general key.
+- **It does not know one user from another.** The developer sets a spending limit on the key at OpenRouter; that
+  is the most a stranger can cost, and when it is reached voice is off for everyone until it resets. A limit for
+  each user is the next step, when an app needs it.
+- The app names the relay as its host (E2), and the developer names the relay's upstream. Earshot holds no address
+  of its own, in the app or in the relay, and the store check holds the app to its whitelist.
+- An app with its own back end plugs in its own transports, and then its audio and context go only there.
+- Built first, then deleted: sign-in with the user's own OpenRouter account (OAuth PKCE), so that the user paid. It
+  was the wrong default: the cost is the developer's.
 
 ### When it goes wrong
 
@@ -236,9 +246,9 @@ One typed list of failures, each with default glasses text an app can override. 
 
 | Situation                                      | User sees                    | Earshot does                             |
 | ---------------------------------------------- | ---------------------------- | ---------------------------------------- |
-| No key                                         | "Set up voice on your phone" | Calls nothing                            |
 | Offline, or no answer in time                  | A short reason               | Drops the hold                           |
-| Key refused, out of credit, rate limited, busy | A short reason, once         | Stops calling for a while; no retry loop |
+| Relay refused or out of credit                 | "Voice is off for now", once | Stops calling for a while; no retry loop |
+| Rate limited, busy                             | A short reason, once         | Stops calling for a while; no retry loop |
 | Nothing heard, or too short                    | "Didn't catch that"          | Sends nothing                            |
 | The wake phrase, then no words                 | Nothing                      | Listens for the phrase again             |
 | Unsure                                         | The few candidates, to tap   |                                          |
@@ -272,7 +282,9 @@ stack. A hold ends at release; after the phrase, a pause in speech or a longest 
 - How dimmed text behind bright text reads on real glasses, and which brightness levels to use. The overlay is
   built and dims to level 1; it is to be tried on real glasses before slice 3 relies on it. A reserved row is the
   fallback.
-- Whether OpenRouter's sign-in redirect works inside the Even app's web view. To be tested before building on it.
+- Whether the Even app's web view reaches the relay: its cross-origin check, from whatever origin Even gives the
+  page. Tried in the simulator only.
+- A limit for each user in the relay. Even's SDK gives a user id, but nothing proves it.
 - Whether screens get declared ids and parameters (`thread/:id`), so context and deep links attach to a route.
 - The two context limits and how long text must be still before it is compacted. First guess: 1,200 characters an
   item, 240,000 a question, 5 seconds.
