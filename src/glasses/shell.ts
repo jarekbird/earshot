@@ -6,8 +6,8 @@ import { matchWords, navigator, type Agent, type NavigatorModel, type Pick, type
 import type { Rolling } from '../rolling.js'
 import type { Router, Screen } from '../router.js'
 import { SayError } from '../say.js'
-import { list, type View } from '../view.js'
-import type { Box } from './frame.js'
+import { list, type Bound, type View } from '../view.js'
+import type { Box, Picture } from './frame.js'
 import type { Glasses } from './glasses.js'
 import type { Input } from './input.js'
 import { layoutList, layoutText } from './layout.js'
@@ -28,6 +28,12 @@ export interface ShellWords {
   slow: string
   voiceFailed: string
   which: string
+  scrollUp: string
+  scrollDown: string
+  moveUp: string
+  moveDown: string
+  choose: string
+  selected: string
 }
 
 export interface VoiceOptions {
@@ -60,13 +66,25 @@ const WORDS: ShellWords = {
   slow: 'No answer in time',
   voiceFailed: 'Voice did not work',
   which: 'Which one?',
+  scrollUp: 'Scroll up',
+  scrollDown: 'Scroll down',
+  moveUp: 'Move up',
+  moveDown: 'Move down',
+  choose: 'Choose this one',
+  selected: 'Selected',
 }
 const NOTICE_MS = 3_000
 const HEARD_MS = 1_500
 const VOICE_TIMEOUT_MS = 15_000
 const MAX_HOLD_MS = 60_000
 const SCROLL_LINES = 2
+const SCREENFUL = 8
 const MORE = 'earshot.more'
+const UP = 'earshot.up'
+const DOWN = 'earshot.down'
+const CHOOSE = 'earshot.choose'
+
+const boundTo = (bound: Bound): { action: Action; target?: string } => ('action' in bound ? bound : { action: bound })
 
 interface Place {
   cursor: number
@@ -78,6 +96,7 @@ interface Drawn {
   view: View
   targets: readonly TargetInfo[]
   folded: readonly Action[]
+  scrolls: boolean
 }
 
 export class Shell {
@@ -118,6 +137,8 @@ export class Shell {
     const place = this.#places.get(screen) ?? { cursor: 0, top: 0 }
     this.#places.set(screen, place)
     let boxes: Box[]
+    let pictures: Picture[] = []
+    let scrolls = false
     let targets: readonly TargetInfo[] = []
     if (view.kind === 'list') {
       targets = view.action.targets() ?? []
@@ -127,15 +148,66 @@ export class Shell {
     } else if (view.kind === 'text') {
       const laid = layoutText(view, place)
       place.top = laid.state.top
+      scrolls = laid.scrolls
       boxes = laid.boxes
-    } else boxes = view.boxes
-    const offered = !screen.view || this.#own.has(screen) ? [] : actions.filter(a => view.kind !== 'list' || a.id !== view.action.id)
+    } else {
+      boxes = view.boxes
+      pictures = view.pictures ?? []
+    }
+    const byGesture = new Set(view.kind === 'list' ? [view.action.id] : view.kind === 'boxes' ? this.#bound(view).map(a => a.id) : [])
+    const offered = !screen.view || this.#own.has(screen) ? [] : actions.filter(a => !byGesture.has(a.id))
     const fold = offered.length > MAX_MENU_ITEMS
     const shown = fold ? offered.slice(0, MAX_MENU_ITEMS - 1) : offered
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
-    this.#drawn = { screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [] }
-    this.#glasses.draw({ boxes, menu })
+    this.#drawn = { screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
+    this.#glasses.draw({ boxes, pictures, menu })
+  }
+
+  #bound(view: View): Action[] {
+    if (view.kind !== 'boxes' || !view.on) return []
+    return [view.on.tap, view.on.up, view.on.down].flatMap(bound => (bound ? [boundTo(bound).action] : []))
+  }
+
+  #reachable(): Action[] {
+    const drawn = this.#drawn
+    const screen = this.#router.current
+    const place = this.#places.get(screen)
+    const actions = [...this.#router.actions()]
+    if (!drawn || drawn.screen !== screen || !place) return actions
+    const { view } = drawn
+    const move = (id: string, say: string, by: number, field: 'cursor' | 'top') =>
+      action({
+        id,
+        say,
+        run: () => {
+          place[field] += by
+          this.redraw()
+        },
+      })
+    const own =
+      view.kind === 'boxes'
+        ? this.#bound(view)
+        : view.kind === 'text'
+          ? drawn.scrolls
+            ? [move(UP, this.#words.scrollUp, -SCREENFUL, 'top'), move(DOWN, this.#words.scrollDown, SCREENFUL, 'top')]
+            : []
+          : drawn.targets.length === 0
+            ? []
+            : [
+                move(UP, this.#words.moveUp, -1, 'cursor'),
+                move(DOWN, this.#words.moveDown, 1, 'cursor'),
+                action({ id: CHOOSE, say: this.#words.choose, run: () => this.#choose(drawn, place) }),
+              ]
+    const taken = new Set(actions.map(a => a.id))
+    return [...actions, ...own.filter(a => !taken.has(a.id) && (taken.add(a.id), true))]
+  }
+
+  #choose(drawn: Drawn, place: Place): void {
+    const target = drawn.targets[place.cursor]
+    if (!target || drawn.view.kind !== 'list') return
+    if (this.#own.has(drawn.screen)) this.#router.back()
+    void this.#start(drawn.view.action, target.id)
   }
 
   notice(text: string): void {
@@ -202,17 +274,17 @@ export class Shell {
     const place = this.#places.get(screen)
     if (!drawn || drawn.screen !== screen || !place) return
     const { view } = drawn
-    if (view.kind === 'boxes') return view.input?.(input)
+    if (view.kind === 'boxes') {
+      const bound = view.on?.[input.kind]
+      if (!bound) return
+      const { action: chosen, target } = boundTo(bound)
+      return void this.#start(chosen, target)
+    }
     const step = input.kind === 'up' ? -1 : 1
     if (view.kind === 'text') {
       if (input.kind !== 'tap') place.top += step * SCROLL_LINES
     } else if (input.kind !== 'tap') place.cursor += step
-    else {
-      const target = drawn.targets[place.cursor]
-      if (!target) return
-      if (this.#own.has(screen)) this.#router.back()
-      return void this.#start(view.action, target.id)
-    }
+    else return this.#choose(drawn, place)
     this.redraw()
   }
 
@@ -292,13 +364,21 @@ export class Shell {
     }
   }
 
+  #context(): string {
+    const current = this.#router.current
+    const drawn = this.#drawn
+    const under = drawn && drawn.screen === current ? drawn.targets[this.#places.get(current)?.cursor ?? 0] : undefined
+    const selected = under && !under.private ? `${this.#words.selected}: ${under.say}` : ''
+    return [current.context?.() ?? '', selected].filter(Boolean).join('\n').slice(-ITEM_LIMIT)
+  }
+
   async #ask(voice: VoiceOptions, words: string): Promise<Verdict> {
     const agents = [navigator(voice.model ?? matchWords), ...(voice.agents ?? [])]
     for (const [index, agent] of agents.entries()) {
-      const screen = this.#router.current.context?.().slice(-ITEM_LIMIT)
+      const screen = this.#context()
       const verdict = await agent({
         words,
-        actions: this.#router.actions(),
+        actions: this.#reachable(),
         rolling: voice.rolling?.items() ?? [],
         hasNext: index < agents.length - 1,
         ...(voice.otherwise === undefined ? {} : { otherwise: voice.otherwise }),
@@ -328,7 +408,7 @@ export class Shell {
 
   #do(id: string, targetId?: string): void {
     const rolled = this.#voice?.rolling?.items().find(item => item.action.id === id && item.target === targetId)?.action
-    const found = this.#router.actions().find(a => a.id === id) ?? rolled
+    const found = this.#reachable().find(a => a.id === id) ?? rolled
     if (!found) return this.notice(this.#words.unavailable)
     void this.#start(found, targetId)
   }

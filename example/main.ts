@@ -61,6 +61,15 @@ const remove = action({
 
 const send = action({ id: 'send', say: 'Send', blocked: () => 'Nothing to send', run: () => {} })
 
+const count = action({
+  id: 'count',
+  say: 'Count a tap',
+  run: () => {
+    taps++
+    shell.redraw()
+  },
+})
+
 const counter = action({
   id: 'counter',
   say: 'Tap counter',
@@ -73,11 +82,7 @@ const counter = action({
             { id: 'title', x: 0, y: 0, w: SCREEN_WIDTH, h: LINE_HEIGHT, text: 'Tap counter', brightness: 2 },
             { id: 'count', x: 0, y: 2 * LINE_HEIGHT, w: SCREEN_WIDTH, h: LINE_HEIGHT, text: `Taps: ${taps}` },
           ],
-          input => {
-            if (input.kind !== 'tap') return
-            taps++
-            shell.redraw()
-          },
+          { on: { tap: count } },
         ),
     }),
 })

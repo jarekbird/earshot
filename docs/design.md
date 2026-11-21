@@ -274,7 +274,7 @@ One typed list of failures, each with default glasses text an app can override. 
 | Too many targets, or too much context          | Nothing                      | Trims to the cap                         |
 | The model names an option that was not offered | "No match"                   | Treats it as unknown                     |
 
-## Contextual navigation (decided, built with the first app that uses it, E8)
+## Contextual navigation (built in part)
 
 Voice must be able to do everything touch can, in any app, without the app writing voice code. Today it cannot: a
 `boxes` view takes raw touches in its own code, which the navigator never sees. The rule that closes this is E9:
@@ -291,6 +291,11 @@ and one check can prove it for any screen.
   right now is blocked and says why. A menu that is redrawn can freeze the glasses for seconds.
 - Press and hold belongs to Earshot on every screen: it is the microphone. An app's own hold gesture moves to the
   menu and to voice.
+
+Built: a `boxes` view binds a tap and each swipe to an action (`on`), and takes no raw input; those actions go to the
+model and stay out of Even's menu. The shell adds its own for what its views do by touch: scroll a long text, move a
+list's cursor, choose the row under it. The row under the cursor goes to the model as context unless it is private.
+Not built yet: a submenu as one sentence.
 
 ## Wake word (built with the first app that uses it, E8)
 

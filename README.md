@@ -121,7 +121,8 @@ const shell = new Shell(life, glasses, router)
 
 - `list({ title, action, empty })` shows the targets of one action as lines of text. A swipe moves the cursor and a tap runs the action on that item.
 - `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines.
-- `boxes(boxes, input)` places each box yourself, and gets the taps and swipes. A screen with no `view` lists its actions.
+- `boxes(boxes, { on, pictures })` places each box yourself. `on` says which action a tap, a swipe up and a swipe down run: `{ tap: open, up: older, down: { action: open, target: 'next' } }`. A screen gets no raw touches, so whatever touch can do, voice can do too. A screen with no `view` lists its actions.
+- By voice, a long text scrolls a screenful ("scroll down"), a list's cursor moves ("move down") and "choose this one" runs the row it is on. The model is told which row that is, unless the row is private.
 - A double tap goes back. From the home screen it asks Even to close the app.
 - Even's menu lists the screen's and the app's other actions. Over ten, the rest go behind "More…". An action with targets asks which one in a list.
 - An action that is blocked says why over the page, which dims for a few seconds. An action with `risk: 'confirm'` asks first, and only a tap confirms.

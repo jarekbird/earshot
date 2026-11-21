@@ -35,3 +35,9 @@ it('E2: the relay holds no address of its own either', () => {
   expect(relay.length).toBeGreaterThan(0)
   expect(breaking(ADDRESS, undefined, relay)).toEqual([])
 })
+
+it('E9: a view hands a screen no raw input, only actions', () => {
+  const view = sources.find(s => s.file === 'view.ts')!.text
+  expect(view).not.toMatch(/input/i)
+  expect(view).toMatch(/on\?: Gestures/)
+})

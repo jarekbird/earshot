@@ -17,6 +17,11 @@ afterEach(() => {
 
 const settle = async (ms = 400) => void (await vi.advanceTimersByTimeAsync(ms))
 const names = ['Ana', 'Ben', 'Cy']
+const tone = (ms: number, loudness = 8_000) => {
+  const samples = new Int16Array((16_000 * ms) / 1000)
+  for (let at = 0; at < samples.length; at++) samples[at] = Math.round(loudness * Math.sin(at / 5))
+  return new Uint8Array(samples.buffer)
+}
 
 function world(more: { home?: (parts: Parts) => Screen; appActions?: () => Action[]; voice?: VoiceOptions } = {}) {
   const ran: string[] = []
@@ -186,20 +191,63 @@ describe('a text screen', () => {
 })
 
 describe('a screen of boxes', () => {
-  it('draws the boxes and hands it the taps and swipes', async () => {
-    const heard: string[] = []
-    const { fake } = world({
-      home: () => ({
-        id: 'custom',
-        view: () => boxes([{ id: 'only', x: 0, y: 0, w: 576, h: 27, text: 'Custom' }], input => void heard.push(input.kind)),
-      }),
+  const custom = (more: { blocked?: () => string | null } = {}) => {
+    const made = world({
+      home: ({ ran, refresh, open }) => {
+        const count = action({ id: 'count', say: 'Count', run: () => void ran.push('count') })
+        const older = action({ id: 'older', say: 'Older', blocked: more.blocked, run: () => void ran.push('older') })
+        return {
+          id: 'custom',
+          actions: () => [refresh],
+          view: () =>
+            boxes([{ id: 'only', x: 0, y: 0, w: 576, h: 27, text: 'Custom' }], {
+              on: { tap: count, up: older, down: { action: open, target: 'ben' } },
+              pictures: [{ id: 'chart', x: 300, y: 54, w: 200, h: 100, key: 'a', data: new Uint8Array([7]) }],
+            }),
+        }
+      },
+      voice: { transcribe: async () => 'count' },
     })
+    return made
+  }
+
+  it('draws the boxes and the pictures', async () => {
+    const { fake } = custom()
     await settle()
     expect(fake.lines()).toEqual(['Custom'])
+    expect(fake.pictures()).toEqual([{ name: 'chart', x: 300, y: 54, w: 200, h: 100, data: [7] }])
+  })
+
+  it('E9: runs the action the screen bound to a tap or a swipe, on its target when it has one', async () => {
+    const { fake, ran } = custom()
+    await settle()
     fake.tap()
     fake.up()
     fake.down()
-    expect(heard).toEqual(['tap', 'up', 'down'])
+    await settle()
+    expect(ran).toEqual(['count', 'older', 'open Ben'])
+  })
+
+  it('says why when the action bound to a gesture cannot run', async () => {
+    const { fake, ran, front } = custom({ blocked: () => 'Nothing older' })
+    await settle()
+    fake.up()
+    await settle()
+    expect(ran).toEqual([])
+    expect(front()).toBe('Nothing older')
+  })
+
+  it("E9: keeps what a gesture runs out of Even's menu, and offers it to voice", async () => {
+    const { fake, ran, menu } = custom()
+    await settle()
+    expect(menu()).toEqual(['Refresh', 'Go back', 'Go home'])
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(400))
+    fake.sound(tone(400))
+    fake.release()
+    await settle()
+    expect(ran).toEqual(['count'])
   })
 })
 
@@ -421,11 +469,6 @@ describe('an action that asks first', () => {
 })
 
 describe('a hold', () => {
-  const tone = (ms: number, loudness = 8_000) => {
-    const samples = new Int16Array((16_000 * ms) / 1000)
-    for (let at = 0; at < samples.length; at++) samples[at] = Math.round(loudness * Math.sin(at / 5))
-    return new Uint8Array(samples.buffer)
-  }
   const hearing = (...lines: string[]) => {
     const asked: number[] = []
     const voice: VoiceOptions = {
@@ -487,6 +530,65 @@ describe('a hold', () => {
     expect(router.depth).toBe(2)
     await say(fake)
     expect(router.depth).toBe(1)
+  })
+
+  it('E9: scrolls a text when asked to, a screenful at a time', async () => {
+    const { fake } = world({ voice: hearing('open cy', 'scroll down', 'scroll up').voice })
+    const body = () =>
+      fake
+        .boxes()
+        .find(box => box.name === 'body')!
+        .text.split('\n')[0]
+    await settle()
+    await say(fake)
+    await settle(2_000)
+    expect(body()).toBe('Line 0')
+    await say(fake)
+    await settle(2_000)
+    expect(body()).toBe('Line 8')
+    await say(fake)
+    await settle(2_000)
+    expect(body()).toBe('Line 0')
+  })
+
+  it('E9: moves the cursor of a list when asked to, and chooses the row it is on', async () => {
+    const { fake, cursor, ran } = world({ voice: hearing('move down', 'move down', 'move up', 'choose this one').voice })
+    await settle()
+    await say(fake)
+    await say(fake)
+    expect(cursor()).toBe('Cy')
+    await say(fake)
+    expect(cursor()).toBe('Ben')
+    await say(fake)
+    expect(ran).toEqual(['open Ben'])
+  })
+
+  it('tells the model which row the cursor is on, unless that row is private', async () => {
+    const screens: (string | undefined)[] = []
+    const voice: VoiceOptions = {
+      ...hearing('refresh', 'refresh').voice,
+      model: {
+        choose: async question => {
+          screens.push(question.screen)
+          return {}
+        },
+      },
+    }
+    const secret = action({
+      id: 'read',
+      say: 'Read',
+      targets: () => [{ id: 'a', say: 'Salary letter', value: 'a', private: true }],
+      run: () => {},
+    })
+    const { fake, router } = world({ voice })
+    await settle()
+    fake.down()
+    await say(fake)
+    expect(screens).toEqual(['Selected: Ben'])
+    router.open({ id: 'letters', context: () => 'Letters', view: () => list({ action: secret }) })
+    await settle()
+    await say(fake)
+    expect(screens[1]).toBe('Letters')
   })
 
   it("didn't catch a recording that is too short, silent or without words, and asks nobody about the first two", async () => {
