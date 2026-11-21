@@ -262,6 +262,24 @@ One typed list of failures, each with default glasses text an app can override. 
 | Too many targets, or too much context          | Nothing                      | Trims to the cap                         |
 | The model names an option that was not offered | "No match"                   | Treats it as unknown                     |
 
+## Contextual navigation (decided, built with the first app that uses it, E8)
+
+Voice must be able to do everything touch can, in any app, without the app writing voice code. Today it cannot: a
+`boxes` view takes raw touches in its own code, which the navigator never sees. The rule that closes this is E9:
+**every input a screen takes is an action.** A screen declares its actions; Earshot derives the tap, the row a swipe
+lands on, Even's menu and the navigator's options from that one list. A screen then has no input voice cannot reach,
+and one check can prove it for any screen.
+
+- **Three sets per hold**, as now: the system's, the screen's, and the app's with the rolling queue. The system set
+  grows from back and home to what every screen with more text than fits needs: scroll up, scroll down, top, latest.
+- **The item under the cursor** goes to the model as context, so "pin this" and "open it" mean something.
+- **A submenu is one sentence.** An action that opens a list of further actions offers those to the model too, so
+  what takes three steps by touch is said once.
+- **States inside a screen** change its action list, never the drawing of Even's menu: an action that does not apply
+  right now is blocked and says why. A menu that is redrawn can freeze the glasses for seconds.
+- Press and hold belongs to Earshot on every screen: it is the microphone. An app's own hold gesture moves to the
+  menu and to voice.
+
 ## Wake word (built with the first app that uses it, E8)
 
 A second way to start a voice command, hands-free: a spoken phrase in place of a hold. Hold and the phrase are two
