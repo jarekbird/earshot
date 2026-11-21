@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Lifetime } from '../lifetime.js'
 import { fakeBridge } from './fake.js'
 import type { Box, Frame, Picture } from './frame.js'
-import { FRAME_TAG, Glasses, INPUT_TAG, OVERLAY_DIM, REBUILD_GAP_MS } from './glasses.js'
+import { FRAME_TAG, Glasses, INPUT_TAG, OVERLAY_DIM, REBUILD_GAP_MS, type Drawing } from './glasses.js'
 import type { Input } from './input.js'
 import { textWidth } from './text.js'
 
@@ -593,5 +593,70 @@ describe('pictures', () => {
     await settle()
     expect(fake.lines()).toEqual(['Deploys', 'Listening'])
     expect(fake.pictures().length).toBe(1)
+  })
+})
+
+describe('watching the draws', () => {
+  const watched = (options: { owned?: boolean } = {}) => {
+    const seen: Drawing[] = []
+    const life = new Lifetime()
+    const fake = fakeBridge(options)
+    const glasses = new Glasses(life, fake.bridge, { watch: event => seen.push(event) })
+    const told = () =>
+      seen.map(({ at, frame, ...rest }) => [at, frame, 'op' in rest ? rest.op : '', 'box' in rest ? (rest.box ?? '') : ''].join(' ').trim())
+    return { fake, glasses, seen, told }
+  }
+
+  it('numbers each frame it is asked to draw', () => {
+    const { glasses } = watched()
+    expect(glasses.draw(frame(box('title', 'One')))).toBe(1)
+    expect(glasses.draw(frame(box('title', 'Two')))).toBe(2)
+  })
+
+  it('tells of a frame from its start to its end, with each call to the glasses and its answer', async () => {
+    const { glasses, seen, told } = watched()
+    glasses.draw(frame(box('title', 'Threads')))
+    await settle(REBUILD_GAP_MS)
+    expect(told()).toEqual(['begin 1', 'call 1 create', 'answer 1 create', 'end 1'])
+    expect(seen[0]).toEqual({ at: 'begin', frame: 1, rebuild: true })
+    expect(seen[2]).toMatchObject({ ok: true, got: 0, boxes: 2 })
+    expect(seen[3]).toEqual({ at: 'end', frame: 1, drawn: true })
+    seen.length = 0
+    glasses.draw(frame(box('title', 'Chats')))
+    await settle()
+    expect(told()).toEqual(['begin 2', 'call 2 update title', 'answer 2 update title', 'end 2'])
+    expect(seen[0]).toEqual({ at: 'begin', frame: 2, rebuild: false })
+  })
+
+  it('tells of the frame that was drawn when newer ones replaced it on the way', async () => {
+    const { glasses, told } = watched()
+    glasses.draw(frame(box('title', 'One')))
+    glasses.draw(frame(box('title', 'Two')))
+    await settle()
+    expect(told()).toEqual(['begin 2', 'call 2 create', 'answer 2 create', 'end 2'])
+  })
+
+  it('tells of a refused draw, what the glasses answered and when it tries again', async () => {
+    const { fake, glasses, seen, told } = watched()
+    fake.refuse('create')
+    fake.refuse('rebuild', 1, true)
+    glasses.draw(frame(box('title', 'Threads')))
+    await settle()
+    expect(told()).toEqual(['begin 1', 'call 1 create', 'answer 1 create', 'call 1 rebuild', 'answer 1 rebuild', 'retry 1', 'end 1'])
+    expect(seen[2]).toMatchObject({ ok: false, got: 1 })
+    expect(seen[4]).toMatchObject({ ok: false })
+    expect((seen[4] as { got: unknown }).got).toBeInstanceOf(Error)
+    expect(seen[5]).toEqual({ at: 'retry', frame: 1, failures: 1, inMs: 500 })
+    expect(seen[6]).toEqual({ at: 'end', frame: 1, drawn: false })
+  })
+
+  it('tells of a picture as it is sent', async () => {
+    const { glasses, told } = watched()
+    glasses.draw({
+      boxes: [box('title', 'Deploys')],
+      pictures: [{ id: 'chart', x: 0, y: 54, w: 200, h: 100, key: 'a', data: new Uint8Array(2) }],
+    })
+    await settle()
+    expect(told()).toEqual(['begin 1', 'call 1 create', 'answer 1 create', 'call 1 picture chart', 'answer 1 picture chart', 'end 1'])
   })
 })

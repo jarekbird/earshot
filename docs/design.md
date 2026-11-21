@@ -117,6 +117,9 @@ A frame can carry up to four pictures, each a box with a key and its data. They 
 the input box. The data is sent after the page is built and again only when the key changes, so a new picture rebuilds
 nothing; a picture the glasses refuse is tried again like any draw.
 
+An app can watch the draws for its own log: each frame has a number, and `watch` is told when a frame begins and
+ends, each call to the glasses with its answer and how long it took, and each retry with its wait.
+
 Still to try on real glasses: how the dimmed page reads behind
 the overlay, and which levels to use. It is 1 now.
 
