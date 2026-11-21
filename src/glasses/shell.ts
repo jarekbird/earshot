@@ -421,6 +421,7 @@ export class Shell {
   async #ask(voice: VoiceOptions, said: { words: string; audio: Audio; life: Lifetime }, navigate: boolean): Promise<Verdict> {
     const agents = [...(navigate ? [navigator(voice.model ?? matchWords)] : []), ...(voice.agents ?? [])]
     for (const [index, agent] of agents.entries()) {
+      if (said.life.ended) throw new LifetimeEnded()
       const screen = this.#context()
       const verdict = await agent({
         ...said,

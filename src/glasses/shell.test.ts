@@ -989,6 +989,28 @@ describe('a hold', () => {
     expect(sent).toEqual([])
   })
 
+  it('asks no further agent once the command was called off, however late the model answers', async () => {
+    let answer = (_: Record<string, number>) => {}
+    const took: string[] = []
+    const voice: VoiceOptions = {
+      transcribe: async () => 'tell the team',
+      model: { choose: ({ options }) => new Promise(done => (answer = () => done({ [options.find(o => o.role === 'pass')!.id]: 1 }))) },
+      agents: [
+        ({ words }) => {
+          took.push(words)
+          return { kind: 'handled' }
+        },
+      ],
+    }
+    const { fake } = world({ voice })
+    await settle()
+    await say(fake)
+    fake.double()
+    answer({})
+    await settle()
+    expect(took).toEqual([])
+  })
+
   it('tells the app when it starts to listen, and is busy from then until the command is done', async () => {
     let listens = 0
     const { voice } = hearing('refresh')
