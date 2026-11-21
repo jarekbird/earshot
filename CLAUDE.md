@@ -8,8 +8,9 @@ framework; `check` is the build-time store check and `sim` drives Even's simulat
 Checks cite these IDs. Changing one needs Jarek's OK.
 
 - **E1** Only `src/glasses` imports the Even SDK. The rest runs anywhere.
-- **E2** The framework opens no connection. Speech-to-text and the navigator's model are reached only through
-  transports the app supplies.
+- **E2** The framework connects only to hosts the app lists: it holds no address of its own, and only
+  `src/openrouter` opens a connection. Speech-to-text, the navigator's model and compaction are transports an app can
+  replace.
 - **E3** Every action is reachable by touch. Voice is never the only way.
 - **E4** The navigator's model sits behind one interface with an offline stand-in. Tests and demos call no outside
   service.

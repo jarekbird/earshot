@@ -5,6 +5,16 @@
   "version": "0.0.0",
   "min_sdk_version": "0.0.16",
   "entrypoint": "index.html",
-  "permissions": [],
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Sends your voice commands to OpenRouter, with your own account, to turn them into actions.",
+      "whitelist": ["https://openrouter.ai"]
+    },
+    {
+      "name": "g2-microphone",
+      "desc": "Hears a voice command while you hold the touchpad."
+    }
+  ],
   "supported_languages": ["en"]
 }

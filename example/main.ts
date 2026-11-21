@@ -2,15 +2,19 @@ import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
 import {
   action,
   boxes,
+  createStore,
+  evenPlace,
   Glasses,
   Lifetime,
   LINE_HEIGHT,
   list,
+  openRouter,
   Rolling,
   Router,
   SCREEN_WIDTH,
   Shell,
   text,
+  webPlace,
   type Agent,
 } from '../src/index.js'
 
@@ -36,7 +40,9 @@ const flags = new URLSearchParams(location.hash.slice(1))
 const scripted = flags.get('say')?.split('|')
 
 const life = new Lifetime()
-const glasses = new Glasses(life, await waitForEvenAppBridge(), { trace: flags.has('trace') })
+const bridge = await waitForEvenAppBridge()
+const glasses = new Glasses(life, bridge, { trace: flags.has('trace') })
+const service = openRouter({ host: 'https://openrouter.ai', store: createStore([evenPlace(bridge), webPlace()]) })
 
 const open = action({
   id: 'open',
@@ -86,7 +92,7 @@ const router: Router = new Router({
   },
 })
 
-const rolling = new Rolling(life)
+const rolling = new Rolling(life, { compact: service.compact })
 for (const note of notes) rolling.add(open, note.id, note.body)
 const takeNote: Agent = heard => {
   const [, body] = /^remember (.+)/i.exec(heard.words) ?? []
@@ -98,10 +104,34 @@ const takeNote: Agent = heard => {
 }
 
 const shell: Shell = new Shell(life, glasses, router, {
-  voice: scripted && {
-    transcribe: async () => scripted.shift() ?? '',
+  voice: {
+    ...(scripted ? { transcribe: async () => scripted.shift() ?? '' } : { transcribe: service.transcribe, model: service.model }),
     agents: [takeNote],
     otherwise: 'Something to remember as a new note',
     rolling,
   },
 })
+
+const part = (id: string) => document.getElementById(id) as HTMLInputElement
+const showAccount = async () => {
+  const signedIn = await service.signedIn()
+  part('status').textContent = signedIn ? 'Voice is set up. Hold the touchpad and speak.' : 'Voice needs an OpenRouter account.'
+  part('signout').hidden = !signedIn
+}
+if (new URLSearchParams(location.search).has('code')) {
+  await service.finishSignIn(location.href)
+  history.replaceState(null, '', location.pathname + location.hash)
+}
+part('signin').onclick = async () => {
+  const back = location.protocol === 'https:' ? { callbackUrl: location.origin + location.pathname } : {}
+  location.assign(await service.signInUrl({ label: 'Earshot example', ...back }))
+}
+part('use').onclick = async () => {
+  part('status').textContent = (await service.finishSignIn(part('code').value)) ? 'Signed in.' : 'That code did not work.'
+  await showAccount()
+}
+part('signout').onclick = async () => {
+  await service.signOut()
+  await showAccount()
+}
+await showAccount()

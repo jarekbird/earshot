@@ -6,7 +6,8 @@ import { Router, type Screen } from '../router.js'
 import { boxes, list, text } from '../view.js'
 import { fakeBridge } from './fake.js'
 import { Glasses, OVERLAY_DIM } from './glasses.js'
-import { SayError, Shell, type VoiceOptions } from './shell.js'
+import { SayError } from '../say.js'
+import { Shell, type VoiceOptions } from './shell.js'
 
 beforeEach(() => void vi.useFakeTimers())
 afterEach(() => {

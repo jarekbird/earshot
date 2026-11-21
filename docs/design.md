@@ -159,15 +159,16 @@ message. A stronger agent gets three tools: read the screen's text, list the act
 An offline navigator that matches words stands in for the model in tests and demos only (E4). In an app nothing
 matches words in front of the model.
 
-## Jev navigator (slice 4, first half built)
+## Jev navigator (slice 4, built)
 
-Built, with no network in it: the one question with its system set and rolling set, going back and going home as
-actions of the router, context with its two limits and its compaction, and the thresholds that turn the model's
-chances into a verdict. The numbers are first guesses: sure from 0.7, a candidate from 0.15, at most three candidates,
-1,200 characters an item, 240,000 a question, five seconds of stillness. The model is still the offline stand-in.
+Built: the one question with its system set and rolling set, going back and going home as actions of the router,
+context with its two limits and its compaction, the thresholds that turn the model's chances into a verdict, and the
+three OpenRouter transports with sign-in. The numbers are first guesses: sure from 0.7, a candidate from 0.15, at most
+three candidates, 1,200 characters an item, 240,000 a question, five seconds of stillness.
 
-Not built: Jev as the model, and the default transports with the user's own key. Both open connections, so they wait
-for rule E2 to be reworded and for a go on paid calls.
+Tried live on 2026-11-20 with `typesafe/jev-1.14`: an answer in about 0.2 seconds, the wanted option on 12 of 12 test
+phrases, each sure pick at 0.82 or more, and 24 questions for $0.0006. Speech-to-text and compaction answered
+correctly in form; speech-to-text has not been tried with real speech, nor sign-in inside the Even app.
 
 The design it follows:
 
@@ -221,11 +222,13 @@ The app hands Earshot the text whenever it changes, at any length. Earshot makes
 ### Transports and keys
 
 Three transports, each one interface an app can replace: the transcriber, the navigator's model and, for apps that
-use it, compaction. The built-in default for all three is OpenRouter with the user's own key: the user signs in with
-OpenRouter on the phone page (OAuth PKCE), the key stays on the device, and the user pays their own use. No back end
-is needed. An app with a back end plugs in its own transports, and then its audio and context go only there.
+use it, compaction. Earshot ships all three for OpenRouter with the user's own key: the user signs in with OpenRouter
+on the phone page (OAuth PKCE), the key stays on the device, and the user pays their own use. No back end is needed.
+An app with a back end plugs in its own transports, and then its audio and context go only there.
 
-Building the default needs rule E2 reworded, from "opens no connection" to "connects only to hosts the app lists".
+The app names the host (E2). Earshot holds no address of its own, so the OpenRouter address is in an app's build
+only when that app uses it, and the store check holds it to the app's whitelist. Sign-in comes back by a redirect to
+the app's page, or by a code the user pastes when the page cannot be redirected to.
 
 ### When it goes wrong
 

@@ -5,6 +5,7 @@ import { ITEM_LIMIT } from '../context.js'
 import { matchWords, navigator, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
 import type { Rolling } from '../rolling.js'
 import type { Router, Screen } from '../router.js'
+import { SayError } from '../say.js'
 import { list, type View } from '../view.js'
 import type { Box } from './frame.js'
 import type { Glasses } from './glasses.js'
@@ -27,13 +28,6 @@ export interface ShellWords {
   slow: string
   voiceFailed: string
   which: string
-}
-
-export class SayError extends Error {
-  constructor(readonly say: string) {
-    super(say)
-    this.name = 'SayError'
-  }
 }
 
 export interface VoiceOptions {

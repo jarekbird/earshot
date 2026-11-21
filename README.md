@@ -6,12 +6,12 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 
 **Status: early.** Only the first slice exists. The API will change until two apps run on it.
 
-| Slice | What                                                                                                                                         | State  |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| 1     | Actions, the router, lifetimes, text, storage, the store check and the simulator driver                                                      | here   |
-| 2     | Glasses renderer and touch input; the brightness of the voice overlay is still to be tried on real glasses                                   | here   |
-| 3     | Hold to talk, and the agent stack with an offline navigator                                                                                  | here   |
-| 4     | Navigation by [Jev](https://typesafe.ai): the question, the rolling set and context are here; Jev itself and the default transports are next | partly |
+| Slice | What                                                                                                                  | State |
+| ----- | --------------------------------------------------------------------------------------------------------------------- | ----- |
+| 1     | Actions, the router, lifetimes, text, storage, the store check and the simulator driver                               | here  |
+| 2     | Glasses renderer and touch input; the brightness of the voice overlay is still to be tried on real glasses            | here  |
+| 3     | Hold to talk, and the agent stack with an offline navigator                                                           | here  |
+| 4     | Navigation by [Jev](https://typesafe.ai), with speech-to-text and compaction through OpenRouter on the user's own key | here  |
 
 The design is in [`docs/design.md`](docs/design.md).
 
@@ -20,7 +20,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.11
+npm install github:jarekbird/earshot#v0.0.12
 ```
 
 ## Actions
@@ -177,6 +177,28 @@ new Shell(life, glasses, router, { voice: { transcribe, rolling, agents: [send],
 - **Context,** all optional: a `hint` on an action, `context()` on a screen for what is on it now, and text with a rolling item that tells it from the others.
 - Context can be any length. Over 1,200 characters an item, Earshot asks `compact(text, limit)` for a shorter one in the background and uses the last characters until it is back, or if it fails. Text that is still changing is compacted once it has been still for five seconds. Without `compact`, the last characters are used.
 - A whole question carries at most 240,000 characters. Past that, the oldest rolling items send their name only.
+
+### Jev, through OpenRouter
+
+Earshot ships the three transports for [OpenRouter](https://openrouter.ai): speech-to-text, Jev as the navigator's model, and compaction. Each user signs in with their own OpenRouter account and pays their own use, so an app needs no back end.
+
+```ts
+import { createStore, evenPlace, openRouter, Rolling, Shell, webPlace } from 'earshot'
+
+const service = openRouter({ host: 'https://openrouter.ai', store: createStore([evenPlace(bridge), webPlace()]) })
+const rolling = new Rolling(life, { compact: service.compact })
+new Shell(life, glasses, router, { voice: { transcribe: service.transcribe, model: service.model, rolling } })
+
+// on the phone page
+signIn.onclick = async () => location.assign(await service.signInUrl({ callbackUrl: location.href, label: 'My app' }))
+await service.finishSignIn(location.href) // after the way back, or with a code the user pasted
+```
+
+- The app names the host. Earshot holds no address of its own, so an app that uses its own back end has no OpenRouter address in its build. List the host in your `app.json` whitelist, with the `g2-microphone` permission.
+- The key is made by OpenRouter's sign-in (OAuth with PKCE), kept in the store on the device, and sent only to that host.
+- Without a key nothing is called and the glasses say "Set up voice on your phone". A lost connection, a refused key, no credit, too many requests and a busy service each say so in a few words; after any but the first of those Earshot holds back for thirty seconds.
+- `models: { speech, decide, compact }` and `language` change the defaults: `openai/whisper-large-v3-turbo`, `typesafe/jev-1.14` and `mistralai/mistral-nemo`.
+- Tried live on 20 November 2026: Jev answered in about 0.2 seconds, picked the wanted option on 12 of 12 test phrases, and 24 questions cost $0.0006.
 
 ### Draw it yourself
 

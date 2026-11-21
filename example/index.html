@@ -1,4 +1,12 @@
 <!doctype html>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Earshot example</title>
+<main style="font: 16px system-ui; margin: 24px; max-width: 420px">
+  <h1 style="font-size: 20px">Earshot example</h1>
+  <p id="status">Starting…</p>
+  <p><button id="signin">Sign in to OpenRouter</button> <button id="signout" hidden>Sign out</button></p>
+  <p>If OpenRouter shows you a code, paste it here:</p>
+  <p><input id="code" autocomplete="off" /> <button id="use">Use code</button></p>
+</main>
 <script type="module" src="./main.js"></script>
