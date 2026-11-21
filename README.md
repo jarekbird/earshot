@@ -253,6 +253,7 @@ glasses.onInput(input => {
 - An app gets seven text boxes. Earshot keeps one behind them for input, and writes its overlay there. Text over 999 bytes in a box is cut, with an ellipsis.
 - A frame can carry up to four `pictures`, each `{ id, x, y, w, h, key, data }`, from 20 to 288 wide and 20 to 144 high. A picture is sent again only when its `key` changes.
 - `draw` returns the frame's number. Pass `watch` in the options to be told of each frame's begin and end, each call to the glasses with its answer and time, each retry, and each time a frame has to wait: for your own log.
+- No rebuild starts while the microphone opens, because the Even app answers one call at a time. If your app opens the microphone itself, pass that promise to `holdRebuilds`.
 - `brightness` runs from 0 to 4, and 4 is the default.
 - Even reports `foreground` when its menu opens and `background` when it closes, so Earshot keeps drawing through both.
 

@@ -45,7 +45,7 @@ export type GlassesBridge = Pick<
 export type DrawOp = 'create' | 'rebuild' | 'update' | 'picture'
 
 export type Drawing =
-  | { at: 'wait'; frame: number; inMs: number }
+  | { at: 'wait'; frame: number; inMs?: number }
   | { at: 'begin'; frame: number; rebuild: boolean }
   | { at: 'call'; frame: number; op: DrawOp; box?: string }
   | { at: 'answer'; frame: number; op: DrawOp; box?: string; boxes: number; ms: number; ok: boolean; got: unknown }
@@ -99,12 +99,13 @@ interface Page {
   menu: MenuItem[]
 }
 
-const shapeOf = ({ boxes, pictures, menu }: Page) =>
+const layoutOf = ({ boxes, pictures }: Page) =>
   JSON.stringify([
     boxes.map(({ box }) => [box.id, box.x, box.y, box.w, box.h]),
-    menu.map(item => [item.id, item.name]),
     pictures.map(({ picture }) => [picture.id, picture.x, picture.y, picture.w, picture.h]),
   ])
+
+const shapeOf = (page: Page) => JSON.stringify([layoutOf(page), page.menu.map(item => [item.id, item.name])])
 
 const fits = ({ w, h }: Picture) => w >= MIN_IMAGE_SIDE && w <= MAX_IMAGE_WIDTH && h >= MIN_IMAGE_SIDE && h <= MAX_IMAGE_HEIGHT
 
@@ -166,6 +167,8 @@ export class Glasses {
   #overlay: string | null = null
   #wanted: Page | null = null
   #shape = ''
+  #layout = ''
+  #holds = 0
   #sent = new Map<number, string>()
   #hung = new Map<number, string>()
   #created = false
@@ -188,8 +191,20 @@ export class Glasses {
 
   async openMic(): Promise<boolean> {
     if (this.#life.ended) return false
-    this.#micOpen = (await attempt(() => this.#bridge.audioControl(true, AudioInputSource.Glasses))) === true
+    const opening = attempt(() => this.#bridge.audioControl(true, AudioInputSource.Glasses))
+    this.holdRebuilds(opening)
+    this.#micOpen = (await opening) === true
     return this.#micOpen
+  }
+
+  // The Even app answers one call at a time, so a rebuild on its way holds back whatever is asked after it.
+  holdRebuilds(until: PromiseLike<unknown>): void {
+    this.#holds++
+    const over = () => {
+      this.#holds--
+      void this.#run()
+    }
+    Promise.resolve(until).then(over, over)
   }
 
   async closeMic(): Promise<void> {
@@ -298,6 +313,17 @@ export class Glasses {
           return this.#later(wait)
         }
         const { frame } = page
+        if (rebuild && this.#holds > 0) {
+          this.#watch({ at: 'wait', frame })
+          if (this.#created && layoutOf(page) === this.#layout) {
+            this.#watch({ at: 'begin', frame, rebuild: false })
+            await this.#update(page)
+            if (this.#life.ended) return
+            this.#watch({ at: 'end', frame, drawn: false })
+          }
+          if (this.#holds > 0 && this.#wanted === page) return
+          continue
+        }
         this.#watch({ at: 'begin', frame, rebuild })
         const drawn = (rebuild ? await this.#build(page, shape) : await this.#update(page)) && (await this.#hang(page))
         if (this.#life.ended) return
@@ -357,6 +383,7 @@ export class Glasses {
     if (!drawn) return false
     this.#created = true
     this.#shape = shape
+    this.#layout = layoutOf({ frame, boxes, pictures, menu })
     this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
     this.#hung = new Map()
     this.#rebuildAt = this.#now() + REBUILD_GAP_MS

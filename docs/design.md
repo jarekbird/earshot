@@ -121,6 +121,10 @@ An app can watch the draws for its own log: each frame has a number, and `watch`
 ends, each call to the glasses with its answer and how long it took, each retry with its wait, and when a frame is
 put off: between two rebuilds, or behind a retry.
 
+No rebuild starts while the microphone opens: the Even app answers one call at a time, so a rebuild on its way would
+hold the microphone back past a short hold. Text still changes in place meanwhile. An app that opens the microphone
+itself says so with `holdRebuilds`.
+
 Still to try on real glasses: how the dimmed page reads behind
 the overlay, and which levels to use. It is 1 now.
 

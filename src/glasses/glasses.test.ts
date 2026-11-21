@@ -703,3 +703,75 @@ describe('a draw that has to wait', () => {
     expect(seen.at(-1)).toEqual({ at: 'end', frame: 2, drawn: true })
   })
 })
+
+describe('while the microphone opens', () => {
+  const held = async () => {
+    const seen: Drawing[] = []
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge, { watch: event => seen.push(event) })
+    glasses.draw({ boxes: [box('title', 'Threads')], menu: [{ id: 1, name: 'Refresh' }] })
+    await settle(REBUILD_GAP_MS)
+    fake.calls.length = 0
+    seen.length = 0
+    let open = () => {}
+    glasses.holdRebuilds(new Promise<void>(opened => (open = opened)))
+    return { fake, glasses, seen, open }
+  }
+
+  it('starts no rebuild, since the Even app answers one call at a time and a rebuild would hold the microphone back', async () => {
+    const { fake, glasses, seen, open } = await held()
+    glasses.draw({ boxes: [box('title', 'Threads'), box('body', 'One', { y: 27 })], menu: [{ id: 1, name: 'Refresh' }] })
+    await settle(5_000)
+    expect(fake.calls).toEqual([])
+    expect(seen).toEqual([{ at: 'wait', frame: 2 }])
+    open()
+    await settle()
+    expect(fake.calls).toEqual(['rebuild'])
+    expect(fake.lines()).toEqual(['Threads', 'One'])
+  })
+
+  it('still updates the text in place when only the menu waits for the rebuild', async () => {
+    const { fake, glasses, seen, open } = await held()
+    glasses.draw({ boxes: [box('title', 'Chats')], menu: [{ id: 2, name: 'Stop' }] })
+    await settle()
+    expect(fake.calls).toEqual(['update title'])
+    expect(fake.lines()).toEqual(['Chats'])
+    expect(fake.menuItems()).toEqual([{ id: 1, name: 'Refresh' }])
+    expect(seen.at(-1)).toEqual({ at: 'end', frame: 2, drawn: false })
+    open()
+    await settle()
+    expect(fake.menuItems()).toEqual([{ id: 2, name: 'Stop' }])
+    expect(seen.at(-1)).toEqual({ at: 'end', frame: 2, drawn: true })
+  })
+
+  it('draws the newest frame when another is asked for while the text of the first is on its way', async () => {
+    const { fake, glasses, open } = await held()
+    glasses.draw({ boxes: [box('title', 'Chats')], menu: [{ id: 2, name: 'Stop' }] })
+    glasses.draw({ boxes: [box('title', 'Usage')], menu: [{ id: 2, name: 'Stop' }] })
+    await settle()
+    glasses.draw({ boxes: [box('title', 'Tasks')], menu: [{ id: 2, name: 'Stop' }] })
+    await settle()
+    expect(fake.lines()).toEqual(['Tasks'])
+    open()
+    await settle()
+    expect(fake.lines()).toEqual(['Tasks'])
+    expect(fake.menuItems()).toEqual([{ id: 2, name: 'Stop' }])
+  })
+
+  it('holds rebuilds back by itself while it opens the microphone', async () => {
+    const fake = fakeBridge()
+    let opened = (_: boolean) => {}
+    fake.bridge.audioControl = () => new Promise<boolean>(answer => (opened = answer))
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    glasses.draw(frame(box('title', 'Threads')))
+    await settle(REBUILD_GAP_MS)
+    const opening = glasses.openMic()
+    glasses.draw(frame(box('title', 'Threads'), box('body', 'One', { y: 27 })))
+    await settle(1_000)
+    expect(fake.calls).toEqual(['create'])
+    opened(true)
+    expect(await opening).toBe(true)
+    await settle()
+    expect(fake.calls).toEqual(['create', 'rebuild'])
+  })
+})
