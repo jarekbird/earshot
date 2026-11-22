@@ -1,0 +1,22 @@
+---
+name: release
+description: How a version of Earshot reaches the apps that use it - a tag on main that an app pins. Use after a pull request merges, or to see what a version holds.
+---
+
+# Release
+
+A version is a tag `v<version>` on `main`. Apps pin one (`"earshot": "github:jarekbird/earshot#v0.0.31"`); nothing
+goes to npm, and `dist` is built when the app installs (`prepare`).
+
+1. **In the pull request.** A change to `src`, `check`, `sim` or `relay` raises `version` in `package.json` by one
+   patch, with `npm install --package-lock-only` for the lock file. Docs, skills, tests and CI raise nothing.
+2. **After the merge.** Wait for `check` and `sim` to pass on the merge commit on `main`, then tag that commit and push
+   the tag: `git tag v<version> <sha> && git push origin v<version>`. A red `main` gets no tag. Never move or reuse a
+   tag: a mistake is fixed by the next version.
+3. **In the app.** The app raises its pin in a pull request of its own, with its own checks and review.
+
+What shipped: `git tag --list 'v*' --sort=-v:refname | head`, and `git log v<a>..v<b> --oneline` for what a version
+holds.
+
+Not part of a release, and only on Jarek's word: uploading the example app to the Even Hub, and deploying the
+example relay.
