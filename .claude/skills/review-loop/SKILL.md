@@ -17,7 +17,7 @@ Each focus has its own reviewer. Add a focus by adding a row.
 
 ## A round, per focus
 
-1. The author commits, runs `npm run check`, and writes a brief from the template, outside the repository
+1. The author runs `npm run check`, commits, and writes a brief from the template, outside the repository
    (`~/.local/state/earshot/briefs/<branch>-<focus>-r<n>.md`): the repository is public, a brief names a machine.
 2. Start one fresh reviewer per focus, from the provider that did not write the code. Never give a reviewer a
    worktree of its own: it works in the author's worktree at the reviewed head. The author changes nothing there

@@ -57,6 +57,12 @@ it('E4: a test that calls an outside service is refused, by fetch, by any other 
   expect(outcome).toContain('E4')
 })
 
+it('E4: only the simulator driver and this file start another process, where the guard does not reach', () => {
+  const starts = /node:child_process|node:worker_threads|node:cluster|\bnew Worker\b/
+  const code = tracked.filter(file => /\.(ts|mjs)$/.test(file) && starts.test(readFileSync(join(root, file), 'utf8')))
+  expect(code).toEqual(['sim/real.sim.test.ts', 'sim/simulator.ts', 'src/rules.test.ts'])
+})
+
 it('E9: a view hands a screen no raw input, only actions', () => {
   const view = sources.find(s => s.file === 'view.ts')!.text
   expect(view).not.toMatch(/input/i)
@@ -65,7 +71,7 @@ it('E9: a view hands a screen no raw input, only actions', () => {
 
 const root = join(import.meta.dirname, '..')
 const tracked = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean)
-const DIRECTIVE = /^(\/\/\/? ?(@ts-|eslint-|prettier-ignore|<reference)|#!)/
+const DIRECTIVE = /^((\/\/\/? ?|\/\*+\s*)(@ts-|eslint[- ]|prettier-ignore|<reference|v8 ignore|c8 ignore|istanbul ignore|globals? )|#!)/
 
 interface Comment {
   line: number
@@ -109,6 +115,7 @@ it('C1: finds a comment of more than one line, and lets a directive and one-line
   ).toEqual([])
   expect(commentsBreakingC1('const a = 204 // HTTP 204 has no body.\nconst b = 304 // HTTP 304 has no body.\n')).toEqual([])
   expect(commentsBreakingC1('/* HTTP 204 has no body. */\nconst a = 204\n')).toEqual([])
+  expect(commentsBreakingC1('/* eslint-disable\n  no-console\n*/\nconst a = 1\n')).toEqual([])
 })
 
 it('C1: no comments but tool directives and one-line notes', () => {
@@ -121,7 +128,7 @@ const PRIVATE = new RegExp(
   [
     '/ho' + 'me/[a-z]',
     '/Us' + 'ers/[A-Za-z]',
-    '[A-Z]:\\\\Us' + 'ers\\\\',
+    '[A-Z]:\\\\+Us' + 'ers\\\\',
     '\\b10(\\.\\d{1,3}){3}\\b',
     '\\b192\\.168(\\.\\d{1,3}){2}\\b',
     '\\b172\\.(1[6-9]|2\\d|3[01])(\\.\\d{1,3}){2}\\b',
@@ -137,6 +144,7 @@ it('the repository is public: the check knows a home folder, a private address a
     '/ho' + 'me/someone/x',
     '/Us' + 'ers/Someone/x',
     'C:\\Us' + 'ers\\someone',
+    JSON.stringify('C:\\Us' + 'ers\\someone'),
     'http://192.' + '168.1.42:8787',
     '10.' + '0.0.7',
     '172.' + '20.1.1',
