@@ -57,9 +57,22 @@ it('E4: a test that calls an outside service is refused, by fetch, by any other 
   expect(outcome).toContain('E4')
 })
 
+const STARTS = /['"`](node:)?(child_process|worker_threads|cluster)['"`]/
+
+it('E4: the check knows each way to name what starts a process or a worker', () => {
+  const samples = [
+    "import { spawn } from 'node:child_process'",
+    "import { execFile } from 'child_process'",
+    'import { Worker as Thread } from "worker_threads"',
+    "const { fork } = require('cluster')",
+    'await import(`node:worker_threads`)',
+  ]
+  expect(samples.filter(sample => !STARTS.test(sample))).toEqual([])
+  expect(STARTS.test("import { createServer } from 'node:http'")).toBe(false)
+})
+
 it('E4: only the simulator driver and this file start another process, where the guard does not reach', () => {
-  const starts = /node:child_process|node:worker_threads|node:cluster|\bnew Worker\b/
-  const code = tracked.filter(file => /\.(ts|mjs)$/.test(file) && starts.test(readFileSync(join(root, file), 'utf8')))
+  const code = tracked.filter(file => /\.(ts|mjs|js|cjs)$/.test(file) && STARTS.test(readFileSync(join(root, file), 'utf8')))
   expect(code).toEqual(['sim/real.sim.test.ts', 'sim/simulator.ts', 'src/rules.test.ts'])
 })
 
