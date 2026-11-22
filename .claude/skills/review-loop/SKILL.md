@@ -13,7 +13,26 @@ Each focus has its own reviewer. Add a focus by adding a row.
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Architecture | Breaks of CLAUDE.md's rules, a `docs/design.md` or README that does not match the change, wrong data shape, duplication, replaced paths left behind, code the goal does not need, lifetimes, and what happens after an `await`                             |
 | Security     | The developer's key and the relay, the hosts the framework connects to, private targets leaving the device, audio handling, what an error or a log could leak, anything in this public repository that names a secret, a private app or a person's machine |
-| Any app      | Whether the change works for any app on Earshot and not only the one it was written for: the shape and names of the public API, changes that break an existing app, E8, README examples that match the code, behaviour in the example app                  |
+| App-agnostic | Whether the change is the framework's and not one app's, by the tests under **The app-agnostic reviewer**                                                                                                                                                  |
+
+## The app-agnostic reviewer
+
+Earshot is for any app on the glasses. This reviewer takes the side of the apps that did not ask for the change, and
+its answer shows its work on each test:
+
+1. **No app in the framework.** No name, word or concept of one app in the code, the public API, the docs or the
+   tests: a recipe, an order, a message is the app's; a screen, an action, a target is Earshot's. A word of the
+   example app stays in `example/`.
+2. **Two other apps.** For each new or changed part of the public API it writes, in a few lines each, how two apps
+   unlike the one that asked would use it (say a recipe reader and a timer; pick its own). If either needs a
+   workaround, or cannot use it at all, that is a finding.
+3. **Defaults.** Each new default (a time limit, a wording, a threshold, a size) is right for any app, or it is an
+   option with a neutral default.
+4. **Back to the app.** What only one app needs belongs in that app: the finding says so, and what Earshot would
+   have to offer instead for the app to build it.
+5. **E8, shown.** A new API is used by an app in the same change, and the example app exercises it in a test.
+6. **Existing apps.** A change that breaks an app written against the last version says so in the pull request, with
+   what the app must change.
 
 ## A round, per focus
 
@@ -69,6 +88,6 @@ Scope: the whole diff | conflict resolution only: <commits>, range-diff: <comman
 Author's checks at head: npm run check, <n> tests passed; simulator tests run: <names, or none>.
 Earlier rounds' fixes: <one line each>.
 
-Answer: approve or changes needed, then each finding as
+Answer: approve or changes needed (App-agnostic: first its six tests, each with what it found), then each finding as
 F<k> [blocker|should|nit] file:line: what fails, and how to reproduce it. Rule: <proposed rule and check, or none>.
 ```

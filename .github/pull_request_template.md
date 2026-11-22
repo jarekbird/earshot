@@ -4,9 +4,10 @@
 
 <!-- In plain words: what an app on Earshot can now do, or what no longer goes wrong. Name no private app. -->
 
-## Any app
+## App-agnostic
 
-<!-- Why this belongs in the framework and works for any app. New API: the app that uses it (the example counts). -->
+<!-- Why this belongs in the framework: how two unlike apps would use it. New API: the app that uses it (the example
+     counts). A default: why it is right for any app. A break for existing apps: what they must change. -->
 
 ## Checks
 

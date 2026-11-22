@@ -10,7 +10,8 @@ description: The development process for Earshot, from a decided change to a tag
 2. **Design.**
    - Name the data shape and the public API first. An API comes with an app that uses it, in the same change (E8);
      the example app in `example/` counts.
-   - Ask whether it works for any app, not only the one that needs it. What only one app needs stays in that app.
+   - Ask whether it works for any app, not only the one that needs it: write how two unlike apps would use it.
+     What only one app needs stays in that app. The app-agnostic reviewer asks the same (skill `review-loop`).
    - A change to what the framework does updates `docs/design.md` and the README in the same change.
    - For a flow (a hold, a command, a draw), write its states and transitions first.
 3. **Build.** Work on a branch in your own worktree, never on `main`. Write each test first and see it fail. Run
