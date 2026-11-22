@@ -3,9 +3,11 @@ import net from 'node:net'
 const isLocal = (host: string) => host === 'localhost' || host === '::1' || host === '[::1]' || /^127(\.\d{1,3}){3}$/.test(host)
 const refused = (host: string) => new Error(`E4: a test called ${host}. Tests call no outside service.`)
 
+const isPath = (first: unknown) => typeof first === 'string' && !(Number(first) >= 0)
+
 function hostOf(args: unknown[]): string {
   const first = Array.isArray(args[0]) ? args[0][0] : args[0]
-  if (typeof first === 'string') return 'localhost'
+  if (isPath(first)) return 'localhost'
   if (typeof first === 'object' && first !== null) {
     const { host, path } = first as { host?: string; path?: string }
     return path ? 'localhost' : (host ?? 'localhost')
