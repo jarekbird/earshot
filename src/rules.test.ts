@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { createServer, get } from 'node:http'
-import { connect, type AddressInfo } from 'node:net'
+import { connect, Socket, type AddressInfo } from 'node:net'
 import { join, relative, sep } from 'node:path'
 import ts from 'typescript'
 import { expect, it } from 'vitest'
@@ -44,6 +44,8 @@ it('E4: a test that calls an outside service is refused, by fetch, by any other 
   await expect(fetch('https://service.example.invalid/v1')).rejects.toThrow('E4')
   expect(() => get('http://service.example.invalid/v1')).toThrow('E4')
   expect(() => connect(443, 'service.example.invalid')).toThrow('E4')
+  expect(() => new Socket().connect('443' as never, 'service.example.invalid')).toThrow('E4')
+  expect(() => connect({ port: 443, host: 'service.example.invalid' })).toThrow('E4')
   const local = createServer((_request, response) => response.writeHead(302, { location: 'https://service.example.invalid/v1' }).end())
   await new Promise<void>(done => local.listen(0, '127.0.0.1', done))
   const address = `http://127.0.0.1:${(local.address() as AddressInfo).port}/`
@@ -125,7 +127,9 @@ const PRIVATE = new RegExp(
     '\\b172\\.(1[6-9]|2\\d|3[01])(\\.\\d{1,3}){2}\\b',
     '\\b100\\.(6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])(\\.\\d{1,3}){2}\\b',
     '\\b[a-z0-9-]+\\.(ts\\.n' + 'et|lo' + 'cal|la' + 'n|inter' + 'nal)\\b',
+    '\\b(f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):[0-9a-f:]*:[0-9a-f]',
   ].join('|'),
+  'i',
 )
 
 it('the repository is public: the check knows a home folder, a private address and a private host name', () => {
@@ -139,6 +143,9 @@ it('the repository is public: the check knows a home folder, a private address a
     '100.' + '101.2.3',
     'https://desk.' + 'local',
     'box.tail1234.ts.' + 'net',
+    'http://[fd7a:' + '115c:a1e0::1234]:8787',
+    'fe80:' + ':1ff:fe23:4567:890a',
+    'https://registry.example.inter' + 'nal/pkg.tgz',
   ]
   expect(samples.filter(sample => !PRIVATE.test(sample))).toEqual([])
   expect(['127.0.0.1', 'https://relay.example.com', 'demo://local', '0.0.31', 'localhost']).not.toContainEqual(
@@ -147,7 +154,7 @@ it('the repository is public: the check knows a home folder, a private address a
 })
 
 it('the repository is public: no file names a home folder, a private address or a private host name', () => {
-  const text = tracked.filter(file => !/\.(png|gif|jpg|woff2?|ehpk)$/.test(file) && file !== 'package-lock.json')
+  const text = tracked.filter(file => !/\.(png|gif|jpg|woff2?|ehpk)$/.test(file))
   expect(text.filter(file => PRIVATE.test(readFileSync(join(root, file), 'utf8')))).toEqual([])
 })
 

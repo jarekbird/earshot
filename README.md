@@ -332,7 +332,7 @@ npx vitest run --config vitest.sim.config.ts -t "<test name>"   # one test again
 npm run example:pack   # build, check and pack the example app in example/
 ```
 
-A change goes through a pull request: `check` and the whole simulator suite (`npm run check:sim`, the job `sim`) run there, not on your machine. No test may call an outside service; a test that tries is refused (E4). The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
+A change goes through a pull request. Run `npm run check` yourself before every commit; the whole simulator suite (`npm run check:sim`, the job `sim`) runs on the pull request, not on your machine. No test may call an outside service; a test that tries is refused (E4). The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
 
 MIT licensed.
 
