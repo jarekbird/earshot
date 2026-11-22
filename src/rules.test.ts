@@ -195,8 +195,8 @@ it("E4: a pull request runs check and the simulator suite with no network but th
 
 it.runIf(process.env.EARSHOT_OFFLINE)("E4: in CI the tests see no network but the machine's own", () => {
   const outside = Object.values(networkInterfaces())
-    .flat()
-    .filter(address => address && !address.internal)
+    .flatMap(addresses => addresses ?? [])
+    .filter(({ internal }) => !internal)
   expect(outside).toEqual([])
 })
 
