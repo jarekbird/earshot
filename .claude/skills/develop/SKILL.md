@@ -14,7 +14,8 @@ description: The development process for Earshot, from a decided change to a tag
    - A change to what the framework does updates `docs/design.md` and the README in the same change.
    - For a flow (a hold, a command, a draw), write its states and transitions first.
 3. **Build.** Work on a branch in your own worktree, never on `main`. Write each test first and see it fail. Run
-   `npm run check` after each commit.
+   `npm run check` after each commit. A test reaches only this machine: anything else is refused (E4), in the
+   simulator's page too.
 4. **Self-verify.** For a change to what the glasses draw, to input, to the microphone or to the example app, run the
    simulator tests it reaches: `npx vitest run --config vitest.sim.config.ts -t "<test name>"` (Linux, with `Xvfb`).
    The whole simulator suite is CI's job `sim`, never a local run. `Simulator.screenshot('glasses')` in a test gives

@@ -328,9 +328,11 @@ const forTests = createStore([memoryPlace()])
 ```sh
 npm install
 npm run check
-npm run check:sim   # the simulator driver, against the real simulator
+npx vitest run --config vitest.sim.config.ts -t "<test name>"   # one test against the real simulator (Linux, with Xvfb)
 npm run example:pack   # build, check and pack the example app in example/
 ```
+
+A change goes through a pull request: `check` and the whole simulator suite (`npm run check:sim`, the job `sim`) run there, not on your machine. No test may call an outside service; a test that tries is refused (E4). The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
 
 MIT licensed.
 
