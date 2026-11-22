@@ -20,6 +20,33 @@ export function joinPcm(chunks: readonly Uint8Array[]): Uint8Array {
 
 export const secondsOf = (pcm: Uint8Array): number => pcm.length / BYTES_PER_SECOND
 
+const SPLIT_SEARCH_S = 10
+const SPLIT_STEP_S = 0.1
+
+function quietestEnd(pcm: Uint8Array, from: number, to: number): number {
+  const step = SPLIT_STEP_S * BYTES_PER_SECOND
+  let best = to
+  let bestPeak = Infinity
+  for (let end = to; end - step >= from; end -= step) {
+    const peak = peakOf(pcm.subarray(end - step, end))
+    if (peak < bestPeak) [best, bestPeak] = [end - step / 2, peak]
+  }
+  return best
+}
+
+export function splitPcm(pcm: Uint8Array, maxSeconds: number): Uint8Array[] {
+  const most = Math.floor(maxSeconds * SAMPLE_RATE) * 2
+  const parts: Uint8Array[] = []
+  let start = 0
+  while (pcm.length - start > most) {
+    const end = quietestEnd(pcm, start + most - SPLIT_SEARCH_S * BYTES_PER_SECOND, start + most)
+    parts.push(pcm.subarray(start, end))
+    start = end
+  }
+  parts.push(pcm.subarray(start))
+  return parts
+}
+
 export function peakOf(pcm: Uint8Array): number {
   const view = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength - (pcm.byteLength % 2))
   let peak = 0

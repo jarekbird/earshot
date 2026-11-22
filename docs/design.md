@@ -247,6 +247,8 @@ use it, compaction. Earshot ships all three for OpenRouter, paid by the develope
 - **Earshot ships the relay** as one function on web standards, request in and response out, with no dependencies.
   It runs unchanged on Node, where Earshot also ships a server and a command, and as a Cloudflare Worker, Deno or
   Bun. Earshot is tied to none of them.
+- **A long recording goes in parts.** Over a minute, the transcriber cuts it at its quietest moment near each minute
+  and joins the words, so each part fits the relay's four megabytes.
 - **It forwards little.** Only the three calls, only the models the developer lists, only the fields Earshot sends,
   and nothing over a size limit. A stranger who finds the address gets those three calls, not a general key.
 - **It does not know one user from another.** The developer sets a spending limit on the key at OpenRouter; that

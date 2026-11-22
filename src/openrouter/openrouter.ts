@@ -1,4 +1,4 @@
-import { toWav, type Audio } from '../audio.js'
+import { splitPcm, toWav, type Audio } from '../audio.js'
 import type { Compact } from '../context.js'
 import type { NavigatorModel, Option } from '../navigator.js'
 import { SayError } from '../say.js'
@@ -29,6 +29,7 @@ export const MODELS: OpenRouterModels = {
   compact: 'mistralai/mistral-nemo',
 }
 const TIMEOUT_MS = 12_000
+const SPEECH_PART_S = 60
 const HOLD_BACK_MS = 30_000
 const REFUSALS: Record<number, string> = {
   401: 'Voice is off for now',
@@ -84,12 +85,17 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
 
   return {
     async transcribe(audio) {
-      const answer = await call('/api/v1/audio/transcriptions', {
-        model: models.speech,
-        input_audio: { data: base64(toWav(audio.pcm)), format: 'wav' },
-        ...(options.language ? { language: options.language } : {}),
-      })
-      return typeof answer.text === 'string' ? answer.text : ''
+      const parts = await Promise.all(
+        splitPcm(audio.pcm, SPEECH_PART_S).map(async pcm => {
+          const answer = await call('/api/v1/audio/transcriptions', {
+            model: models.speech,
+            input_audio: { data: base64(toWav(pcm)), format: 'wav' },
+            ...(options.language ? { language: options.language } : {}),
+          })
+          return typeof answer.text === 'string' ? answer.text.trim() : ''
+        }),
+      )
+      return parts.filter(Boolean).join(' ')
     },
 
     model: {

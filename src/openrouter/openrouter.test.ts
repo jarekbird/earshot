@@ -33,7 +33,7 @@ function ready(...answers: (Response | Error)[]) {
 describe('speech to text', () => {
   it('sends the recording as a sound file to the host the app named, with no key, and gives the words', async () => {
     const { sent, router } = ready(json({ text: ' open the second note ' }))
-    expect(await router.transcribe({ pcm: tone(), seconds: 0.1 })).toBe(' open the second note ')
+    expect(await router.transcribe({ pcm: tone(), seconds: 0.1 })).toBe('open the second note')
     expect(sent.length).toBe(1)
     expect(sent[0].url).toBe('https://relay.example/api/v1/audio/transcriptions')
     expect(sent[0].key).toBeNull()
@@ -42,6 +42,14 @@ describe('speech to text', () => {
     expect(audio.format).toBe('wav')
     expect(atob(audio.data).slice(0, 4)).toBe('RIFF')
     expect(atob(audio.data).length).toBe(44 + 3_200)
+  })
+
+  it('sends a recording over a minute in parts, in order, and joins their words', async () => {
+    const { sent, router } = ready(json({ text: ' first part ' }), json({ text: 'second part' }), json({ text: '' }))
+    const pcm = new Uint8Array(150 * 16_000 * 2)
+    expect(await router.transcribe({ pcm, seconds: 150 })).toBe('first part second part')
+    expect(sent.length).toBe(3)
+    for (const call of sent) expect(atob((call.body.input_audio as { data: string }).data).length).toBeLessThanOrEqual(44 + 60 * 32_000)
   })
 
   it('uses the model and the language the app chose', async () => {

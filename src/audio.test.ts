@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { joinPcm, levelOf, peakOf, problemWith, secondsOf, toWav } from './audio.js'
+import { joinPcm, levelOf, peakOf, problemWith, secondsOf, splitPcm, SAMPLE_RATE, toWav } from './audio.js'
 
 const tone = (ms: number, loudness: number) => {
   const samples = new Int16Array((16_000 * ms) / 1000)
@@ -45,5 +45,31 @@ describe('a recording', () => {
       1, 1, 16_000, 16,
     ])
     expect([...wav.subarray(44, 54)]).toEqual([...pcm.subarray(0, 10)])
+  })
+})
+
+describe('a long recording', () => {
+  const loud = (seconds: number) => new Uint8Array(new Int16Array(seconds * SAMPLE_RATE).map((_, at) => 8_000 * Math.sin(at / 5)).buffer)
+  const hush = (seconds: number) => new Uint8Array(seconds * SAMPLE_RATE * 2)
+
+  it('stays whole when it is short enough', () => {
+    const pcm = loud(3)
+    expect(splitPcm(pcm, 60)).toEqual([pcm])
+  })
+
+  it('is cut into parts no longer than the limit, at its quietest moment, with nothing lost', () => {
+    const pcm = joinPcm([loud(52), hush(1), loud(30), hush(1), loud(46)])
+    const parts = splitPcm(pcm, 60)
+    expect(parts.length).toBe(3)
+    for (const part of parts) expect(secondsOf(part)).toBeLessThanOrEqual(60)
+    expect(secondsOf(parts[0])).toBeGreaterThan(52)
+    expect(secondsOf(parts[0])).toBeLessThan(53)
+    expect(Buffer.compare(joinPcm(parts), pcm)).toBe(0)
+  })
+
+  it('is cut at the limit when it never goes quiet, on a whole sample', () => {
+    const parts = splitPcm(loud(130), 60)
+    expect(parts.map(part => part.length % 2)).toEqual([0, 0, 0])
+    for (const part of parts) expect(secondsOf(part)).toBeLessThanOrEqual(60)
   })
 })
