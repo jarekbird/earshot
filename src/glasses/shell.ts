@@ -485,10 +485,12 @@ export class Shell {
     if (why !== null) return this.notice(why)
     const targets = chosen.targets()
     if (targets !== null && targetId === undefined) {
+      if (chosen.choose) return chosen.choose()
       return this.#openOwn({ id: 'earshot.pick', view: () => list({ title: chosen.say, action: chosen }) })
     }
-    if (chosen.risk === 'safe' || (chosen.risk === 'voice' && !said)) return this.#run(chosen, targetId, said)
     const target = targets?.find(candidate => candidate.id === targetId)
+    const risk = target?.risk ?? chosen.risk
+    if (risk === 'safe' || (risk === 'voice' && !said)) return this.#run(chosen, targetId, said)
     this.#show(`${chosen.say}${target ? `: ${target.say}` : ''}?\n${this.#words.confirm}`)
     this.#asking = () => void this.#run(chosen, targetId)
   }

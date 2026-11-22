@@ -5,12 +5,14 @@ export interface Target<T> {
   say: string
   value: T
   private?: boolean
+  risk?: Risk
 }
 
 export interface TargetInfo {
   readonly id: string
   readonly say: string
   readonly private: boolean
+  readonly risk?: Risk
 }
 
 export type Outcome =
@@ -27,6 +29,7 @@ export interface Action {
   readonly risk: Risk
   blocked(): string | null
   targets(): readonly TargetInfo[] | null
+  choose?(): void
   run(targetId?: string): Promise<Outcome>
 }
 
@@ -45,6 +48,7 @@ export interface PlainSpec extends Common {
 
 export interface TargetSpec<T> extends Common {
   targets: () => readonly Target<T>[]
+  choose?: () => void
   run: (value: T) => void | Promise<void>
 }
 
@@ -56,7 +60,13 @@ export function action<T = never>(spec: PlainSpec | TargetSpec<T>): Action {
     ...(spec.hint === undefined ? {} : { hint: spec.hint }),
     risk: spec.risk ?? 'safe',
     blocked,
-    targets: () => (spec.targets ? spec.targets().map(t => ({ id: t.id, say: t.say, private: t.private ?? false })) : null),
+    targets: () =>
+      spec.targets
+        ? spec
+            .targets()
+            .map(t => ({ id: t.id, say: t.say, private: t.private ?? false, ...(t.risk === undefined ? {} : { risk: t.risk }) }))
+        : null,
+    ...(spec.targets && spec.choose ? { choose: spec.choose } : {}),
     run: async targetId => {
       const why = blocked()
       if (why !== null) return { done: false, why: 'blocked', say: why }

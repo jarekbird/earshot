@@ -20,11 +20,13 @@ One package. The navigator's model (Jev) is built in and on by default, behind o
 
 ## Actions (slice 1, built)
 
-`action({ id, say, risk?, blocked?, targets?, run })`.
+`action({ id, say, risk?, blocked?, targets?, choose?, run })`.
 
 - `say` is the label on the glasses and what the navigator reads.
 - `blocked()` returns why the action does not apply now, or null. A menu stays fixed; the action answers when picked.
-- `targets()` lists what the action could be aimed at: `{ id, say, value, private? }`.
+- `targets()` lists what the action could be aimed at: `{ id, say, value, private?, risk? }`. A target's own `risk`
+  replaces the action's. `choose()` shows the targets on the app's own screen when touch picks the action; without
+  it Earshot lists them.
 - `risk: 'confirm'` asks before running. The default is `safe`.
 - `run(targetId)` returns an outcome: `done`, or not done because `blocked` (with its words), `target` (one is needed),
   `gone` (the chosen target left, E5) or `unknown`.

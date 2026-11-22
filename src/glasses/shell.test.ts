@@ -768,6 +768,44 @@ describe('a hold', () => {
     expect(router.depth).toBe(2)
   })
 
+  it("lets an action show its targets on the app's own screen, and asks only before the targets that write", async () => {
+    const { voice } = hearing('thread queue', 'thread archive')
+    const { fake, front, ran, router } = world({
+      voice,
+      home: ({ ran }) => ({
+        id: 'home',
+        actions: () => [
+          action({
+            id: 'thread',
+            say: 'Thread',
+            targets: () => [
+              { id: 'queue', say: 'Queue', value: 'queue' },
+              { id: 'archive', say: 'Archive', value: 'archive', risk: 'voice' },
+            ],
+            choose: () => router.open({ id: 'menu', view: () => text({ title: 'The thread menu', body: 'x' }) }),
+            run: id => void ran.push(id),
+          }),
+        ],
+        view: () => text({ title: 'Home', body: 'Hello' }),
+      }),
+    })
+    await settle()
+    fake.pick('Thread')
+    await settle()
+    expect(fake.lines()[0]).toContain('The thread menu')
+    fake.double()
+    await settle()
+    await say(fake)
+    await settle(2_000)
+    expect(ran).toEqual(['queue'])
+    await say(fake)
+    expect(front()).toBe('Thread: Archive?\nTap to confirm')
+    expect(ran).toEqual(['queue'])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['queue', 'archive'])
+  })
+
   it('drops its question when the screen changes before the tap', async () => {
     const { voice } = hearing('stop it')
     const { fake, front, ran, router } = world({
