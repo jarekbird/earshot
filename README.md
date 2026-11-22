@@ -246,7 +246,7 @@ glasses.draw({
   ],
   menu: [{ id: 1, name: 'Refresh' }],
 })
-glasses.overlay('Listening') // dims the page and writes over it; null takes it away
+glasses.overlay('Listening') // dims the page and draws a card over its bottom; null takes it away
 glasses.onInput(input => {
   if (input.kind === 'double') void glasses.leave()
 })
@@ -256,7 +256,7 @@ glasses.onInput(input => {
 - A change of text or brightness is updated in place, without a flicker. The page is rebuilt only when a box is added, removed, moved, resized or renamed, or the menu changes, and never more than about three times a second.
 - A draw the glasses refuse is tried again, after half a second, then one, two and four.
 - `input.kind` is `tap`, `double`, `up`, `down`, `hold`, `release`, `menu`, `foreground`, `background` or `exit`. A hold says where it was pressed: `right`, `left` or `ring`.
-- An app gets seven text boxes. Earshot keeps one behind them for input, and writes its overlay there; a box of yours that sits under the overlay's lines is blank while it shows. Text over 999 bytes in a box is cut, with an ellipsis.
+- An app gets seven text boxes. Earshot keeps one behind them for input, and draws its overlay there, as a rounded card along the bottom; while it shows, a box of yours keeps only the lines above the card. Text over 999 bytes in a box is cut, with an ellipsis.
 - A frame can carry up to four `pictures`, each `{ id, x, y, w, h, key, data }`, from 20 to 288 wide and 20 to 144 high. A picture is sent again only when its `key` changes.
 - `draw` returns the frame's number, and `shown` is the number of the newest frame on the glasses. Pass `watch` in the options to be told of each frame when it is asked for, its begin and end, each call to the glasses with its answer and time, each retry, and each time a frame has to wait: for your own log.
 - No rebuild starts while the microphone opens, because the Even app answers one call at a time. If your app opens the microphone itself, pass that promise to `holdRebuilds`.

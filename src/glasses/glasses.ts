@@ -29,7 +29,7 @@ import {
   SCREEN_HEIGHT,
   SCREEN_WIDTH,
 } from './limits.js'
-import { cleanText, fitText, wrapText } from './text.js'
+import { cleanText, fitText, textWidth, wrapText } from './text.js'
 
 export type GlassesBridge = Pick<
   EvenAppBridge,
@@ -110,14 +110,39 @@ const shapeOf = (page: Page) => JSON.stringify([layoutOf(page), page.menu.map(it
 
 const fits = ({ w, h }: Picture) => w >= MIN_IMAGE_SIDE && w <= MAX_IMAGE_WIDTH && h >= MIN_IMAGE_SIDE && h <= MAX_IMAGE_HEIGHT
 
-function overlayLines(text: string): string[] {
-  const lines = wrapText(cleanText(text).trim(), SCREEN_WIDTH)
-  const shown = lines.slice(0, OVERLAY_LINES)
-  if (lines.length > OVERLAY_LINES) shown[OVERLAY_LINES - 1] = fitText(`${shown[OVERLAY_LINES - 1]} …`, SCREEN_WIDTH)
-  return shown
+const CARD = { left: ' ', across: '─', side: '│', top: ['╭', '╮'], bottom: ['╰', '╯'], gap: '  ' }
+const CARD_ACROSS = Math.floor((SCREEN_WIDTH - textWidth(CARD.left)) / textWidth(CARD.across)) - 2
+const CARD_RIGHT = textWidth(CARD.left + CARD.top[0] + CARD.across.repeat(CARD_ACROSS))
+const CARD_INSIDE = CARD_RIGHT - textWidth(CARD.left + CARD.side + CARD.gap + CARD.gap)
+
+const edge = ([start, end]: string[]) => CARD.left + start + CARD.across.repeat(CARD_ACROSS) + end
+
+function inCard(line: string): string {
+  const start = CARD.left + CARD.side + CARD.gap + line
+  const spaces = Math.max(1, Math.round((CARD_RIGHT - textWidth(start)) / textWidth(' ')))
+  return start + ' '.repeat(spaces) + CARD.side
 }
 
-const under = (box: Box, lines: number) => box.y + box.h / 2 >= (SCREEN_LINES - lines) * LINE_HEIGHT
+function overlayCard(text: string): string[] {
+  const lines = wrapText(cleanText(text).trim(), CARD_INSIDE)
+  const shown = lines.slice(0, OVERLAY_LINES)
+  if (lines.length > OVERLAY_LINES) shown[OVERLAY_LINES - 1] = fitText(`${shown[OVERLAY_LINES - 1]} …`, CARD_INSIDE)
+  return [edge(CARD.top), ...shown.map(inCard), edge(CARD.bottom)]
+}
+
+export const overlayWords = (text: string): string =>
+  text
+    .split('\n')
+    .filter(row => row.startsWith(CARD.left + CARD.side))
+    .map(row => row.slice((CARD.left + CARD.side).length, -CARD.side.length).trim())
+    .join('\n')
+
+function above(box: Box, top: number): string {
+  if (box.y + box.h <= top) return clipBytes(box.text)
+  const rows = Math.floor((top - box.y) / LINE_HEIGHT)
+  const kept = rows > 0 ? wrapText(cleanText(box.text), box.w).slice(0, rows).join('\n') : ''
+  return kept.trim() ? clipBytes(kept) : ' '
+}
 
 const stateOf = ({ text, brightness }: Placed) => `${brightness}\n${text}`
 
@@ -258,7 +283,8 @@ export class Glasses {
   }
 
   #place(): void {
-    const over = this.#overlay === null ? null : overlayLines(this.#overlay)
+    const over = this.#overlay === null ? null : overlayCard(this.#overlay)
+    const top = (SCREEN_LINES - (over?.length ?? 0)) * LINE_HEIGHT
     const boxes: Placed[] = [
       {
         id: INPUT,
@@ -271,7 +297,7 @@ export class Glasses {
         id: index + 2,
         name: box.id.slice(0, MAX_NAME_CHARS),
         box,
-        text: over !== null && under(box, over.length) ? ' ' : clipBytes(box.text),
+        text: over === null ? clipBytes(box.text) : above(box, top),
         brightness:
           over === null ? (box.brightness ?? MAX_BRIGHTNESS) : (Math.min(box.brightness ?? MAX_BRIGHTNESS, OVERLAY_DIM) as Brightness),
       })),

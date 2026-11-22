@@ -1,5 +1,7 @@
 import { ImageRawDataUpdateResult, validateEvenHubPageContainer, type EvenAppBridge, type EvenHubEvent } from '@evenrealities/even_hub_sdk'
 import { byteLength, linesOf, type Brightness, type MenuItem } from './frame.js'
+import { overlayWords } from './glasses.js'
+export { overlayWords }
 import type { GlassesEvent, HoldSource } from './input.js'
 import { MAX_BOXES, MAX_BRIGHTNESS, MAX_TEXT_BOXES, MAX_TEXT_BYTES } from './limits.js'
 
@@ -168,6 +170,7 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
     pictures: () => pictures.map(({ name, x, y, w, h, data }) => ({ name, x, y, w, h, data })),
     stack: (): string[] => [...(page ?? []), ...pictures].sort((a, b) => a.order - b.order).map(({ name }) => name),
     lines: (): string[] => linesOf(page ?? []),
+    overlay: (): string => overlayWords(page?.find(box => box.capture)?.text ?? ''),
     menuItems: (): MenuItem[] => [...menu],
     pick: (name: string) => {
       const item = menu.find(candidate => candidate.name === name)

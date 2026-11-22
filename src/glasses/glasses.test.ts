@@ -210,38 +210,65 @@ describe('the overlay', () => {
   }
   const look = (fake: ReturnType<typeof fakeBridge>) =>
     fake.boxes().map(({ name, text, brightness }) => `${name} ${brightness} ${JSON.stringify(text)}`)
+  const rows = (fake: ReturnType<typeof fakeBridge>) => fake.boxes()[0].text.split('\n')
+  const words = (fake: ReturnType<typeof fakeBridge>) => fake.overlay().split('\n').filter(Boolean)
 
   it('needs no box of its own: it writes in the box that takes the input, so an app keeps seven of the eight', async () => {
     const { fake, glasses } = await drawn()
     expect(fake.boxes().map(({ name }) => name)).toEqual(['input', 'title', 'body'])
     glasses.overlay('Listening')
     await settle()
-    expect(fake.lines().at(-1)).toBe('Listening')
-    expect(fake.boxes()[0].text.split('\n').length).toBe(10)
+    expect(words(fake)).toEqual(['Listening'])
+    expect(rows(fake).length).toBe(10)
   })
 
-  it('blanks a box that sits under its lines, so two texts never share a row', async () => {
+  it('draws a rounded card along the bottom, its words inside the border', async () => {
+    const { fake, glasses } = await drawn()
+    glasses.overlay('Listening')
+    await settle()
+    const card = rows(fake).slice(7)
+    expect(card[0]).toMatch(/^ ╭─+╮$/)
+    expect(card[1]).toMatch(/^ │ +Listening +│$/)
+    expect(card[2]).toMatch(/^ ╰─+╯$/)
+    expect(Math.abs(textWidth(card[1]) - textWidth(card[0]))).toBeLessThanOrEqual(textWidth(' '))
+    for (const row of card) expect(textWidth(row)).toBeLessThanOrEqual(576)
+  })
+
+  it('cuts the page off above the card, so no text of the page runs into it', async () => {
     const { fake, glasses } = setup()
-    glasses.draw(frame(box('body', 'One', { y: 27, h: 216 }), box('status', 'hold to talk', { y: 261, h: 27 })))
+    const reply = Array.from({ length: 9 }, (_, i) => `Line ${i + 1}`).join('\n')
+    glasses.draw(frame(box('body', reply, { y: 0, h: 261 }), box('status', 'hold to talk', { y: 261, h: 27 })))
     await settle(REBUILD_GAP_MS)
     glasses.overlay('Listening')
     await settle()
-    expect(look(fake).slice(1)).toEqual([`body ${OVERLAY_DIM} "One"`, `status ${OVERLAY_DIM} " "`])
+    expect(look(fake).slice(1)).toEqual([
+      `body ${OVERLAY_DIM} ${JSON.stringify(['Line 1', 'Line 2', 'Line 3', 'Line 4', 'Line 5', 'Line 6', 'Line 7'].join('\n'))}`,
+      `status ${OVERLAY_DIM} " "`,
+    ])
     glasses.overlay(null)
     await settle()
-    expect(look(fake).slice(1)).toEqual(['body 4 "One"', 'status 4 "hold to talk"'])
+    expect(look(fake).slice(1)).toEqual([`body 4 ${JSON.stringify(reply)}`, 'status 4 "hold to talk"'])
   })
 
-  it('dims the page in place and writes over it, bright, at the bottom', async () => {
+  it('cuts a long line of the page where the glasses would wrap it', async () => {
+    const { fake, glasses } = setup()
+    const long = 'word '.repeat(200).trim()
+    glasses.draw(frame(box('body', long, { y: 0, h: 288 })))
+    await settle(REBUILD_GAP_MS)
+    glasses.overlay('Listening')
+    await settle()
+    const kept = fake.boxes()[1].text.split('\n')
+    expect(kept.length).toBe(7)
+    for (const line of kept) expect(textWidth(line)).toBeLessThanOrEqual(576)
+  })
+
+  it('dims the page in place and writes over it, bright', async () => {
     const { fake, glasses } = await drawn()
     glasses.overlay('Listening')
     await settle()
     expect(fake.calls).toEqual(['update input', 'update title'])
-    expect(look(fake)).toEqual([
-      `input 4 ${JSON.stringify('\n'.repeat(9) + 'Listening')}`,
-      `title ${OVERLAY_DIM} "Threads"`,
-      'body 0 "One"',
-    ])
+    expect(look(fake).slice(1)).toEqual([`title ${OVERLAY_DIM} "Threads"`, 'body 0 "One"'])
+    expect(fake.boxes()[0].brightness).toBe(4)
   })
 
   it('gives the page its brightness back when it goes', async () => {
@@ -259,25 +286,33 @@ describe('the overlay', () => {
     glasses.overlay('Listening')
     glasses.draw(frame(box('title', 'Chats', { brightness: 3 }), box('body', 'Two', { y: 27, brightness: 0 })))
     await settle()
-    expect(look(fake)).toEqual([`input 4 ${JSON.stringify('\n'.repeat(9) + 'Listening')}`, `title ${OVERLAY_DIM} "Chats"`, 'body 0 "Two"'])
+    expect(words(fake)).toEqual(['Listening'])
+    expect(look(fake).slice(1)).toEqual([`title ${OVERLAY_DIM} "Chats"`, 'body 0 "Two"'])
   })
 
   it('can be shown before anything is drawn', async () => {
     const { fake, glasses } = setup()
     glasses.overlay('Set up voice on your phone')
     await settle()
-    expect(fake.lines()).toEqual(['Set up voice on your phone'])
+    expect(words(fake)).toEqual(['Set up voice on your phone'])
   })
 
-  it('shows three lines at most, split to fit, the last one cut', async () => {
+  it('grows with its words, three lines at most, split to fit inside the border, the last one cut', async () => {
     const { fake, glasses } = await drawn()
     glasses.overlay('one two three four five six seven eight nine ten '.repeat(8))
     await settle()
-    const lines = fake.boxes()[0].text.split('\n').slice(7)
-    expect(lines.length).toBe(3)
-    expect(fake.boxes()[0].text.startsWith('\n'.repeat(7))).toBe(true)
-    expect(lines[2].endsWith('…')).toBe(true)
-    for (const line of lines) expect(textWidth(line)).toBeLessThanOrEqual(576)
+    const card = rows(fake).slice(5)
+    expect(
+      rows(fake)
+        .slice(0, 5)
+        .every(row => row === ''),
+    ).toBe(true)
+    expect(card.length).toBe(5)
+    expect(card[0]).toMatch(/^ ╭/)
+    expect(card[4]).toMatch(/^ ╰/)
+    expect(words(fake).length).toBe(3)
+    expect(words(fake)[2].endsWith('…')).toBe(true)
+    for (const row of card) expect(textWidth(row)).toBeLessThanOrEqual(576)
   })
 })
 
@@ -513,7 +548,11 @@ describe('the trace', () => {
     glasses.draw({ boxes: [box('title', 'Threads')], menu: [{ id: 1, name: 'Refresh' }] })
     glasses.overlay('Listening')
     await settle()
-    expect(traced).toEqual([`${FRAME_TAG} {"lines":["Threads","Listening"],"menu":["Refresh"]}`])
+    expect(traced.length).toBe(1)
+    const { lines, menu } = JSON.parse(traced[0].slice(FRAME_TAG.length))
+    expect(lines[0]).toBe('Threads')
+    expect(lines.slice(1).map((line: string) => line.replace(/[╭╮╰╯─│]/g, '').trim())).toEqual(['', 'Listening', ''])
+    expect(menu).toEqual(['Refresh'])
   })
 
   it('writes each thing the user did', () => {
@@ -626,7 +665,8 @@ describe('pictures', () => {
     glasses.draw(withPictures(picture('chart', 'v1')))
     glasses.overlay('Listening')
     await settle()
-    expect(fake.lines()).toEqual(['Deploys', 'Listening'])
+    expect(fake.lines()[0]).toBe('Deploys')
+    expect(fake.lines().some(line => / Listening /.test(line))).toBe(true)
     expect(fake.pictures().length).toBe(1)
   })
 })
