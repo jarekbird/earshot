@@ -8,6 +8,11 @@ export interface Audio {
   seconds: number
 }
 
+export function scriptedSpeech(lines: readonly string[]): (audio: Audio) => Promise<string> {
+  const left = [...lines]
+  return async () => left.shift() ?? ''
+}
+
 export function joinPcm(chunks: readonly Uint8Array[]): Uint8Array {
   const joined = new Uint8Array(chunks.reduce((length, chunk) => length + chunk.length, 0))
   let at = 0

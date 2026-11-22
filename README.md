@@ -152,7 +152,7 @@ new Shell(life, glasses, router, {
 ```
 
 - A hold opens the glasses' microphone and shows "Listening" with eight bars that rise with the voice. The release closes it. A recording under half a second, or a silent one, is not sent anywhere.
-- `transcribe` gets the sound as 16 kHz, 16-bit, one-channel PCM, and gives back the words. Earshot opens no connection itself; where the sound goes is yours to decide. A transcriber that cannot transcribe gives back `null`: no model is asked, and the agents get the recording with no words.
+- `transcribe` gets the sound as 16 kHz, 16-bit, one-channel PCM, and the turn's lifetime to end its request with, and gives back the words. Earshot opens no connection itself; where the sound goes is yours to decide. A transcriber that cannot transcribe gives back `null`: no model is asked, and the agents get the recording with no words.
 - The words show over the page, and the navigator picks from what the app can do now: go back, go home, each action, and the items of the rolling set.
 - When it is sure, the action runs, and one marked `confirm` still asks first. Mark an action `voice` to ask first only when the words chose it: a touch is the person's own act, the model's choice is a guess. A question is dropped when the screen changes before the tap. When it is unsure, the few candidates are listed to tap. When nothing fits, it says "No match".
 - `agents` get the words the navigator passes on, in order, with the recording (`audio`) and the turn's lifetime (`life`). An agent answers `{ kind: 'handled', say }`, `{ kind: 'notMine' }`, or with an action to run.
@@ -197,7 +197,8 @@ new Shell(life, glasses, router, { voice: { transcribe: service.transcribe, mode
 ```
 
 - `host` is your relay (below), not OpenRouter. List it in your `app.json` whitelist, with the `g2-microphone` permission. Earshot holds no address of its own.
-- A lost connection, too many requests and a busy service each say so in a few words. When the relay is refused or out of credit the glasses say "Voice is off for now". After any but the first of those Earshot holds back for thirty seconds.
+- A recording has thirty seconds to come back as words, a question twelve. `service.transcribe` and `service.model` end their requests with the turn's lifetime, so a command that is called off stops asking.
+- A lost connection, too many requests and a busy service each say so in a few words. When the relay is refused or out of credit the glasses say "Voice is off for now". After any but the first of those Earshot holds back for thirty seconds. For your log, each error carries what it knows: a `SayError` or `RelayError` has the `status` the relay answered with, and its `cause` is what kept the call from being made or read.
 - `models: { speech, decide, compact }` and `language` change the defaults: `openai/whisper-large-v3-turbo`, `typesafe/jev-1.14` and `mistralai/mistral-nemo`.
 - Tried live on 20 November 2026: Jev answered in about 0.2 seconds, picked the wanted option on 12 of 12 test phrases, and 24 questions cost $0.0006. Through the relay as a Cloudflare Worker, a question took about 0.35 seconds end to end, and eleven seconds of speech became the right words in 1.7 seconds.
 
@@ -378,6 +379,6 @@ await sim.stop()
 - Each run has its own home folder, removed by `stop`. Every process it starts has a hard time limit, an hour unless you pass `limitSeconds`.
 - On Linux without a display it starts a hidden one, which needs `Xvfb`. A bare CI machine also needs the simulator's libraries: on Ubuntu, `xvfb libwebkit2gtk-4.1-0 libasound2t64`.
 - Input reaches the app only when its page has a container that captures events.
-- `Simulator.start({ url, mic: true })` gives the simulator a microphone that hears a steady tone, on Linux, and `await sim.hold(1200)` holds the touchpad that long. With a scripted transcriber in your app, that tests a voice command end to end.
+- `Simulator.start({ url, mic: true })` gives the simulator a microphone that hears a steady tone, on Linux, and `await sim.hold(1200)` holds the touchpad that long. With `transcribe: scriptedSpeech(['open voice', 'go back'])` in your app, which hears one line a recording and calls no service, that tests a voice command end to end.
 - `new Glasses(life, bridge, { trace: true })` writes what the glasses show to the console. Then `await sim.shows('Threads')` waits for it, `sim.shown()` gives the lines, `sim.menu()` the items of Even's menu, and `await sim.pick('Refresh')` picks one.
 - The simulator is not the glasses: check fonts, scrolling and timing on the device.

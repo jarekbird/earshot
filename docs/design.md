@@ -249,6 +249,8 @@ use it, compaction. Earshot ships all three for OpenRouter, paid by the develope
   Bun. Earshot is tied to none of them.
 - **A long recording goes in parts.** Over a minute, the transcriber cuts it at its quietest moment near each minute
   and joins the words, so each part fits the relay's four megabytes.
+- **A request ends with its turn.** The shell hands the transcriber and the model the lifetime of the command; the
+  OpenRouter transports abort with it, and an error carries the status of its own request.
 - **It forwards little.** Only the three calls, only the models the developer lists, only the fields Earshot sends,
   and nothing over a size limit. A stranger who finds the address gets those three calls, not a general key.
 - **It does not know one user from another.** The developer sets a spending limit on the key at OpenRouter; that

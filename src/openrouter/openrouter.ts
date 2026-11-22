@@ -1,7 +1,8 @@
 import { splitPcm, toWav, type Audio } from '../audio.js'
 import type { Compact } from '../context.js'
 import type { NavigatorModel, Option } from '../navigator.js'
-import { SayError } from '../say.js'
+import { LifetimeEnded, type Lifetime } from '../lifetime.js'
+import { RelayError, SayError } from '../say.js'
 
 export interface OpenRouterModels {
   speech: string
@@ -18,7 +19,7 @@ export interface OpenRouterOptions {
 }
 
 export interface OpenRouter {
-  transcribe(audio: Audio): Promise<string>
+  transcribe(audio: Audio, life?: Lifetime): Promise<string>
   model: NavigatorModel
   compact: Compact
 }
@@ -29,6 +30,7 @@ export const MODELS: OpenRouterModels = {
   compact: 'mistralai/mistral-nemo',
 }
 const TIMEOUT_MS = 12_000
+const SPEECH_TIMEOUT_MS = 30_000
 const SPEECH_PART_S = 60
 const HOLD_BACK_MS = 30_000
 const REFUSALS: Record<number, string> = {
@@ -63,35 +65,64 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
   const now = options.now ?? Date.now
   let heldBack: { until: number; say: string } | undefined
 
-  async function call(path: string, body: unknown): Promise<Record<string, unknown>> {
+  function within(ms: number, life?: Lifetime): { signal: AbortSignal; done: () => void } {
+    const timeout = AbortSignal.timeout(ms)
+    if (!life) return { signal: timeout, done: () => {} }
+    const both = new AbortController()
+    const timedOut = () => both.abort(timeout.reason)
+    const ended = () => both.abort(new LifetimeEnded())
+    timeout.addEventListener('abort', timedOut)
+    life.signal.addEventListener('abort', ended)
+    if (life.ended) ended()
+    return {
+      signal: both.signal,
+      done: () => {
+        timeout.removeEventListener('abort', timedOut)
+        life.signal.removeEventListener('abort', ended)
+      },
+    }
+  }
+
+  async function call(path: string, body: unknown, ms: number, life?: Lifetime): Promise<Record<string, unknown>> {
     if (heldBack && now() < heldBack.until) throw new SayError(heldBack.say)
-    let response: Response
+    const { signal, done } = within(ms, life)
+    let response: Response | undefined
     try {
       response = await (options.fetch ?? fetch)(`${host}${path}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal,
       })
-    } catch {
-      throw new SayError(NO_CONNECTION)
+      if (response.ok) return (await response.json()) as Record<string, unknown>
+    } catch (cause) {
+      if (life?.ended) throw new LifetimeEnded()
+      if (response) throw new RelayError(`The answer of the relay to ${path} could not be read.`, response.status, cause)
+      throw new SayError(NO_CONNECTION, { cause })
+    } finally {
+      done()
     }
-    if (response.ok) return (await response.json()) as Record<string, unknown>
-    const say = REFUSALS[response.status] ?? (response.status >= 500 ? BUSY : undefined)
-    if (!say) throw new Error(`The relay answered ${response.status} to ${path}.`)
+    const { status } = response
+    const say = REFUSALS[status] ?? (status >= 500 ? BUSY : undefined)
+    if (!say) throw new RelayError(`The relay answered ${status} to ${path}.`, status)
     heldBack = { until: now() + HOLD_BACK_MS, say }
-    throw new SayError(say)
+    throw new SayError(say, { status })
   }
 
   return {
-    async transcribe(audio) {
+    async transcribe(audio, life) {
       const parts = await Promise.all(
         splitPcm(audio.pcm, SPEECH_PART_S).map(async pcm => {
-          const answer = await call('/api/v1/audio/transcriptions', {
-            model: models.speech,
-            input_audio: { data: base64(toWav(pcm)), format: 'wav' },
-            ...(options.language ? { language: options.language } : {}),
-          })
+          const answer = await call(
+            '/api/v1/audio/transcriptions',
+            {
+              model: models.speech,
+              input_audio: { data: base64(toWav(pcm)), format: 'wav' },
+              ...(options.language ? { language: options.language } : {}),
+            },
+            SPEECH_TIMEOUT_MS,
+            life,
+          )
           return typeof answer.text === 'string' ? answer.text.trim() : ''
         }),
       )
@@ -99,30 +130,39 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
     },
 
     model: {
-      async choose(question) {
+      async choose(question, life) {
         const criteria = Object.fromEntries(question.options.map(option => [option.id, describe(option)]))
-        const answer = await call('/api/alpha/decisions', {
-          model: models.decide,
-          state: `The user said: "${question.words}"${question.screen ? `\nOn the screen: ${question.screen}` : ''}`,
-          questions: { pick: { type: 'choice', instructions: INSTRUCTIONS, criteria } },
-        })
+        const answer = await call(
+          '/api/alpha/decisions',
+          {
+            model: models.decide,
+            state: `The user said: "${question.words}"${question.screen ? `\nOn the screen: ${question.screen}` : ''}`,
+            questions: { pick: { type: 'choice', instructions: INSTRUCTIONS, criteria } },
+          },
+          TIMEOUT_MS,
+          life,
+        )
         const pick = (answer.answers as { pick?: { type?: string; probabilities?: Record<string, number> } } | undefined)?.pick
         return pick?.type === 'choice' && pick.probabilities ? pick.probabilities : {}
       },
     },
 
     async compact(text, limit) {
-      const answer = await call('/api/v1/chat/completions', {
-        model: models.compact,
-        max_tokens: Math.ceil(limit / 2),
-        messages: [
-          {
-            role: 'system',
-            content: `Shorten the user's text to at most ${limit} characters. Keep names, numbers and what happened last. Answer with the shortened text only.`,
-          },
-          { role: 'user', content: text },
-        ],
-      })
+      const answer = await call(
+        '/api/v1/chat/completions',
+        {
+          model: models.compact,
+          max_tokens: Math.ceil(limit / 2),
+          messages: [
+            {
+              role: 'system',
+              content: `Shorten the user's text to at most ${limit} characters. Keep names, numbers and what happened last. Answer with the shortened text only.`,
+            },
+            { role: 'user', content: text },
+          ],
+        },
+        TIMEOUT_MS,
+      )
       const content = (answer.choices as { message?: { content?: unknown } }[] | undefined)?.[0]?.message?.content
       if (typeof content !== 'string' || !content.trim()) throw new Error('No shorter text came back.')
       return content.trim()

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SayError } from '../say.js'
+import { Lifetime, LifetimeEnded } from '../lifetime.js'
+import { RelayError, SayError } from '../say.js'
 import { openRouter } from './openrouter.js'
 
 beforeEach(() => void vi.useFakeTimers())
@@ -161,6 +162,69 @@ describe('when it goes wrong', () => {
     await said(router.transcribe({ pcm: tone(), seconds: 0.1 }))
     expect(await said(router.transcribe({ pcm: tone(), seconds: 0.1 }))).toBe('nothing wrong')
     expect(sent.length).toBe(2)
+  })
+
+  it('an error carries the status of the request that failed, however many parts were on their way', async () => {
+    const { router } = ready(json({}, 402), json({ text: 'the second part' }))
+    const failure = await router.transcribe({ pcm: new Uint8Array(70 * 32_000), seconds: 70 }).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(SayError)
+    expect((failure as SayError).status).toBe(402)
+  })
+
+  it('keeps why the call could not be made, and what could not be read, as the cause', async () => {
+    const lost = new TypeError('Failed to fetch')
+    const offline = await ready(lost)
+      .router.transcribe({ pcm: tone(), seconds: 0.1 })
+      .catch((error: unknown) => error)
+    expect((offline as SayError).cause).toBe(lost)
+    expect((offline as SayError).status).toBeUndefined()
+    const garbled = await ready(new Response('not json'))
+      .router.model.choose({ words: 'x', options: [] })
+      .catch((error: unknown) => error)
+    expect(garbled).toBeInstanceOf(RelayError)
+    expect((garbled as RelayError).status).toBe(200)
+    expect(((garbled as RelayError).cause as Error).name).toBe('SyntaxError')
+    const refused = await ready(json({}, 400))
+      .router.transcribe({ pcm: tone(), seconds: 0.1 })
+      .catch((error: unknown) => error)
+    expect((refused as RelayError).status).toBe(400)
+  })
+
+  it('E7: ends its requests with the lifetime it was given, and reports the end, not a lost connection', async () => {
+    for (const ask of ['transcribe', 'choose'] as const) {
+      const signals: AbortSignal[] = []
+      const router = openRouter({
+        host: 'https://relay.example',
+        fetch: (_url, init) =>
+          new Promise<Response>((_, fail) => {
+            const signal = init!.signal!
+            signals.push(signal)
+            signal.addEventListener('abort', () => fail(signal.reason))
+          }),
+      })
+      const life = new Lifetime()
+      const asking =
+        ask === 'transcribe'
+          ? router.transcribe({ pcm: new Uint8Array(70 * 32_000), seconds: 70 }, life)
+          : router.model.choose({ words: 'x', options: [] }, life)
+      const ended = asking.catch((error: unknown) => error)
+      await Promise.resolve()
+      expect(signals.length).toBe(ask === 'transcribe' ? 2 : 1)
+      expect(signals.some(signal => signal.aborted)).toBe(false)
+      life.end()
+      expect(await ended).toBeInstanceOf(LifetimeEnded)
+      expect(signals.every(signal => signal.aborted)).toBe(true)
+    }
+  })
+
+  it('gives a recording longer to arrive than a question', async () => {
+    const waits: number[] = []
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(ms => (waits.push(ms), new AbortController().signal))
+    const { router } = ready(json({ text: 'x' }), json({}))
+    await router.transcribe({ pcm: tone(), seconds: 0.1 })
+    await router.model.choose({ words: 'x', options: [] })
+    timeout.mockRestore()
+    expect(waits).toEqual([30_000, 12_000])
   })
 
   it('reports any other answer as a plain failure', async () => {

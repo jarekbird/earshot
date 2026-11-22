@@ -950,6 +950,19 @@ describe('a hold', () => {
     expect(front()).toBe('')
   })
 
+  it("E7: hands the transcriber the command's lifetime, which ends when the command is called off", async () => {
+    const { voice } = hearing('refresh')
+    const { fake } = world({ voice })
+    await settle()
+    const lives: Lifetime[] = []
+    voice.transcribe = (_audio, life) => (lives.push(life), new Promise<string>(() => {}))
+    await say(fake)
+    expect(lives.map(life => life.ended)).toEqual([false])
+    fake.double()
+    await settle(50)
+    expect(lives[0].ended).toBe(true)
+  })
+
   it('is called off by a double tap, while listening or while deciding', async () => {
     const { voice, asked } = hearing('refresh', 'refresh')
     const { fake, front, ran, router } = world({ voice })
