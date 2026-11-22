@@ -54,6 +54,7 @@ export const UNSURE_FROM = 0.15
 const UNSURE_AT_MOST = 3
 const STANDARD = ['back', 'home']
 const PASS = 'pass'
+const LIST = ' (show the list)'
 const NONE = 'none'
 
 type Meaning = Pick | typeof PASS | typeof NONE
@@ -73,7 +74,8 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
     const hint = action.hint === undefined ? {} : { context: action.hint }
     const targets = action.targets() ?? []
     const named = targets.filter(target => !target.private)
-    if (targets.length !== 1 || named.length !== 1) offer({ action: action.id, say: action.say }, { say: action.say, ...hint })
+    const alone = named.length ? `${action.say}${LIST}` : action.say
+    if (targets.length !== 1 || named.length !== 1) offer({ action: action.id, say: action.say }, { say: alone, ...hint })
     for (const target of named) {
       if (options.length >= MAX_OPTIONS) return
       const say = `${action.say}: ${target.say}`
@@ -134,7 +136,7 @@ export const matchWords: NavigatorModel = {
     const scored = options
       .filter(option => option.role === undefined)
       .map(option => {
-        const wanted = tokens(option.say)
+        const wanted = tokens(option.say.endsWith(LIST) ? option.say.slice(0, -LIST.length) : option.say)
         const matched = wanted.filter(token => said.has(token)).length
         return { id: option.id, matched, share: wanted.length ? matched / wanted.length : 0 }
       })

@@ -40,10 +40,10 @@ describe('the question', () => {
       'Go home',
       'Not a navigation command',
       'None of these',
-      'Open note',
+      'Open note (show the list)',
       'Open note: Welcome',
       'Open note: Voice',
-      'Delete note',
+      'Delete note (show the list)',
       'Delete note: Welcome',
       'Delete note: Voice',
       'Refresh',
@@ -91,7 +91,7 @@ describe('the question', () => {
     expect(question.words).toBe('open voice')
     expect(question.screen).toBe('A list of two notes')
     const context = (say: string) => question.options.find(option => option.say === say)!.context
-    expect(context('Open note')).toBe('To read a note')
+    expect(context('Open note (show the list)')).toBe('To read a note')
     expect(context('Open note: Voice')).toBe('About hold to talk')
     expect(context('Refresh')).toBeUndefined()
   })
@@ -133,7 +133,8 @@ describe('the navigator', () => {
     await agent({ words: 'go back', actions: [], rolling: [], hasNext: false, life })
     expect(got).toEqual([life])
   })
-  const idOf = (question: Question, say: string) => question.options.find(option => option.say === say)!.id
+  const idOf = (question: Question, say: string) =>
+    question.options.find(option => option.say === say || option.say === `${say} (show the list)`)!.id
 
   it('is sure of the option the model gives a high enough chance', async () => {
     expect(await answering(q => ({ [idOf(q, 'Open note: Voice')]: SURE_AT, [idOf(q, 'Refresh')]: 1 - SURE_AT }))(heard('x'))).toEqual({
@@ -201,6 +202,11 @@ describe('the offline stand-in', () => {
   it('is unsure between options that match as well as each other', async () => {
     const verdict = await offline(heard('note'))
     expect(verdict.kind === 'unsure' && verdict.candidates.map(candidate => candidate.say)).toEqual(['Open note', 'Delete note'])
+  })
+
+  it('matches the name of an action, not the words that say it shows a list', async () => {
+    const { question } = questionFor(heard('show the list'))
+    expect(await matchWords.choose(question)).toEqual({ [question.options.find(option => option.role === 'pass')!.id]: 1 })
   })
 
   it('passes on words that match nothing, or stops when no agent follows', async () => {
