@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { action, type Action } from '../action.js'
 import { Lifetime } from '../lifetime.js'
+import { matchWords } from '../navigator.js'
 import { Rolling } from '../rolling.js'
 import { Router, type Screen } from '../router.js'
 import { boxes, list, text } from '../view.js'
@@ -923,6 +924,28 @@ describe('a hold', () => {
     await say(fake)
     expect(front()).toBe('Voice did not work')
     expect(error).toHaveBeenCalledOnce()
+  })
+
+  it('waits, unless told otherwise, as long as a service may take for the words and then for its answer', async () => {
+    const later = <T>(value: T, ms: number) => new Promise<T>(done => setTimeout(() => done(value), ms))
+    const { fake, front, ran } = world({
+      voice: {
+        transcribe: () => later('refresh', 29_000),
+        model: { choose: async question => later(await matchWords.choose(question), 11_000) },
+      },
+    })
+    await settle()
+    await say(fake)
+    await settle(41_000)
+    expect(ran).toEqual(['refresh'])
+    const never = world({ voice: { transcribe: () => new Promise<string>(() => {}) } })
+    await settle()
+    await say(never.fake)
+    await settle(44_000)
+    expect(never.front()).toBe('…')
+    await settle(1_000)
+    expect(never.front()).toBe('No answer in time')
+    expect(front()).not.toBe('No answer in time')
   })
 
   it('gives up on an answer that takes too long, and ignores it when it comes', async () => {

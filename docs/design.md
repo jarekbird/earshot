@@ -136,7 +136,7 @@ Built: the shell owns the hold. It opens the glasses' microphone, records until 
 half a second or with no sound in it, and gives the rest to the app's transcriber. The words go to the navigator and
 then to the app's agents. The navigator asks one question of a model behind one interface; the model built in is
 `matchWords`, the offline stand-in (E4), which compares the words with the labels. A double tap calls a command off, a
-hold without a release ends after a minute, and an answer that takes over fifteen seconds is given up on. A hold while
+hold without a release ends after a minute, and an answer that takes over forty-five seconds is given up on. A hold while
 a question is up calls the question off.
 
 Not built yet, and belonging to the next slice: Jev as the model, the rolling queue of items, context and its

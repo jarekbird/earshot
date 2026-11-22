@@ -77,7 +77,7 @@ const WORDS: ShellWords = {
 }
 const NOTICE_MS = 3_000
 const HEARD_MS = 1_500
-const VOICE_TIMEOUT_MS = 15_000
+const VOICE_TIMEOUT_MS = 45_000
 const MAX_HOLD_MS = 60_000
 const METER_BARS = 8
 const METER_MS = 300

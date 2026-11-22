@@ -159,7 +159,7 @@ new Shell(life, glasses, router, {
 - An agent that waits before it acts waits through `life`. Any touch while a command is being decided calls it off and does nothing else; a hold calls it off and listens again. Both end `life`.
 - `model` is what the navigator asks. It gets the question, and the turn's lifetime to end its request with, and gives each option a chance. Over 0.7 the navigator is sure; under that it lists the options over 0.15. The default matches the words against the labels and calls no service.
 - A double tap calls a command off while it listens, and so does leaving the app. What was said is dropped when the screen changed while it listened or was decided.
-- `onListen` is called when a hold starts to listen: bind there what the words are for. `shell.busy` is true from then until the command is done. A hold with no release ends after a minute (`maxHoldMs`). No answer in fifteen seconds is given up on (`timeoutMs`).
+- `onListen` is called when a hold starts to listen: bind there what the words are for. `shell.busy` is true from then until the command is done. A hold with no release ends after a minute (`maxHoldMs`). No answer in forty-five seconds is given up on (`timeoutMs`), which ends the turn's lifetime.
 - Throw `SayError` from a transcriber to say what went wrong in your own words.
 
 ### What the navigator is offered
@@ -197,7 +197,7 @@ new Shell(life, glasses, router, { voice: { transcribe: service.transcribe, mode
 ```
 
 - `host` is your relay (below), not OpenRouter. List it in your `app.json` whitelist, with the `g2-microphone` permission. Earshot holds no address of its own.
-- A recording has thirty seconds to come back as words, a question twelve. `service.transcribe` and `service.model` end their requests with the turn's lifetime, so a command that is called off stops asking.
+- A recording has thirty seconds to come back as words, a question twelve; both fit in the forty-five the shell gives a command. `service.transcribe` and `service.model` end their requests with the turn's lifetime, so a command that is called off stops asking.
 - A lost connection, too many requests and a busy service each say so in a few words. When the relay is refused or out of credit the glasses say "Voice is off for now". After any but the first of those Earshot holds back for thirty seconds. For your log, each error carries what it knows: a `SayError` or `RelayError` has the `status` the relay answered with, and its `cause` is what kept the call from being made or read.
 - `models: { speech, decide, compact }` and `language` change the defaults: `openai/whisper-large-v3-turbo`, `typesafe/jev-1.14` and `mistralai/mistral-nemo`.
 - Tried live on 20 November 2026: Jev answered in about 0.2 seconds, picked the wanted option on 12 of 12 test phrases, and 24 questions cost $0.0006. Through the relay as a Cloudflare Worker, a question took about 0.35 seconds end to end, and eleven seconds of speech became the right words in 1.7 seconds.
