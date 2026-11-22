@@ -9,6 +9,7 @@ import {
   openRouter,
   Rolling,
   Router,
+  scriptedSpeech,
   SCREEN_WIDTH,
   Shell,
   text,
@@ -107,9 +108,7 @@ const takeNote: Agent = heard => {
   return { kind: 'handled', say: 'Saved' }
 }
 
-const hears = scripted
-  ? { transcribe: async () => scripted.shift() ?? '' }
-  : service && { transcribe: service.transcribe, model: service.model }
+const hears = scripted ? { transcribe: scriptedSpeech(scripted) } : service && { transcribe: service.transcribe, model: service.model }
 const shell: Shell = new Shell(
   life,
   glasses,

@@ -37,7 +37,7 @@ export interface ShellWords {
 }
 
 export interface VoiceOptions {
-  transcribe: (audio: Audio) => Promise<string | null>
+  transcribe: (audio: Audio, life: Lifetime) => Promise<string | null>
   model?: NavigatorModel
   agents?: Agent[]
   otherwise?: string
@@ -389,7 +389,7 @@ export class Shell {
     this.#deciding = life
     this.#show(this.#words.thinking)
     try {
-      const transcript = await voice.transcribe(audio)
+      const transcript = await voice.transcribe(audio, life)
       const words = transcript?.trim() ?? ''
       if (!mine() || moved()) return finish(() => {})
       if (transcript !== null && !words) return finish(() => this.notice(this.#words.missed))

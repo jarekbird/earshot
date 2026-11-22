@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { joinPcm, levelOf, peakOf, problemWith, secondsOf, splitPcm, SAMPLE_RATE, toWav } from './audio.js'
+import { joinPcm, levelOf, peakOf, problemWith, scriptedSpeech, secondsOf, splitPcm, SAMPLE_RATE, toWav } from './audio.js'
 
 const tone = (ms: number, loudness: number) => {
   const samples = new Int16Array((16_000 * ms) / 1000)
@@ -71,5 +71,15 @@ describe('a long recording', () => {
     const parts = splitPcm(loud(130), 60)
     expect(parts.map(part => part.length % 2)).toEqual([0, 0, 0])
     for (const part of parts) expect(secondsOf(part)).toBeLessThanOrEqual(60)
+  })
+})
+
+describe('scripted speech', () => {
+  it('E4: hears the lines it was given, one a recording, then nothing, and calls no service', async () => {
+    const lines = ['open voice', 'go back']
+    const transcribe = scriptedSpeech(lines)
+    const audio = { pcm: new Uint8Array(2), seconds: 1 }
+    expect([await transcribe(audio), await transcribe(audio), await transcribe(audio)]).toEqual(['open voice', 'go back', ''])
+    expect(lines).toEqual(['open voice', 'go back'])
   })
 })
