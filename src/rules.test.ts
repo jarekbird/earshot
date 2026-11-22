@@ -191,6 +191,7 @@ it("E4: a pull request runs check and the simulator suite with no network but th
   const offline = readFileSync(join(root, '.github/offline.sh'), 'utf8')
   expect(offline).toContain('unshare --net')
   expect(offline).toContain('EARSHOT_OFFLINE=1')
+  expect(offline).toContain('"CI=$ci"')
 })
 
 it.runIf(process.env.EARSHOT_OFFLINE)("E4: in CI the tests see no network but the machine's own", () => {
@@ -200,6 +201,6 @@ it.runIf(process.env.EARSHOT_OFFLINE)("E4: in CI the tests see no network but th
   expect(outside).toEqual([])
 })
 
-it.runIf(process.env.CI)('E4: CI never runs the tests with the network on', () => {
+it.runIf(process.env.CI || process.env.GITHUB_ACTIONS)('E4: CI never runs the tests with the network on', () => {
   expect(process.env.EARSHOT_OFFLINE).toBe('1')
 })
