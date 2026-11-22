@@ -1,3 +1,3 @@
 import { configDefaults, defineConfig } from 'vitest/config'
 
-export default defineConfig({ test: { exclude: [...configDefaults.exclude, '**/*.sim.test.ts'] } })
+export default defineConfig({ test: { exclude: [...configDefaults.exclude, '**/*.sim.test.ts'], setupFiles: ['./vitest.setup.ts'] } })
