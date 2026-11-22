@@ -104,7 +104,9 @@ describe('the example app in the real Even Hub simulator', () => {
     await sim.input('double')
     await sim.shows('Earshot example')
     await sim.hold(1_200)
-    expect(await sim.shows('Saved')).toEqual(['Earshot example', '> Welcome', 'Voice', 'A long note', 'buy milk', 'Saved'])
+    const lines = await sim.shows('Saved')
+    expect(lines.slice(0, 5)).toEqual(['Earshot example', '> Welcome', 'Voice', 'A long note', 'buy milk'])
+    expect(lines.slice(5).map(line => line.replace(/[╭╮╰╯─│]/g, '').trim())).toEqual(['', 'Saved', ''])
   })
 
   it.runIf(process.platform === 'linux')("sends a hold through the developer's relay: speech to words, then Jev's pick", async () => {
