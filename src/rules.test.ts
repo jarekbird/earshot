@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { createServer, get } from 'node:http'
 import { connect, Socket, type AddressInfo } from 'node:net'
+import { networkInterfaces } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import ts from 'typescript'
 import { expect, it } from 'vitest'
@@ -57,22 +58,23 @@ it('E4: a test that calls an outside service is refused, by fetch, by any other 
   expect(outcome).toContain('E4')
 })
 
-const STARTS = /['"`](node:)?(child_process|worker_threads|cluster)['"`]/
+const UNGUARDED = /['"`](node:)?(child_process|worker_threads|cluster|dgram)['"`]/
 
-it('E4: the check knows each way to name what starts a process or a worker', () => {
+it('E4: the check knows each way to name what the guard does not reach: a process, a worker, UDP', () => {
   const samples = [
     "import { spawn } from 'node:child_process'",
     "import { execFile } from 'child_process'",
     'import { Worker as Thread } from "worker_threads"',
     "const { fork } = require('cluster')",
     'await import(`node:worker_threads`)',
+    "import { createSocket } from 'node:dgram'",
   ]
-  expect(samples.filter(sample => !STARTS.test(sample))).toEqual([])
-  expect(STARTS.test("import { createServer } from 'node:http'")).toBe(false)
+  expect(samples.filter(sample => !UNGUARDED.test(sample))).toEqual([])
+  expect(UNGUARDED.test("import { createServer } from 'node:http'")).toBe(false)
 })
 
-it('E4: only the simulator driver and this file start another process, where the guard does not reach', () => {
-  const code = tracked.filter(file => /\.(ts|mjs|js|cjs)$/.test(file) && STARTS.test(readFileSync(join(root, file), 'utf8')))
+it('E4: only the simulator driver and this file use what the guard does not reach', () => {
+  const code = tracked.filter(file => /\.(ts|mjs|js|cjs)$/.test(file) && UNGUARDED.test(readFileSync(join(root, file), 'utf8')))
   expect(code).toEqual(['sim/real.sim.test.ts', 'sim/simulator.ts', 'src/rules.test.ts'])
 })
 
@@ -179,10 +181,25 @@ it('the repository is public: no file names a home folder, a private address or 
   expect(text.filter(file => PRIVATE.test(readFileSync(join(root, file), 'utf8')))).toEqual([])
 })
 
-it('a pull request runs check and the simulator suite, which the main branch requires', () => {
+it("E4: a pull request runs check and the simulator suite with no network but the machine's own", () => {
   const workflow = readFileSync(join(root, '.github/workflows/check.yml'), 'utf8')
   expect(workflow).toMatch(/^ {2}pull_request:$/m)
-  expect(workflow).toMatch(/^ {2}check:\n(?: {4}.*\n)*? {6}- run: npm run check$/m)
-  expect(workflow).toMatch(/^ {2}sim:\n(?: {4,}.*\n)*? {6}- run: npm run check:sim$/m)
+  expect(workflow).toMatch(/^ {2}check:\n(?: {4}.*\n)*? {6}- run: \.github\/offline\.sh npm run check$/m)
+  expect(workflow).toMatch(/^ {2}sim:\n(?: {4,}.*\n)*? {6}- run: \.github\/offline\.sh npm run check:sim$/m)
   expect(workflow).not.toMatch(/^ {4}if:/m)
+  expect(workflow.match(/npm run check/g)?.length).toBe(2)
+  const offline = readFileSync(join(root, '.github/offline.sh'), 'utf8')
+  expect(offline).toContain('unshare --net')
+  expect(offline).toContain('EARSHOT_OFFLINE=1')
+})
+
+it.runIf(process.env.EARSHOT_OFFLINE)("E4: in CI the tests see no network but the machine's own", () => {
+  const outside = Object.values(networkInterfaces())
+    .flat()
+    .filter(address => address && !address.internal)
+  expect(outside).toEqual([])
+})
+
+it.runIf(process.env.CI)('E4: CI never runs the tests with the network on', () => {
+  expect(process.env.EARSHOT_OFFLINE).toBe('1')
 })
