@@ -68,8 +68,20 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
     options.push({ id, ...option })
     length += option.say.length + (option.context?.length ?? 0)
   }
-  const offerAction = (action: Action) =>
-    offer({ action: action.id, say: action.say }, { say: action.say, ...(action.hint === undefined ? {} : { context: action.hint }) })
+  const offered = new Set<string>()
+  const offerAction = (action: Action) => {
+    const hint = action.hint === undefined ? {} : { context: action.hint }
+    const targets = action.targets() ?? []
+    const named = targets.filter(target => !target.private)
+    if (targets.length !== 1 || named.length !== 1) offer({ action: action.id, say: action.say }, { say: action.say, ...hint })
+    for (const target of named) {
+      if (options.length >= MAX_OPTIONS) return
+      const say = `${action.say}: ${target.say}`
+      const rolled = heard.rolling.find(item => item.action.id === action.id && item.target === target.id)
+      offered.add(`${action.id}\n${target.id}`)
+      offer({ action: action.id, target: target.id, say }, { say, ...(rolled?.context ? { context: rolled.context } : hint) })
+    }
+  }
 
   for (const id of STANDARD) heard.actions.filter(action => action.id === id).forEach(offerAction)
   if (heard.hasNext) offer(PASS, { say: heard.otherwise ?? 'Not a navigation command', role: 'pass' })
@@ -77,7 +89,8 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
   heard.actions.filter(action => !STANDARD.includes(action.id)).forEach(offerAction)
 
   let full = false
-  for (const item of heard.rolling.slice(0, Math.max(0, MAX_OPTIONS - options.length))) {
+  const rolling = heard.rolling.filter(item => !offered.has(`${item.action.id}\n${item.target}`))
+  for (const item of rolling.slice(0, Math.max(0, MAX_OPTIONS - options.length))) {
     full ||= length + item.say.length + item.context.length > QUESTION_LIMIT
     offer(
       { action: item.action.id, target: item.target, say: item.say },

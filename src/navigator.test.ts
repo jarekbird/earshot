@@ -29,17 +29,55 @@ const heard = (words: string, more: Partial<Heard> = {}): Heard => ({
 const says = (question: Question) => question.options.map(option => option.say)
 
 describe('the question', () => {
-  it("offers Earshot's own options, then the actions in the app's order, then the rolling items", () => {
-    expect(says(questionFor(heard('x')).question)).toEqual([
+  it("offers Earshot's own options, then the actions in the app's order, each with its choices, then the rolling items", () => {
+    const elsewhere = action({ id: 'thread', say: 'Open thread', targets: () => [{ id: 't1', say: 'Billing', value: 1 }], run: () => {} })
+    const rolling = [
+      { action: elsewhere, target: 't1', say: 'Open thread: Billing', context: '' },
+      item(open, 'voice', 'About hold to talk'),
+    ]
+    expect(says(questionFor(heard('x', { rolling })).question)).toEqual([
       'Go back',
       'Go home',
       'Not a navigation command',
       'None of these',
       'Open note',
-      'Delete note',
-      'Refresh',
+      'Open note: Welcome',
       'Open note: Voice',
+      'Delete note',
       'Delete note: Welcome',
+      'Delete note: Voice',
+      'Refresh',
+      'Open thread: Billing',
+    ])
+  })
+
+  it('offers a choice once: one that is also a rolling item keeps the text that tells it from the others', () => {
+    const { question } = questionFor(heard('x'))
+    expect(says(question).filter(say => say === 'Open note: Voice')).toHaveLength(1)
+    expect(question.options.find(option => option.say === 'Open note: Voice')!.context).toBe('About hold to talk')
+    expect(question.options.find(option => option.say === 'Open note: Welcome')!.context).toBe('To read a note')
+  })
+
+  it('E6: never offers a private choice, and leaves the action for touch to pick it', () => {
+    const secret = action({
+      id: 'unlock',
+      say: 'Unlock',
+      targets: () => [{ id: 'k', say: 'The spare key', value: 1, private: true }],
+      run: () => {},
+    })
+    expect(says(questionFor(heard('x', { actions: [secret], rolling: [] })).question)).toEqual([
+      'Not a navigation command',
+      'None of these',
+      'Unlock',
+    ])
+  })
+
+  it('names the one choice of an action that has a single choice, and not the action alone', () => {
+    const allow = action({ id: 'allow', say: 'Allow', targets: () => [{ id: 'r1', say: 'Run the migration', value: 1 }], run: () => {} })
+    const none = action({ id: 'deny', say: 'Deny', targets: () => [], run: () => {} })
+    expect(says(questionFor(heard('x', { actions: [allow, none], rolling: [] })).question).slice(2)).toEqual([
+      'Allow: Run the migration',
+      'Deny',
     ])
   })
 
@@ -65,15 +103,15 @@ describe('the question', () => {
 
   it('leaves out the oldest rolling items when the model can take no more options', () => {
     const many = Array.from({ length: 400 }, (_, n) => ({ ...item(open, 'voice'), say: `Open note: ${n}` }))
-    const { question } = questionFor(heard('x', { rolling: many }))
+    const { question } = questionFor(heard('x', { actions: [refresh, back, home], rolling: many }))
     expect(question.options.length).toBe(MAX_OPTIONS)
-    expect(question.options.at(-1)!.say).toBe(`Open note: ${MAX_OPTIONS - 7 - 1}`)
+    expect(question.options.at(-1)!.say).toBe(`Open note: ${MAX_OPTIONS - 5 - 1}`)
   })
 
   it('sends only the name of the oldest items once the question is as long as it may be', () => {
     const text = 'x'.repeat(100_000)
     const rolling = [0, 1, 2, 3].map(n => ({ ...item(open, 'voice', text), say: `Open note: ${n}` }))
-    const { question } = questionFor(heard('x', { rolling }))
+    const { question } = questionFor(heard('x', { actions: [refresh, back, home], rolling }))
     const sent = question.options.filter(option => option.say.startsWith('Open note: ')).map(option => option.context?.length ?? 0)
     expect(sent).toEqual([100_000, 100_000, 0, 0])
     expect(sent.reduce((sum, length) => sum + length, 0)).toBeLessThanOrEqual(QUESTION_LIMIT)

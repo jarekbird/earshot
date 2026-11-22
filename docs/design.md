@@ -297,7 +297,9 @@ model and stay out of Even's menu. The shell adds its own for what its views do 
 list's cursor, choose the row under it. The row under the cursor goes to the model as context unless it is private.
 A pick from Even's menu is ignored while the glasses still show another screen's menu. While a command is being
 decided, a touch only calls it off: an agent's pending work ends with the turn's lifetime, and a new hold starts over.
-Not built yet: a submenu as one sentence.
+A submenu is one sentence: an action with targets is offered to the model once for each target that is not private,
+named "action: target", and an action with a single target is offered only as that. A target that is also a
+rolling item is offered once, with the item's context.
 
 ## Wake word (built with the first app that uses it, E8)
 

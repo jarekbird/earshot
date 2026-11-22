@@ -174,7 +174,7 @@ rolling.add(open, thread.id, thread.latestText)
 new Shell(life, glasses, router, { voice: { transcribe, rolling, agents: [send], otherwise: 'A message to send' } })
 ```
 
-- **Always:** going back, going home, "none of these", and every action of the screen and the app. Going back and going home are actions of the router, with the ids `back` and `home`. They are in Even's menu too, and an app replaces one by declaring an action with its id.
+- **Always:** going back, going home, "none of these", and every action of the screen and the app. An action with targets is offered with each of them ("Snooze: Until tomorrow"), so a list of further choices is said in one sentence. A `private` target is not offered and stays for touch. Going back and going home are actions of the router, with the ids `back` and `home`. They are in Even's menu too, and an app replaces one by declaring an action with its id.
 - **The rolling set:** items the app adds, each an action on one of its targets, newest first. Adding one again makes it the newest. It holds 255 less the options above, and the oldest leaves. It belongs to the app, so an item can be picked from any screen. A `private` target never enters it.
 - **`otherwise`** names what your other agents take. The navigator offers it only when there is another agent, and picking it passes the words on.
 - **Context,** all optional: a `hint` on an action, `context()` on a screen for what is on it now, and text with a rolling item that tells it from the others.

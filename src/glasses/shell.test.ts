@@ -643,11 +643,11 @@ describe('a hold', () => {
     const { fake, ran } = world({ voice: hearing('ana ben').voice })
     await settle()
     await say(fake)
-    expect(fake.lines()).toEqual(['Which one?', '> Open: Ben', 'Open: Ana'])
+    expect(fake.lines()).toEqual(['Which one?', '> Open: Ana', 'Open: Ben'])
     fake.down()
     fake.tap()
     await settle()
-    expect(ran).toEqual(['open Ana'])
+    expect(ran).toEqual(['open Ben'])
   })
 
   it('asks before an action marked voice only when the words chose it: a pick from the menu runs at once', async () => {
@@ -683,7 +683,10 @@ describe('a hold', () => {
             id: 'allow',
             say: 'Allow',
             risk: 'voice',
-            targets: () => [{ id: 'r1', say: 'Run the migration', value: 'r1' }],
+            targets: () => [
+              { id: 'r1', say: 'Run the migration', value: 'r1' },
+              { id: 'r2', say: 'Drop the table', value: 'r2' },
+            ],
             run: id => void ran.push(`allow ${id}`),
           }),
         ],
@@ -693,7 +696,37 @@ describe('a hold', () => {
     await settle()
     await say(fake)
     await settle(2_000)
-    expect(fake.lines()).toEqual(['Allow', '> Run the migration'])
+    expect(fake.lines()).toEqual(['Allow', '> Run the migration', 'Drop the table'])
+    await say(fake)
+    expect(front()).toBe('Allow: Run the migration?\nTap to confirm')
+    expect(ran).toEqual([])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['allow r1'])
+  })
+
+  it('takes an action and its choice from one sentence, and still asks before a write', async () => {
+    const { voice } = hearing('allow run the migration')
+    const { fake, front, ran } = world({
+      voice,
+      home: ({ ran }) => ({
+        id: 'home',
+        actions: () => [
+          action({
+            id: 'allow',
+            say: 'Allow',
+            risk: 'voice',
+            targets: () => [
+              { id: 'r1', say: 'Run the migration', value: 'r1' },
+              { id: 'r2', say: 'Drop the table', value: 'r2' },
+            ],
+            run: id => void ran.push(`allow ${id}`),
+          }),
+        ],
+        view: () => text({ title: 'Home', body: 'Hello' }),
+      }),
+    })
+    await settle()
     await say(fake)
     expect(front()).toBe('Allow: Run the migration?\nTap to confirm')
     expect(ran).toEqual([])
