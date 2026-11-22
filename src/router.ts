@@ -20,10 +20,16 @@ interface Entry {
   life: Lifetime
 }
 
+interface Jump {
+  at: number
+  moved: boolean
+}
+
 export class Router {
   readonly #stack: Entry[]
   readonly #appActions: () => readonly Action[]
   readonly #listeners = new Set<(current: Screen) => void>()
+  #jump: Jump | null = null
   readonly #standard: readonly Action[] = [
     action({
       id: 'back',
@@ -58,8 +64,43 @@ export class Router {
   }
 
   open(screen: Screen): void {
-    this.#stack.push(this.#enter(screen))
-    this.#onChange(screen)
+    const jump = this.#jump
+    if (!jump) return this.#push(screen)
+    const at = Math.min(jump.at, this.#stack.length)
+    jump.at = at + 1
+    jump.moved = true
+    if (this.#stack[at]?.screen === screen) return
+    this.#leave(this.#stack.splice(at), () => this.#push(screen))
+  }
+
+  jump(...path: Screen[]): void {
+    if (path.length === 0) return this.goHome()
+    this.jumping(() => path.forEach(screen => this.open(screen)))
+  }
+
+  jumping<T>(run: () => T): T {
+    if (this.#jump) return run()
+    const jump: Jump = { at: 1, moved: false }
+    this.#jump = jump
+    const end = () => {
+      this.#jump = null
+      if (jump.moved && this.#stack.length > jump.at) this.#leave(this.#stack.splice(jump.at), () => this.#onChange(this.current))
+    }
+    let result: T
+    try {
+      result = run()
+    } catch (error) {
+      end()
+      throw error
+    }
+    if (result instanceof Promise) return result.finally(end) as T
+    end()
+    return result
+  }
+
+  anywhere(chosen: Action): boolean {
+    const same = (a: Action) => a.id === chosen.id
+    return !(this.current.actions?.() ?? []).some(same) && this.#appActions().some(same)
   }
 
   replace(screen: Screen): void {
@@ -97,6 +138,11 @@ export class Router {
   async run(id: string, targetId?: string): Promise<Outcome> {
     const found = this.actions().find(a => a.id === id)
     return found ? found.run(targetId) : { done: false, why: 'unknown' }
+  }
+
+  #push(screen: Screen): void {
+    this.#stack.push(this.#enter(screen))
+    this.#onChange(screen)
   }
 
   #onChange(current: Screen): void {

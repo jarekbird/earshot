@@ -735,6 +735,39 @@ describe('a hold', () => {
     expect(ran).toEqual(['allow r1'])
   })
 
+  it('E10: a rolling item said on another screen opens under home, so a double tap goes up, not back', async () => {
+    const { voice } = hearing('ana', 'ben')
+    const { fake, router } = world({ voice })
+    await settle()
+    await say(fake)
+    await settle(2_000)
+    expect(fake.lines()[0]).toContain('Ana')
+    expect(router.depth).toBe(2)
+    await say(fake)
+    await settle(2_000)
+    expect(fake.lines()[0]).toContain('Ben')
+    expect(router.depth).toBe(2)
+    fake.double()
+    await settle()
+    expect(fake.lines()[0]).toBe('People')
+  })
+
+  it("E10: an action of the app opens under home from any screen, and a screen's own action opens a child", async () => {
+    const { fake, router } = world({
+      appActions: () => [
+        action({ id: 'about', say: 'About', run: () => router.open({ id: 'about', view: () => text({ title: 'About', body: 'x' }) }) }),
+      ],
+    })
+    await settle()
+    fake.tap()
+    await settle()
+    expect(router.depth).toBe(2)
+    fake.pick('About')
+    await settle()
+    expect(fake.lines()[0]).toBe('About')
+    expect(router.depth).toBe(2)
+  })
+
   it('drops its question when the screen changes before the tap', async () => {
     const { voice } = hearing('stop it')
     const { fake, front, ran, router } = world({

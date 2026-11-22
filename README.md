@@ -69,7 +69,10 @@ router.open({
 router.actions() // stop, pages, refresh: the screen's, then the app's
 await router.run('stop')
 router.back() // false at home: time to exit
+router.jump(page, thread) // from anywhere: the path under home is now page, then thread
 ```
+
+The stack is the path from home to the screen on show, not a history, so going back always goes up to the parent. `open` adds a child of the current screen. `jump` replaces the path, and keeps the screens the new path shares with the old one. The shell runs an action of the app, and a rolling item picked from a screen that does not offer its action, as a jump: whatever they open starts from home.
 
 ## Lifetimes
 
@@ -123,7 +126,7 @@ const shell = new Shell(life, glasses, router)
 - `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines.
 - `boxes(boxes, { on, pictures })` places each box yourself. `on` says which action a tap, a swipe up and a swipe down run: `{ tap: open, up: older, down: { action: open, target: 'next' } }`. A screen gets no raw touches, so whatever touch can do, voice can do too. A screen with no `view` lists its actions.
 - By voice, a long text scrolls a screenful ("scroll down"), a list's cursor moves ("move down") and "choose this one" runs the row it is on. The model is told which row that is, unless the row is private.
-- A double tap goes back. From the home screen it asks Even to close the app.
+- A double tap goes up, to the screen the current one was opened from. From the home screen it asks Even to close the app.
 - Even's menu lists the screen's and the app's other actions. Over ten, the rest go behind "More…". An action with targets asks which one in a list.
 - An action that is blocked says why over the page, which dims for a few seconds. An action with `risk: 'confirm'` asks first, and only a tap confirms.
 - Call `shell.redraw()` when what a screen shows has changed. `shell.notice(text)` says something over the page.

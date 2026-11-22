@@ -81,6 +81,113 @@ describe('the screen stack', () => {
   })
 })
 
+describe('E10: double tap goes up', () => {
+  const ids = (router: Router) => {
+    const path: string[] = []
+    for (let current = router.current; ; current = router.current) {
+      path.unshift(current.id)
+      if (!router.back()) return path
+    }
+  }
+
+  it('a jump replaces the path: back goes to the parent, never to where you were', () => {
+    const router = new Router({ home: screen('list') })
+    router.open(screen('thread a'))
+    router.jump(screen('thread b'))
+    expect(router.current.id).toBe('thread b')
+    expect(router.back()).toBe(true)
+    expect(router.current.id).toBe('list')
+  })
+
+  it('a jump opens its whole path under home, in order', () => {
+    const router = new Router({ home: screen('list') })
+    router.open(screen('usage'))
+    router.jump(screen('parent'), screen('child'))
+    expect(ids(router)).toEqual(['list', 'parent', 'child'])
+  })
+
+  it('keeps the screens a jump shares with the old path: they do not leave and enter again', () => {
+    const ended: string[] = []
+    const entered: string[] = []
+    const made = (id: string) =>
+      screen(id, {
+        enter: life => {
+          entered.push(id)
+          life.own(() => void ended.push(id))
+        },
+      })
+    const page = made('page')
+    const router = new Router({ home: screen('list') })
+    router.open(page)
+    router.open(made('thread a'))
+    entered.length = 0
+    router.jump(page, made('thread b'))
+    expect(entered).toEqual(['thread b'])
+    expect(ended).toEqual(['thread a'])
+    expect(router.depth).toBe(3)
+  })
+
+  it('a jump to a screen already on the path leaves what was above it', () => {
+    const parent = screen('parent')
+    const router = new Router({ home: screen('list') })
+    router.open(parent)
+    router.open(screen('child'))
+    const changed: string[] = []
+    router.onChange(current => changed.push(current.id))
+    router.jump(parent)
+    expect(router.current).toBe(parent)
+    expect(router.depth).toBe(2)
+    expect(changed).toEqual(['parent'])
+  })
+
+  it('a jump with no screens goes home', () => {
+    const router = new Router({ home: screen('list') })
+    router.open(screen('thread'))
+    router.jump()
+    expect(router.depth).toBe(1)
+  })
+
+  it('while a jump runs, each screen opened is the next step of the path from home, even after an await', async () => {
+    const router = new Router({ home: screen('list') })
+    router.open(screen('thread a'))
+    await router.jumping(async () => {
+      await Promise.resolve()
+      router.open(screen('parent'))
+      router.open(screen('child'))
+    })
+    expect(ids(router)).toEqual(['list', 'parent', 'child'])
+  })
+
+  it('leaves the path alone when what ran opened nothing, and opens a child again once it ended', () => {
+    const router = new Router({ home: screen('list') })
+    router.open(screen('thread'))
+    router.jumping(() => {})
+    expect(router.depth).toBe(2)
+    router.open(screen('menu'))
+    expect(router.depth).toBe(3)
+  })
+
+  it('ends the jump when what ran throws', () => {
+    const router = new Router({ home: screen('list') })
+    router.open(screen('thread'))
+    expect(() =>
+      router.jumping(() => {
+        throw new Error('no')
+      }),
+    ).toThrow('no')
+    router.open(screen('menu'))
+    expect(router.depth).toBe(3)
+  })
+
+  it("knows an action of the app from the screen's own, by id", () => {
+    const refresh = action({ id: 'refresh', say: 'Refresh', run: () => {} })
+    const stop = action({ id: 'stop', say: 'Stop', run: () => {} })
+    const router = new Router({ home: screen('list', { actions: () => [stop] }), actions: () => [refresh, stop] })
+    expect(router.anywhere(refresh)).toBe(true)
+    expect(router.anywhere(stop)).toBe(false)
+  })
+})
+
 describe('E7: what a screen starts ends with it', () => {
   it("ends a screen's lifetime when it leaves the stack, not when another covers it", () => {
     let life: Lifetime | undefined

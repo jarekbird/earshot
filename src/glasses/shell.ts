@@ -461,6 +461,12 @@ export class Shell {
     void this.#start(found, targetId, said)
   }
 
+  #jumps(chosen: Action, targetId?: string): boolean {
+    if (this.#router.anywhere(chosen)) return true
+    const rolled = this.#voice?.rolling?.items().some(item => item.action.id === chosen.id && item.target === targetId) ?? false
+    return rolled && !this.#reachable().some(a => a.id === chosen.id)
+  }
+
   #picked(item: number): void {
     const shown = this.#shown()
     if (shown && shown !== this.#router.current) return
@@ -491,7 +497,7 @@ export class Shell {
   async #run(chosen: Action, targetId?: string, said = false): Promise<void> {
     try {
       this.#said = said
-      const running = chosen.run(targetId)
+      const running = this.#jumps(chosen, targetId) ? this.#router.jumping(() => chosen.run(targetId)) : chosen.run(targetId)
       this.#said = false
       const outcome = await this.#life.guard(running)
       if (outcome.done) return this.redraw()

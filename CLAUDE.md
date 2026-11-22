@@ -20,6 +20,9 @@ Checks cite these IDs. Changing one needs Jarek's OK.
 - **E7** What a screen starts ends with it.
 - **E8** An API is added only with an app that uses it, in the same slice.
 - **E9** Every input a screen takes is an action, so voice can do whatever touch can.
+- **E10** Double tap goes up. The stack is the path from home to the screen on show, never a history. A screen opens
+  as a child of the one on show; a jump from anywhere (an action of the app, a rolling item, an alert) replaces the
+  path.
 
 ## Code rules
 

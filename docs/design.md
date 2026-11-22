@@ -77,7 +77,7 @@ own test.
 ## Renderer and touch (slice 2, built)
 
 The only code that imports the SDK (E1). It owns the device limits as tested constants, redraws a page only when its
-containers change, and maps the touchpad to actions: swipe moves, tap runs, double tap goes back.
+containers change, and maps the touchpad to actions: swipe moves, tap runs, double tap goes up (E10).
 
 `Glasses` draws frames of boxes and reports input.
 
@@ -300,6 +300,22 @@ decided, a touch only calls it off: an agent's pending work ends with the turn's
 A submenu is one sentence: an action with targets is offered to the model once for each target that is not private,
 named "action: target", and an action with a single target is offered only as that. A target that is also a
 rolling item is offered once, with the item's context.
+
+### Double tap goes up (E10)
+
+Jarek, 2026-11-21: double tap is the glasses' way out, so it goes up, in every Earshot app. With voice a user jumps
+from anywhere to anywhere; if each jump were pushed, the way out would grow with every place visited and nobody could
+say where a double tap lands.
+
+- The router's stack is the path from home to the screen on show. `open` adds a child. `jump(...path)` makes the
+  path under home the one given, keeps the screens it shares with the old path (they neither leave nor enter), and
+  leaves the rest.
+- The shell runs a from-anywhere action as a jump: an action of the app, and a rolling item picked on a screen that
+  does not offer its action. While it runs, each `open` is the next step of the path from home, so an app cannot
+  pile up history by accident. An action that opens nothing leaves the path alone.
+- What is lost: a gesture that returns to where a jump came from. Saying its name does that.
+- Known: the jump lasts until the action's promise settles, so a child opened by another input in that time is
+  taken for a step of the jump.
 
 ## Wake word (built with the first app that uses it, E8)
 
