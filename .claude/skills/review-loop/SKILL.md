@@ -20,9 +20,10 @@ Each focus has its own reviewer. Add a focus by adding a row.
 Earshot is for any app on the glasses. This reviewer takes the side of the apps that did not ask for the change, and
 its answer shows its work on each test:
 
-1. **No app in the framework.** No name, word or concept of one app in the code, the public API, the docs or the
-   tests: a recipe, an order, a message is the app's; a screen, an action, a target is Earshot's. A word of the
-   example app stays in `example/`.
+1. **No app in the framework.** Nothing Earshot does, names, types or defaults to belongs to one app: a recipe, an
+   order, a message is the app's; a screen, an action, a target is Earshot's. An app's words are fine as data in an
+   example: in the README, in a test's fixtures, in `example/` and in the tests of it. The finding is behaviour, a
+   name in the public API, a type or a default that only makes sense for one kind of app.
 2. **Two other apps.** For each new or changed part of the public API it writes, in a few lines each, how two apps
    unlike the one that asked would use it (say a recipe reader and a timer; pick its own). If either needs a
    workaround, or cannot use it at all, that is a finding.
