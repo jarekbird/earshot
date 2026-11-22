@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
+import { createServer, get } from 'node:http'
+import { connect, type AddressInfo } from 'node:net'
 import { join, relative, sep } from 'node:path'
 import ts from 'typescript'
 import { expect, it } from 'vitest'
@@ -38,8 +40,19 @@ it('E2: the relay holds no address of its own either', () => {
   expect(breaking(ADDRESS, undefined, relay)).toEqual([])
 })
 
-it('E4: a test that calls an outside service is refused', async () => {
+it('E4: a test that calls an outside service is refused, by fetch, by any other connection, and after a redirect', async () => {
   await expect(fetch('https://service.example.invalid/v1')).rejects.toThrow('E4')
+  expect(() => get('http://service.example.invalid/v1')).toThrow('E4')
+  expect(() => connect(443, 'service.example.invalid')).toThrow('E4')
+  const local = createServer((_request, response) => response.writeHead(302, { location: 'https://service.example.invalid/v1' }).end())
+  await new Promise<void>(done => local.listen(0, '127.0.0.1', done))
+  const address = `http://127.0.0.1:${(local.address() as AddressInfo).port}/`
+  const outcome = await fetch(address).then(
+    () => 'answered',
+    (error: Error) => String(error.cause),
+  )
+  local.close()
+  expect(outcome).toContain('E4')
 })
 
 it('E9: a view hands a screen no raw input, only actions', () => {
@@ -52,9 +65,15 @@ const root = join(import.meta.dirname, '..')
 const tracked = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean)
 const DIRECTIVE = /^(\/\/\/? ?(@ts-|eslint-|prettier-ignore|<reference)|#!)/
 
-function comments(text: string): { line: number; text: string; block: boolean }[] {
+interface Comment {
+  line: number
+  text: string
+  alone: boolean
+}
+
+function comments(text: string): Comment[] {
   const source = ts.createSourceFile('x.ts', text, ts.ScriptTarget.Latest, true)
-  const found = new Map<number, { line: number; text: string; block: boolean }>()
+  const found = new Map<number, Comment>()
   const visit = (node: ts.Node) => {
     const ranges = [
       ...(ts.getLeadingCommentRanges(text, node.getFullStart()) ?? []),
@@ -64,7 +83,7 @@ function comments(text: string): { line: number; text: string; block: boolean }[
       found.set(range.pos, {
         line: source.getLineAndCharacterOfPosition(range.pos).line + 1,
         text: text.slice(range.pos, range.end),
-        block: range.kind === ts.SyntaxKind.MultiLineCommentTrivia,
+        alone: !text.slice(text.lastIndexOf('\n', range.pos - 1) + 1, range.pos).trim(),
       })
     node.forEachChild(visit)
   }
@@ -74,17 +93,20 @@ function comments(text: string): { line: number; text: string; block: boolean }[
 
 export function commentsBreakingC1(text: string): number[] {
   const notes = comments(text).filter(comment => !DIRECTIVE.test(comment.text))
+  const alone = new Set(notes.filter(note => note.alone).map(note => note.line))
   return notes
-    .filter((note, at) => note.block || notes[at - 1]?.line === note.line - 1 || notes[at + 1]?.line === note.line + 1)
+    .filter(note => note.text.includes('\n') || (note.alone && (alone.has(note.line - 1) || alone.has(note.line + 1))))
     .map(note => note.line)
 }
 
-it('C1: finds a block comment and a note of more than one line, and lets a directive and a one-line note be', () => {
-  expect(commentsBreakingC1('/** what it does */\nconst a = 1\n')).toEqual([1])
+it('C1: finds a comment of more than one line, and lets a directive and one-line notes be', () => {
+  expect(commentsBreakingC1('/**\n * what it does\n */\nconst a = 1\n')).toEqual([1])
   expect(commentsBreakingC1('// first line\n// second line\nconst a = 1\n')).toEqual([1, 2])
   expect(
     commentsBreakingC1("// @ts-expect-error\n// The simulator sends 0.\nconst a: string = 1\nconst b = '://*.' // one fact\n"),
   ).toEqual([])
+  expect(commentsBreakingC1('const a = 204 // HTTP 204 has no body.\nconst b = 304 // HTTP 304 has no body.\n')).toEqual([])
+  expect(commentsBreakingC1('/* HTTP 204 has no body. */\nconst a = 204\n')).toEqual([])
 })
 
 it('C1: no comments but tool directives and one-line notes', () => {
@@ -93,8 +115,38 @@ it('C1: no comments but tool directives and one-line notes', () => {
   expect(code.flatMap(file => commentsBreakingC1(readFileSync(join(root, file), 'utf8')).map(line => `${file}:${line}`))).toEqual([])
 })
 
-it('the repository is public: no file names a home folder or a private network', () => {
-  const PRIVATE = new RegExp(['/ho' + 'me/[a-z]', '/Us' + 'ers/[A-Za-z]', '\\.ts\\.n' + 'et\\b'].join('|'))
+const PRIVATE = new RegExp(
+  [
+    '/ho' + 'me/[a-z]',
+    '/Us' + 'ers/[A-Za-z]',
+    '[A-Z]:\\\\Us' + 'ers\\\\',
+    '\\b10(\\.\\d{1,3}){3}\\b',
+    '\\b192\\.168(\\.\\d{1,3}){2}\\b',
+    '\\b172\\.(1[6-9]|2\\d|3[01])(\\.\\d{1,3}){2}\\b',
+    '\\b100\\.(6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])(\\.\\d{1,3}){2}\\b',
+    '\\b[a-z0-9-]+\\.(ts\\.n' + 'et|lo' + 'cal|la' + 'n|inter' + 'nal)\\b',
+  ].join('|'),
+)
+
+it('the repository is public: the check knows a home folder, a private address and a private host name', () => {
+  const samples = [
+    '/ho' + 'me/someone/x',
+    '/Us' + 'ers/Someone/x',
+    'C:\\Us' + 'ers\\someone',
+    'http://192.' + '168.1.42:8787',
+    '10.' + '0.0.7',
+    '172.' + '20.1.1',
+    '100.' + '101.2.3',
+    'https://desk.' + 'local',
+    'box.tail1234.ts.' + 'net',
+  ]
+  expect(samples.filter(sample => !PRIVATE.test(sample))).toEqual([])
+  expect(['127.0.0.1', 'https://relay.example.com', 'demo://local', '0.0.31', 'localhost']).not.toContainEqual(
+    expect.stringMatching(PRIVATE),
+  )
+})
+
+it('the repository is public: no file names a home folder, a private address or a private host name', () => {
   const text = tracked.filter(file => !/\.(png|gif|jpg|woff2?|ehpk)$/.test(file) && file !== 'package-lock.json')
   expect(text.filter(file => PRIVATE.test(readFileSync(join(root, file), 'utf8')))).toEqual([])
 })
