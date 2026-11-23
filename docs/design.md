@@ -250,6 +250,9 @@ use it, compaction. Earshot ships all three for OpenRouter, paid by the develope
 - **The relay waits just under what the app waits.** Ten seconds for a question or a shortening, where the app
   waits twelve; twenty-eight for speech, where it waits thirty for each part of a recording. A slow upstream is then
   the relay's own answer, and a long part is not cut off early.
+- **Its two hosts are one server (E13).** The Node server and the example's Worker only hand requests to `relay`, and
+  read their settings through `relayOptions`, whose type names every setting a host must pass. One table of calls
+  runs against both and their answers must match. Only where a host listens (`PORT`, `HOST`) is its own.
 - **A long recording goes in parts.** Over a minute, the transcriber cuts it at its quietest moment near each minute
   and joins the words, so each part fits the relay's four megabytes.
 - **A request ends with its turn.** The shell hands the transcriber and the model the lifetime of the command; the
