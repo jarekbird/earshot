@@ -17,7 +17,7 @@ import type { Sound, Speaker } from '../audio.js'
 import type { Lifetime, Timer } from '../lifetime.js'
 import { clipBytes, linesOf, type Box, type Brightness, type Frame, type MenuItem, type Picture } from './frame.js'
 import { decode, type GlassesEvent, type Input } from './input.js'
-import { HOLD, Mic, MIC_SILENT_MS, retryDelay, type ListenOptions } from './mic.js'
+import { HOLD, Mic, MIC_SILENT_MS, retryDelay, type Held, type ListenOptions } from './mic.js'
 
 export { MIC_SILENT_MS }
 export type { ListenOptions }
@@ -229,15 +229,15 @@ export class Glasses {
     return this.#mic.open
   }
 
-  listen(hear: (sound: Sound) => void, options?: ListenOptions): () => void {
+  listen(hear: (sound: Sound) => unknown, options?: ListenOptions): () => Promise<void> {
     return this.#mic.listen(hear, options)
   }
 
-  [HOLD](hear: (sound: Sound) => void): () => void {
-    return this.#mic.hold(hear)
+  [HOLD](hear: (sound: Sound) => unknown, refused: () => void): Held {
+    return this.#mic.hold(hear, refused)
   }
 
-  onMic(listener: (open: boolean) => void): () => void {
+  onMic(listener: (open: boolean) => unknown): () => void {
     return this.#mic.onChange(listener)
   }
 
