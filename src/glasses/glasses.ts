@@ -17,6 +17,10 @@ import type { Sound, Speaker } from '../audio.js'
 import type { Lifetime, Timer } from '../lifetime.js'
 import { clipBytes, linesOf, type Box, type Brightness, type Frame, type MenuItem, type Picture } from './frame.js'
 import { decode, type GlassesEvent, type Input } from './input.js'
+import { Mic, MIC_SILENT_MS, retryDelay, type ListenOptions } from './mic.js'
+
+export { MIC_SILENT_MS }
+export type { ListenOptions }
 import {
   LINE_HEIGHT,
   MAX_BRIGHTNESS,
@@ -64,9 +68,6 @@ export interface GlassesOptions {
 export const FRAME_TAG = '[earshot frame]'
 export const INPUT_TAG = '[earshot input]'
 export const REBUILD_GAP_MS = 300
-export const MIC_SILENT_MS = 3_000
-const RETRY_FIRST_MS = 500
-const RETRY_MAX_MS = 4_000
 export const OVERLAY_DIM: Brightness = 1
 const OVERLAY_LINES = 3
 const SCREEN_LINES = Math.floor(SCREEN_HEIGHT / LINE_HEIGHT)
@@ -88,23 +89,10 @@ interface Placed {
   brightness: Brightness
 }
 
-const retryDelay = (failures: number) => Math.min(RETRY_MAX_MS, RETRY_FIRST_MS * 2 ** (failures - 1))
-
 const SPEAKERS = new Map<unknown, Speaker>([
   [AudioSpeakerRole.Self, 'self'],
   [AudioSpeakerRole.Other, 'other'],
 ])
-
-export interface ListenOptions {
-  alone?: boolean
-  reopenAfterMs?: number | false
-}
-
-interface Ear {
-  hear: (sound: Sound) => void
-  alone: boolean
-  reopenAfterMs: number | false
-}
 
 interface Hung {
   id: number
@@ -165,14 +153,6 @@ function above(box: Box, top: number): string {
 
 const stateOf = ({ text, brightness }: Placed) => `${brightness}\n${text}`
 
-const attempt = async <T>(call: () => Promise<T>): Promise<T | undefined> => {
-  try {
-    return await call()
-  } catch {
-    return undefined
-  }
-}
-
 const pictureBox = ({ id, name, picture }: Hung, index: number) =>
   new ImageContainerProperty({
     xPosition: picture.x,
@@ -208,13 +188,7 @@ export class Glasses {
   readonly #watch: (drawing: Drawing) => void
   #frames = 0
   readonly #listeners = new Set<(input: Input) => void>()
-  readonly #ears = new Set<Ear>()
-  readonly #micListeners = new Set<(open: boolean) => void>()
-  #mic: 'closed' | 'opening' | 'open' = 'closed'
-  #capturing = false
-  #micTimer: Timer | undefined
-  #micFailures = 0
-  #heardAt = 0
+  readonly #mic: Mic
   #frame: Frame = { boxes: [] }
   #overlay: string | null = null
   #wanted: Page | null = null
@@ -239,10 +213,12 @@ export class Glasses {
     this.#trace = options.trace === true ? line => console.info(line) : options.trace || undefined
     this.#watch = options.watch ?? (() => {})
     this.#life.own(bridge.onEvenHubEvent(event => this.#hear(event)))
-    this.#life.own(() => {
-      this.#ears.clear()
-      this.#tune()
-    })
+    const open = () => {
+      const opening = bridge.audioControl(true, AudioInputSource.Glasses)
+      this.holdRebuilds(opening)
+      return opening
+    }
+    this.#mic = new Mic(this.#life, { open, close: () => bridge.audioControl(false) }, this.#now)
   }
 
   get shown(): number {
@@ -250,101 +226,15 @@ export class Glasses {
   }
 
   get micOpen(): boolean {
-    return this.#mic === 'open'
+    return this.#mic.open
   }
 
-  listen(hear: (sound: Sound) => void, options: ListenOptions = {}): () => void {
-    if (this.#life.ended) return () => {}
-    const alone = options.alone ?? false
-    const ear: Ear = { hear, alone, reopenAfterMs: options.reopenAfterMs ?? (alone ? false : MIC_SILENT_MS) }
-    this.#ears.add(ear)
-    if (this.#mic === 'closed') {
-      this.#micTimer?.cancel()
-      this.#micTimer = undefined
-    }
-    this.#tune()
-    return () => {
-      if (this.#ears.delete(ear)) this.#tune()
-    }
+  listen(hear: (sound: Sound) => void, options?: ListenOptions): () => void {
+    return this.#mic.listen(hear, options)
   }
 
   onMic(listener: (open: boolean) => void): () => void {
-    this.#micListeners.add(listener)
-    return () => void this.#micListeners.delete(listener)
-  }
-
-  #hearing(): Ear[] {
-    const ears = [...this.#ears]
-    const alone = ears.findLast(ear => ear.alone)
-    return alone ? [alone] : ears
-  }
-
-  #reopenAfter(): number | false {
-    const times = this.#hearing().flatMap(ear => (ear.reopenAfterMs === false ? [] : [ear.reopenAfterMs]))
-    return times.length ? Math.min(...times) : false
-  }
-
-  #tune(): void {
-    if (this.#mic === 'opening') return
-    if (this.#ears.size > 0) {
-      if (this.#mic === 'closed' && !this.#micTimer) void this.#open()
-      else if (this.#mic === 'open' && !this.#micTimer) this.#watchMic()
-      return
-    }
-    this.#micTimer?.cancel()
-    this.#micTimer = undefined
-    this.#micFailures = 0
-    this.#mic = 'closed'
-    if (!this.#capturing) return
-    this.#capturing = false
-    void attempt(() => this.#bridge.audioControl(false))
-  }
-
-  async #open(): Promise<void> {
-    this.#mic = 'opening'
-    const opening = attempt(() => this.#bridge.audioControl(true, AudioInputSource.Glasses))
-    this.holdRebuilds(opening)
-    const open = (await opening) === true
-    if (open) this.#capturing = true
-    this.#mic = open ? 'open' : 'closed'
-    if (this.#ears.size === 0) return this.#tune()
-    if (open) this.#micFailures = 0
-    else this.#micLater(() => this.#tune(), retryDelay(++this.#micFailures))
-    this.#tellMic(open)
-    this.#tune()
-  }
-
-  // Capture stops without a word when the phone suspends the app, so sound that stops arriving is a closed microphone.
-  #watchMic(): void {
-    if (this.#reopenAfter() === false) return
-    this.#heardAt = this.#now()
-    const check = (ms: number) =>
-      this.#micLater(() => {
-        const after = this.#reopenAfter()
-        if (this.#mic !== 'open' || after === false) return
-        const silent = this.#now() - this.#heardAt
-        if (silent < after) return check(after - silent)
-        void this.#open()
-      }, ms)
-    check(this.#reopenAfter() as number)
-  }
-
-  #micLater(run: () => void, ms: number): void {
-    this.#micTimer?.cancel()
-    this.#micTimer = this.#life.timeout(() => {
-      this.#micTimer = undefined
-      run()
-    }, ms)
-  }
-
-  #tellMic(open: boolean): void {
-    for (const listener of [...this.#micListeners]) {
-      try {
-        listener(open)
-      } catch (error) {
-        console.error(error)
-      }
-    }
+    return this.#mic.onChange(listener)
   }
 
   // The Even app answers one call at a time, so a rebuild on its way holds back whatever is asked after it.
@@ -427,10 +317,8 @@ export class Glasses {
   #hear(event: GlassesEvent): void {
     const audio = event.audioEvent
     if (audio?.audioPcm) {
-      this.#heardAt = this.#now()
       const pcm = audio.audioPcm instanceof Uint8Array ? audio.audioPcm : new Uint8Array(audio.audioPcm)
-      const sound: Sound = { pcm, speaker: SPEAKERS.get(audio.speakerRole) ?? 'unknown' }
-      for (const ear of this.#hearing()) if (this.#ears.has(ear)) ear.hear(sound)
+      this.#mic.heard({ pcm, speaker: SPEAKERS.get(audio.speakerRole) ?? 'unknown' })
     }
     const input = decode(event)
     if (!input) return
