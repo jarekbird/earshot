@@ -1547,6 +1547,35 @@ describe('a hold', () => {
     vi.unstubAllGlobals()
   })
 
+  it('takes no hold once it has ended, also when it ends while that very press is being handed out', async () => {
+    const life = new Lifetime()
+    const fake = fakeBridge()
+    const glasses = new Glasses(life, fake.bridge)
+    const mine = life.child()
+    glasses.onInput(input => void (input.kind === 'hold' && mine.end()))
+    new Shell(mine, glasses, new Router({ home: { id: 'home' } }), { voice: hearing('refresh').voice })
+    const session: number[] = []
+    glasses.listen(sound => session.push(sound.pcm.length))
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(200))
+    expect(session).toEqual([tone(200).length])
+  })
+
+  it('counts a touchpad as let go after two days at the most, however long a hold the app allows', async () => {
+    const { voice } = hearing('refresh')
+    const { fake, glasses } = world({ voice: { ...voice, maxHoldMs: 14 * 86_400_000 } })
+    await settle()
+    const session: number[] = []
+    glasses.listen(sound => session.push(sound.pcm.length))
+    await settle(50)
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(200))
+    expect(session).toEqual([])
+  })
+
   it('lets the listeners hear again when no release came for twice its longest length', async () => {
     const { voice } = hearing('refresh')
     const { fake, glasses } = world({ voice })

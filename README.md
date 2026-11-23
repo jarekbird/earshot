@@ -160,7 +160,7 @@ new Shell(life, glasses, router, {
 - An agent that waits before it acts waits through `life`. Any touch while a command is being decided calls it off and does nothing else; a hold calls it off and listens again. Both end `life`.
 - `model` is what the navigator asks. It gets the question, and the turn's lifetime to end its request with, and gives each option a chance. Over 0.7 the navigator is sure; under that it lists the options over 0.15. The default matches the words against the labels and calls no service.
 - A double tap calls a command off while it listens, and so does leaving the app. What was said is dropped when the screen changed while it listened or was decided.
-- `onListen` is called when a hold starts to listen: bind there what the words are for. `shell.busy` is true from then until the command is done. A hold with no release ends after a minute (`maxHoldMs`). No answer in forty-five seconds is given up on (`timeoutMs`), which ends the turn's lifetime.
+- `onListen` is called when a hold starts to listen: bind there what the words are for. `shell.busy` is true from then until the command is done. A hold with no release ends after a minute (`maxHoldMs`, a day at the most). No answer in forty-five seconds is given up on (`timeoutMs`), which ends the turn's lifetime.
 - Throw `SayError` from a transcriber to say what went wrong in your own words.
 
 ### Listen for longer than a hold

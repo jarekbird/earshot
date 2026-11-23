@@ -80,6 +80,7 @@ const NOTICE_MS = 3_000
 const HEARD_MS = 1_500
 const VOICE_TIMEOUT_MS = 45_000
 const MAX_HOLD_MS = 60_000
+const LONGEST_HOLD_MS = 86_400_000
 const METER_BARS = 8
 const METER_MS = 300
 const SCROLL_LINES = 2
@@ -286,6 +287,7 @@ export class Shell {
   }
 
   #input(input: Input): void {
+    if (this.#life.ended) return
     if (input.kind === 'foreground') return
     if (input.kind === 'background' || input.kind === 'exit') {
       this.#letGo()
@@ -351,7 +353,7 @@ export class Shell {
 
   #hold(source: HoldSource): void {
     const voice = this.#voice
-    const longest = voice?.maxHoldMs ?? MAX_HOLD_MS
+    const longest = Math.min(voice?.maxHoldMs ?? MAX_HOLD_MS, LONGEST_HOLD_MS)
     this.#down.get(source)?.cancel()
     this.#down.set(
       source,
