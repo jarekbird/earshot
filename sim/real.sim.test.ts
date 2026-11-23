@@ -17,6 +17,13 @@ const text = new TextContainerProperty({ xPosition: 0, yPosition: 0, width: 576,
 await bridge.createStartUpPageContainer(new CreateStartUpPageContainer({ containerTotalNum: 1, textObject: [text] }))
 console.log('earshot page ready')
 </script>`
+const MIC_PAGE = PAGE.replace(
+  "console.log('earshot page ready')",
+  `const answer = async (on) => { try { return await (on ? bridge.audioControl(true, 'glasses') : bridge.audioControl(false)) } catch (error) { return 'threw ' + error } }
+const answers = [await answer(true), await answer(true), await answer(false), await answer(false)]
+console.log('mic answers ' + JSON.stringify(answers))
+console.log('earshot page ready')`,
+)
 const PNG = [0x89, 0x50, 0x4e, 0x47]
 
 describe('the driver on the real Even Hub simulator', () => {
@@ -26,7 +33,7 @@ describe('the driver on the real Even Hub simulator', () => {
     server = createServer((request, response) => {
       const script = request.url === '/sdk.js'
       response.setHeader('content-type', script ? 'text/javascript' : 'text/html')
-      response.end(script ? readFileSync(SDK) : PAGE)
+      response.end(script ? readFileSync(SDK) : request.url === '/mic' ? MIC_PAGE : PAGE)
     })
     await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
     url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`
@@ -53,6 +60,20 @@ describe('the driver on the real Even Hub simulator', () => {
     await sim.input('tap')
     expect((await sim.logged(/^event /)).message).toContain('event {')
   })
+
+  it.runIf(process.platform === 'linux')(
+    'answers a first and a second open, and a first and a second close, of the microphone',
+    async () => {
+      const sim = await Simulator.start({ url: `${url}mic`, limitSeconds: 300, mic: true })
+      onTestFinished(() => sim.stop())
+      const said = await sim.logged(/^mic answers /, 60_000)
+      await sim.hold(600)
+      const touches = sim.entries
+        .filter(entry => entry.message.startsWith('event ') && entry.message.includes('sysEvent'))
+        .map(entry => entry.message)
+      expect([said.message, ...touches]).toEqual(['to be read from the first run'])
+    },
+  )
 
   it('leaves no process behind', async () => {
     const sim = await start()
