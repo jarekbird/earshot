@@ -327,8 +327,9 @@ export class Glasses {
     }
     const input = decode(event)
     if (!input) return
+    const inPlace = [...this.#listeners]
     serve(() => this.#trace?.(`${INPUT_TAG} ${JSON.stringify(input)}`), 'touchpad')
-    for (const placed of [...this.#listeners]) if (this.#listeners.has(placed)) serve(() => placed.hear(input), 'touchpad')
+    for (const placed of inPlace) if (this.#listeners.has(placed)) serve(() => placed.hear(input), 'touchpad')
     if (input.kind === 'exit') this.#life.end()
   }
 

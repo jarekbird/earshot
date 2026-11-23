@@ -448,6 +448,23 @@ describe('input', () => {
     fake.tap()
     expect(taps).toEqual(['confirmed'])
   })
+
+  it('is not handed to a listener that the trace of that same input put in place', () => {
+    const fake = fakeBridge()
+    const taps: string[] = []
+    let placed = false
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      trace: () => {
+        if (placed) return
+        placed = true
+        glasses.onInput(() => void taps.push('heard'))
+      },
+    })
+    fake.tap()
+    expect(taps).toEqual([])
+    fake.tap()
+    expect(taps).toEqual(['heard'])
+  })
 })
 
 describe('the microphone', () => {
