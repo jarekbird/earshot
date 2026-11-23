@@ -259,6 +259,27 @@ class Wire implements Line {
   }
 }
 
+describe('the calls, when the upstream answers with another address', () => {
+  it('are told to follow none, so that no key and no recording go there', async () => {
+    const seen: Array<RequestInit['redirect']> = []
+    const handle = relay({
+      key: 'sk-developer',
+      upstream: 'https://upstream.example',
+      fetch: async (_url, init) => {
+        seen.push(init?.redirect)
+        return new Response('{}')
+      },
+    })
+    await handle(
+      new Request('https://relay.example/api/v1/audio/transcriptions', {
+        method: 'POST',
+        body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
+      }),
+    )
+    expect(seen).toEqual(['error'])
+  })
+})
+
 describe('reaching the upstream of live speech', () => {
   const PHRASE = 'what only this phone was told'
 

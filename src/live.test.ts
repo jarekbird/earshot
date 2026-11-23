@@ -52,7 +52,7 @@ describe('scripted live speech, the offline stand-in', () => {
     ])
   })
 
-  it('ends the turn at a break in the sound, says it was cut, and starts the next line after it', () => {
+  it('at a break in the sound ends the turn that was growing as cut, as the transport for real speech does', () => {
     const { turns, hear } = listening(['one two three', 'four'])
     hear(sound(300))
     hear(sound(300, 'unknown', true))

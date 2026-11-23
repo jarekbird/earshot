@@ -59,10 +59,10 @@ class Line implements FluxSocket {
   }
 }
 
-const sound = (ms: number, speaker: Speaker = 'unknown', mark = 0): Sound => ({
+const sound = (ms: number, speaker: Speaker = 'unknown', mark = 0, gap = false): Sound => ({
   pcm: new Uint8Array(ms * 32).fill(mark),
   speaker,
-  gap: false,
+  gap,
 })
 const info = (turn_index: number, transcript: string, event = 'Update', from = 0, to = 1) => ({
   type: 'TurnInfo',
@@ -158,18 +158,14 @@ describe('live speech from Flux, through the relay', () => {
     expect(lines[0].binaryType).toBe('arraybuffer')
     expect(lines[0].sent).toEqual([])
     lines[0].opens()
-    expect(lines[0].sent).toEqual([
-      JSON.stringify({ model: FLUX, encoding: 'linear16', sample_rate: '16000', mip_opt_out: 'true', secret: PHRASE }),
-    ])
+    expect(lines[0].sent).toEqual([JSON.stringify({ model: FLUX, encoding: 'linear16', sample_rate: '16000', secret: PHRASE })])
   })
 
   it('asks for the model the app named, and sends no secret when the app has none', () => {
     const { lines, hear } = listening({ model: 'other/model' })
     hear(sound(100))
     lines[0].opens()
-    expect(lines[0].sent).toEqual([
-      JSON.stringify({ model: 'other/model', encoding: 'linear16', sample_rate: '16000', mip_opt_out: 'true' }),
-    ])
+    expect(lines[0].sent).toEqual([JSON.stringify({ model: 'other/model', encoding: 'linear16', sample_rate: '16000' })])
   })
 
   it('holds the sound that comes while it connects, and sends it in order once Flux says it is connected', () => {
@@ -183,6 +179,88 @@ describe('live speech from Flux, through the relay', () => {
     hear(sound(100, 'unknown', 3))
     expect(lines[0].marks).toEqual([1, 2, 3])
     expect(lines).toHaveLength(1)
+  })
+
+  it('keeps the last ten seconds exactly, whatever the size of the pieces it was handed', () => {
+    const whole = listening()
+    whole.hear(sound(12_000, 'unknown', 4))
+    whole.lines[0].connects()
+    expect(whole.lines[0].sound).toBe(HELD_BYTES)
+    const parts = listening()
+    parts.hear(sound(9_000, 'unknown', 1))
+    parts.hear(sound(2_000, 'unknown', 2))
+    parts.lines[0].connects()
+    expect(parts.lines[0].sound).toBe(HELD_BYTES)
+    expect(parts.lines[0].marks).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 2, 2])
+  })
+
+  it('cuts held sound between samples, never in the middle of one', () => {
+    const { lines, hear } = listening()
+    hear({ ...sound(0), pcm: new Uint8Array(HELD_BYTES) })
+    hear({ ...sound(0), pcm: new Uint8Array(6).fill(3) })
+    hear({ ...sound(0), pcm: new Uint8Array(3).fill(5) })
+    lines[0].connects()
+    expect(lines[0].sound).toBe(HELD_BYTES - 1)
+  })
+
+  it('sends no sound older than the app said is still worth hearing', () => {
+    let at = 0
+    const { lines, hear } = listening({ staleMs: 4_000, now: () => at })
+    hear(sound(100, 'unknown', 1))
+    at = 3_000
+    hear(sound(100, 'unknown', 2))
+    at = 5_000
+    lines[0].connects()
+    expect(lines[0].marks).toEqual([2])
+  })
+
+  it('at a break in the sound ends the turn that was growing as cut, and takes what follows on a new line', () => {
+    const { lines, turns, states, hear } = listening()
+    hear(sound(100, 'unknown', 1, true))
+    expect(lines).toHaveLength(1)
+    lines[0].connects()
+    lines[0].says(info(0, 'before the'))
+    hear(sound(100, 'unknown', 2, true))
+    expect(lines[0].closedWith).toBe(1000)
+    expect(turns.at(-1)).toEqual({ id: 0, words: 'before the', final: true, cut: true, speaker: 'unknown' })
+    expect(lines).toHaveLength(2)
+    lines[1].connects()
+    expect(lines[1].marks).toEqual([2])
+    lines[1].says(info(0, 'after'))
+    expect(turns.at(-1)).toMatchObject({ id: 1, words: 'after', cut: false })
+    expect(states).toEqual([])
+  })
+
+  it('opens no new line at a break when the listener ended the lifetime as it was told of the cut turn', () => {
+    const life = new Lifetime()
+    const lines: Line[] = []
+    const open = (url: string) => lines[lines.push(new Line(url)) - 1]
+    const hear = fluxLive({ host: 'https://relay.example', open }).start(life, turn => void (turn.cut && life.end()))
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(0, 'before the'))
+    hear(sound(100, 'unknown', 2, true))
+    expect(lines).toHaveLength(1)
+    expect(lines[0].closedWith).toBe(1000)
+  })
+
+  it('opens one line, not two, when the app feeds it sound as it is told the line is down', () => {
+    const life = new Lifetime()
+    const lines: Line[] = []
+    const open = (url: string) => lines[lines.push(new Line(url)) - 1]
+    const hear = fluxLive({ host: 'https://relay.example', open }).start(
+      life,
+      () => {},
+      state => state === 'down' && hear(sound(100)),
+    )
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].drops()
+    expect(lines).toHaveLength(1)
+    vi.advanceTimersByTime(retryDelay(1))
+    expect(lines).toHaveLength(2)
+    life.end()
+    expect(lines.map(line => line.closedWith !== undefined)).toEqual([true, true])
   })
 
   it('keeps only the last ten seconds of the sound it cannot send yet', () => {

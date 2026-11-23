@@ -439,14 +439,19 @@ The line, as states:
 
 - A line that closes while the lifetime goes on ends the turn that was growing, as final and cut, with the words it
   had. Turns of the next line are numbered on from there.
-- The transport holds at most the last ten seconds of sound it could not send, and lets go of it when the lifetime
-  ends. It sends that sound however long the line was away: an app that would rather lose it ends the lifetime and
-  starts again. A setting for that waits for an app that needs it (E8).
+- The transport holds the last ten seconds of sound it could not send, to the sample, whatever size the pieces came
+  in, and lets go of it when the lifetime ends. It sends that sound however long the line was away, unless the app
+  set `staleMs`: then sound held longer is not sent. A transcript wants the late words; a command does not. The
+  example's Listen screen sets ten seconds.
+- A break in the sound ends the turn that was growing, as cut, and what follows goes on a new line: on one line Flux
+  would join the words on either side of a hold. The stand-in cuts at a break too, so an app tested on it sees what
+  it will get. Sound still held from before a break goes out with what follows it.
+- The app is told of a change only after the transport has settled it, so a listener that feeds sound as it is told
+  the line is down opens no second line.
 - Sound goes out a second at a time at most, whatever size the glasses hand over, so the relay's limit on one piece
   is never met by a well-behaved app. A line whose sound is not getting out (ten seconds of it queued) counts as lost.
 - The speaker of a turn is whoever the glasses named for most of the stretch of sound Flux says the turn came from.
   The transport keeps who spoke only for sound no finished turn has covered.
-- Every line asks Deepgram to keep its sound out of the model-improvement programme (`mip_opt_out`).
 - The first tests ran on what Flux really sent: 90 messages recorded on 2026-11-23 from 21 seconds of synthetic
   speech, kept as `src/flux/recorded.jsonl`.
 
@@ -456,17 +461,21 @@ The line, as states:
   few settings the relay lists. The relay checks them, opens the upstream with the developer's key, and from then on
   passes sound up and text down. Nothing else the caller says is passed on.
 - It closes with a code of its own: 4400 for no proper greeting in three seconds, 4401 for a wrong secret, 4403 for
-  a model nobody listed, 4502 when the upstream does not open in five seconds or goes, and 1009 for a piece of sound
-  over 64 kilobytes. The first three are for good; the transport tries again after any other.
+  a model nobody listed, 4502 when the upstream does not open in five seconds or goes, and 1009 for any message over
+  64 kilobytes, sound or text, counted in bytes on both hosts. The first three are for good; the transport tries
+  again after any other.
+- **The sound stays out of training.** The relay adds Deepgram's `mip_opt_out` to every line itself, so no caller
+  can leave it out or turn it off.
 - **The secret is required.** Live speech is billed by the minute and the provider offers no limit to set, so no
   relay is made with a live upstream and a secret under sixteen characters. The relay itself refuses, so a host that
   builds its options by hand cannot skip the check. The secret is the user's to type on the phone, never the
   build's, and never part of an address. The relay does not count minutes yet: that comes with the first app that
   needs it.
 - **No key travels in the clear.** An upstream is named with `https`, or `wss` for live speech, unless it is on the
-  same machine. The relay follows an upstream to no other address, so a redirect gets no key.
+  same machine. The relay follows an upstream to no other address, for the three calls as for live speech, so a
+  redirect gets no key and no recording.
 - **What the relay starts ends with the caller.** When the caller leaves, the relay tells the host to stop reaching
-  for the upstream, and closes it if it opened all the same.
+  for the upstream, and closes it if it opened all the same. Closing the Node server hangs up on its callers.
 - **The upstream is Cloudflare's AI Gateway, for both hosts.** Reaching Workers AI through a Worker's own binding
   would have made the Worker a different server from the Node one (E13). Tried on 2026-11-23: a WebSocket to the
   gateway's Workers AI path opens with the header `cf-aig-authorization`, and Flux answers as it does directly.

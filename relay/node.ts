@@ -75,6 +75,11 @@ export function serve({ port = PORT, hostname, ...options }: ServeOptions): Prom
       socket.destroy()
     }
   })
+  const stop = server.close.bind(server)
+  server.close = done => {
+    for (const line of lines.clients) line.close(1001)
+    return stop(done)
+  }
   return new Promise((resolve, reject) => {
     server.once('error', reject)
     server.listen(port, hostname, () => resolve(server))

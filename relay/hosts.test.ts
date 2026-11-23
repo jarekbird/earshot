@@ -80,6 +80,35 @@ const CALLS: { name: string; models?: string; path: string; init: RequestInit; s
   },
 ]
 
+describe('E13: the Node server and the Worker follow the upstream of a call nowhere else', () => {
+  it('both answer that the upstream could not be reached, and the other address hears nothing', async () => {
+    const heard: string[] = []
+    const elsewhere = createServer((incoming, outgoing) => {
+      heard.push(`${incoming.method} ${incoming.headers.authorization}`)
+      outgoing.end('{}')
+    })
+    await new Promise<void>(resolve => elsewhere.listen(0, '127.0.0.1', resolve))
+    onTestFinished(() => void elsewhere.close())
+    const moved = createServer((_incoming, outgoing) => {
+      outgoing
+        .writeHead(307, { location: `http://127.0.0.1:${(elsewhere.address() as AddressInfo).port}/api/v1/audio/transcriptions` })
+        .end()
+    })
+    await new Promise<void>(resolve => moved.listen(0, '127.0.0.1', resolve))
+    onTestFinished(() => void moved.close())
+    const to = `http://127.0.0.1:${(moved.address() as AddressInfo).port}`
+    const server = await serve({ ...settings({ EARSHOT_RELAY_KEY: KEY, EARSHOT_RELAY_UPSTREAM: to }), port: 0, hostname: '127.0.0.1' })
+    onTestFinished(() => void server.close())
+    const init = post({ model: WHISPER, input_audio: 'UklGR' })
+    const answers = [
+      await seen(await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}${SPEECH}`, init)),
+      await seen(await worker.fetch(new Request(`https://relay.example${SPEECH}`, init), { OPENROUTER_KEY: KEY, UPSTREAM: to })),
+    ]
+    expect(answers.map(answer => answer.status)).toEqual([502, 502])
+    expect(heard).toEqual([])
+  })
+})
+
 describe('E13: the Node server and the Worker are one relay', () => {
   it.each(CALLS)('both $name', async ({ models, path, init, status }) => {
     const answers = await Promise.all(Object.values(await hosts(models)).map(async host => seen(await host(path, init))))

@@ -115,7 +115,6 @@ const HOSTS: Record<string, (setup: Setup) => Promise<Host>> = {
       port: 0,
       hostname: '127.0.0.1',
     })
-    onTestFinished(() => void server.closeAllConnections())
     onTestFinished(() => void server.close())
     return { at: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, up }
   },
@@ -180,13 +179,15 @@ describe('E13: live speech through the relay, on the Node server and on the Work
       { type: 'Connected' },
       { type: 'TurnInfo', event: 'Update', turn_index: 0, transcript: 'heard 3200' },
     ])
-    expect(answer.urls).toEqual(['/v1/account/gateway/workers-ai?model=%40cf%2Fdeepgram%2Fflux&encoding=linear16&sample_rate=16000'])
+    expect(answer.urls).toEqual([
+      '/v1/account/gateway/workers-ai?model=%40cf%2Fdeepgram%2Fflux&encoding=linear16&sample_rate=16000&mip_opt_out=true',
+    ])
   })
 
-  it('both ask the upstream only for what the relay lists, and never pass the secret on', async () => {
+  it('both ask the upstream only for what the relay lists, never pass the secret on, and keep the sound out of training whatever the caller asks', async () => {
     const urls = await both({}, async ({ at, up }) => {
       const { got, say } = call(at)
-      await say(greeting({ eot_timeout_ms: '3000', eot_threshold: 0.8, mip_opt_out: 'true', keyterm: 'x', tag: 'x' }))
+      await say(greeting({ eot_timeout_ms: '3000', eot_threshold: 0.8, mip_opt_out: 'false', keyterm: 'x', tag: 'x' }))
       await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
       return up.seen.urls
     })
@@ -231,7 +232,7 @@ describe('E13: live speech through the relay, on the Node server and on the Work
     })
     expect(answer).toEqual({
       own: CLOSES.model,
-      urls: ['/v1/account/gateway/workers-ai?model=b%2Ftwo&encoding=linear16&sample_rate=16000'],
+      urls: ['/v1/account/gateway/workers-ai?model=b%2Ftwo&encoding=linear16&sample_rate=16000&mip_opt_out=true'],
     })
   })
 
@@ -320,6 +321,34 @@ describe('E13: live speech through the relay, on the Node server and on the Work
       line.close(1000)
       await vi.waitFor(() => expect(up.seen.closed).toBe(1), WAIT)
     })
+  })
+
+  it.each([
+    { name: 'text after the greeting', first: () => greeting(), then: 'a'.repeat(MAX_FRAME + 1) },
+    { name: 'text of few letters and many bytes', first: () => greeting(), then: '\u00e9'.repeat(MAX_FRAME / 2 + 1) },
+    { name: 'a greeting', first: () => greeting({ pad: 'a'.repeat(MAX_FRAME) }), then: undefined },
+  ])('both hang up the same way on $name over the size the relay takes', async ({ first, then }) => {
+    const code = await both({}, async ({ at }) => {
+      const { got, ended, say } = call(at)
+      await say(first())
+      if (then === undefined) return ended
+      await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
+      await say(then)
+      return ended
+    })
+    expect(code).toBe(CLOSES.big)
+  })
+
+  it('the Node server, when it is closed, hangs up on its callers, and so on their upstreams', async () => {
+    const up = await gateway()
+    const server = await serve({ live: { upstream: up.at, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
+    const { got, ended, say } = call(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
+    await say(greeting())
+    await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
+    const closed = new Promise<void>(done => server.close(() => done()))
+    expect(await ended).toBe(1001)
+    await vi.waitFor(() => expect(up.seen.closed).toBe(1), WAIT)
+    await closed
   })
 
   it('both pass on sound only: what the caller says in text after the greeting goes nowhere', async () => {

@@ -163,6 +163,16 @@ describe('the example app in the real Even Hub simulator', () => {
     await sim.shows('Someone: how are you', 30_000)
   })
 
+  it.runIf(process.platform === 'linux')('marks a turn that a hold cut off', async () => {
+    const words = Array.from({ length: 80 }, (_, at) => `w${at}`).join('%20')
+    const sim = await start(`&say=nothing%20like%20a%20note&live=${words}`, true)
+    await sim.pick('Listen')
+    await sim.shows('Listening')
+    await sim.shows('Someone: w0', 30_000)
+    await sim.hold(1_200)
+    await sim.shows('(cut off)', 30_000)
+  })
+
   it.runIf(process.platform === 'linux')(
     "shows what Flux says through the developer's relay, once the secret is typed on the phone",
     async () => {
