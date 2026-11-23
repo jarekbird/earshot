@@ -142,7 +142,7 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
       fake.calls.push(open ? 'mic open' : 'mic close')
       if (open && refused('mic')) return false
       fake.mic = open ? (source ?? 'glasses') : null
-      return true
+      return open
     },
     onEvenHubEvent: listener => {
       listeners.add(listener)

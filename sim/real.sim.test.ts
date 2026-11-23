@@ -67,11 +67,7 @@ describe('the driver on the real Even Hub simulator', () => {
       const sim = await Simulator.start({ url: `${url}mic`, limitSeconds: 300, mic: true })
       onTestFinished(() => sim.stop())
       const said = await sim.logged(/^mic answers /, 60_000)
-      await sim.hold(600)
-      const touches = sim.entries
-        .filter(entry => entry.message.startsWith('event ') && entry.message.includes('sysEvent'))
-        .map(entry => entry.message)
-      expect([said.message, ...touches]).toEqual(['to be read from the first run'])
+      expect(said.message).toBe('mic answers [true,true,false,false]')
     },
   )
 

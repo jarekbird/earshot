@@ -1495,6 +1495,16 @@ describe('a hold', () => {
     expect(session).toEqual([tone(200).length])
   })
 
+  it('asks nothing of the microphone when a touchpad is held with no voice set up and nothing listening', async () => {
+    const { fake } = world()
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.release()
+    await settle(50)
+    expect(fake.calls.filter(call => call.startsWith('mic'))).toEqual([])
+  })
+
   it('lets the listeners hear again when no release came for twice its longest length', async () => {
     const { voice } = hearing('refresh')
     const { fake, glasses } = world({ voice })

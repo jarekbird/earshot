@@ -362,10 +362,7 @@ export class Shell {
       this.#recording.end()
       this.notice(this.#words.noMic)
     }
-    if (!this.#held) {
-      this.#held = this.#glasses[HOLD](sound => this.#recording?.hear(sound), refused)
-      this.#held.want(false)
-    }
+    this.#held ??= this.#glasses[HOLD](sound => this.#recording?.hear(sound), refused)
     if (!voice) {
       if (!this.#recording) this.#callOff()
       return this.notice(this.#words.noVoice)

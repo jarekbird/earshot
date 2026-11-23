@@ -96,7 +96,7 @@ let breaks = 0
 const listened = () =>
   glasses.micOpen
     ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}\nBreaks: ${breaks}`
-    : 'The microphone is off'
+    : 'Not hearing'
 
 const listen = action({
   id: 'listen',
