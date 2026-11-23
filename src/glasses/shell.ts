@@ -9,7 +9,7 @@ import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
 import type { Glasses } from './glasses.js'
-import type { Input } from './input.js'
+import type { HoldSource, Input } from './input.js'
 import { layoutList, layoutText } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
 
@@ -118,7 +118,7 @@ export class Shell {
   #asking: (() => void) | null = null
   #overlaid = false
   #fading: Timer | undefined
-  #recording: { chunks: Uint8Array[]; screen: Screen; failed: boolean; end: () => void } | null = null
+  #recording: { chunks: Uint8Array[]; screen: Screen; source: HoldSource; failed: boolean; end: () => void } | null = null
   #turn = 0
   #said = false
   #deciding: Lifetime | null = null
@@ -132,7 +132,10 @@ export class Shell {
     this.#noticeMs = options.noticeMs ?? NOTICE_MS
     this.#voice = options.voice
     this.#life.own(glasses.onInput(input => this.#input(input)))
-    this.#life.own(() => this.#recording?.end())
+    this.#life.own(() => {
+      this.#recording?.end()
+      if (this.#overlaid) this.#glasses.overlay(null)
+    })
     this.#life.own(
       router.onChange(() => {
         if (this.#asking) this.#clear()
@@ -281,8 +284,8 @@ export class Shell {
   #input(input: Input): void {
     if (input.kind === 'foreground') return
     if (input.kind === 'background' || input.kind === 'exit') return this.#recording || this.#deciding ? this.#callOff() : undefined
-    if (input.kind === 'hold') return this.#hold()
-    if (input.kind === 'release') return this.#release()
+    if (input.kind === 'hold') return this.#hold(input.source)
+    if (input.kind === 'release') return this.#release(input.source)
     if (this.#recording || this.#deciding) {
       if (!this.#recording || input.kind === 'double') this.#callOff()
       return
@@ -322,7 +325,7 @@ export class Shell {
     this.#clear()
   }
 
-  #hold(): void {
+  #hold(source: HoldSource): void {
     if (this.#recording) return
     this.#callOff()
     if (!this.#voice) return this.notice(this.#words.noVoice)
@@ -330,6 +333,29 @@ export class Shell {
     const bars = Array<string>(METER_BARS).fill(QUIET)
     const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`)
     let meter: Timer | undefined
+    const ends: Array<() => void> = []
+    const recording = {
+      chunks,
+      screen: this.#router.current,
+      source,
+      failed: false,
+      end: () => {
+        for (const end of ends.splice(0)) end()
+        meter?.cancel()
+        this.#recording = null
+      },
+    }
+    this.#recording = recording
+    listening()
+    ends.push(this.#life.timeout(() => this.#release(), this.#voice.maxHoldMs ?? MAX_HOLD_MS).cancel)
+    ends.push(
+      this.#glasses.onMic(open => {
+        if (open || recording.failed) return
+        recording.failed = true
+        meter?.cancel()
+        this.notice(this.#words.noMic)
+      }),
+    )
     const hear = ({ pcm }: Sound) => {
       if (recording.failed) return
       chunks.push(pcm)
@@ -340,35 +366,15 @@ export class Shell {
         listening()
       }, METER_MS)
     }
-    const limit = this.#life.timeout(() => this.#release(), this.#voice.maxHoldMs ?? MAX_HOLD_MS)
-    const recording = {
-      chunks,
-      screen: this.#router.current,
-      failed: false,
-      end: () => {
-        deaf()
-        unwatch()
-        limit.cancel()
-        meter?.cancel()
-        this.#recording = null
-      },
-    }
-    this.#recording = recording
+    ends.push(this.#glasses.listen(hear, { alone: true }))
     this.#voice.onListen?.()
-    listening()
-    const unwatch = this.#glasses.onMic(open => {
-      if (open || recording.failed || this.#recording !== recording) return
-      recording.failed = true
-      meter?.cancel()
-      this.notice(this.#words.noMic)
-    })
-    const deaf = this.#glasses.listen(hear, { alone: true })
   }
 
-  #release(): void {
+  #release(source?: HoldSource): void {
     const recording = this.#recording
     const voice = this.#voice
     if (!recording || !voice) return
+    if (source !== undefined && source !== 'unknown' && recording.source !== 'unknown' && source !== recording.source) return
     recording.end()
     if (recording.failed) return
     const pcm = joinPcm(recording.chunks)

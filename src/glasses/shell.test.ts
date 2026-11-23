@@ -716,6 +716,53 @@ describe('a hold', () => {
     expect(fake.mic).toBeNull()
   })
 
+  it('ends at the release of the touchpad that was held, not at another one', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, glasses } = world({ voice })
+    await settle()
+    const session: number[] = []
+    glasses.listen(sound => session.push(sound.pcm.length))
+    await settle(50)
+    fake.hold('right')
+    await settle(50)
+    fake.hold('ring')
+    fake.release('ring')
+    fake.sound(tone(800))
+    fake.release('right')
+    await settle(50)
+    expect(session).toEqual([])
+    expect(asked).toEqual([0.8])
+  })
+
+  it('ends cleanly when the app ends the shell from its own callback as the hold starts', async () => {
+    const life = new Lifetime()
+    const fake = fakeBridge()
+    const glasses = new Glasses(life, fake.bridge)
+    const mine = life.child()
+    const voice: VoiceOptions = { ...hearing('refresh').voice, onListen: () => mine.end() }
+    new Shell(mine, glasses, new Router({ home: { id: 'home' } }), { voice })
+    await settle()
+    expect(() => fake.hold()).not.toThrow()
+    await settle()
+    expect(fake.mic).toBeNull()
+    expect(fake.overlay()).toBe('')
+  })
+
+  it('takes its words off the page when it ends in the middle of a hold', async () => {
+    const life = new Lifetime()
+    const fake = fakeBridge()
+    const glasses = new Glasses(life, fake.bridge)
+    const mine = life.child()
+    new Shell(mine, glasses, new Router({ home: { id: 'home' } }), { voice: hearing('refresh').voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    expect(fake.overlay()).toMatch(/^Listening/)
+    mine.end()
+    await settle()
+    expect(fake.overlay()).toBe('')
+  })
+
   it('says no match when the words fit nothing and no other agent takes them', async () => {
     const { fake, front, ran } = world({ voice: hearing('what is the weather').voice })
     await settle()

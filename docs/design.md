@@ -345,13 +345,21 @@ The microphone is open while anything listens. A hold is one listener; an app th
   without waiting when the microphone is already open. A hold whose microphone did not open still keeps the others
   from hearing until its release.
 - When the phone suspends the app, capture stops and nothing says so. So each listener has a time without sound after
-  which Earshot asks for the microphone again: three seconds unless it says otherwise, and never for one that took
-  the microphone alone and gave no time. Only the listeners that hear now count. So a hold is asked for once, also
-  while an app listens.
-- A refused microphone is asked for again like a refused draw, after 0.5, 1, 2 and then 4 seconds, for as long as
-  something listens. `onMic` is told the outcome of every try, and `micOpen` says how it stands now. One that was
-  open and could not be got back is still closed when the last listener leaves.
-- What an app is told cannot stop this: a listener that throws is reported, and the rest goes on.
+  which Earshot takes the microphone for closed and asks for it again: three seconds unless it says otherwise, and
+  never for one that took the microphone alone and gave no time. Only the listeners that hear now count, and the time
+  is worked out again whenever they change. So a hold is asked for once, also while an app listens.
+- The microphone is one small machine, in `src/glasses/mic.ts`. It knows two things: whether capture may be on (an
+  open was answered and no close has been), and whether it takes the microphone for open. It makes one call at a
+  time and looks again after each answer, so a close on its way is answered before the next open is asked. A call
+  that is refused, an open or a close, is asked again after 0.5, 1, 2 and then 4 seconds.
+- Sound that arrives is proof the microphone is open, whatever a refused call said. So a refused try to get it back
+  fails nothing that is hearing.
+- `micOpen` says whether Earshot takes it for open; `onMic` is told each change, and `false` again each time an open
+  is refused.
+- What an app is told cannot stop this: what a listener throws goes to the page's error reporting, and the rest goes
+  on. Earshot logs nothing of its own there.
+- A hold ends at the release of the touchpad that was held, so another touchpad cannot end it early and let the rest
+  of a command reach the app's listener.
 
 Still to try on real glasses: whether sound keeps arriving while nobody speaks, and whether asking for an open
 microphone again is harmless. If the glasses send nothing in silence, a lasting listener asks again every three
