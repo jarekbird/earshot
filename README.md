@@ -152,7 +152,7 @@ new Shell(life, glasses, router, {
 })
 ```
 
-- A hold opens the glasses' microphone and shows "Listening" with eight bars that rise with the voice. The release of the touchpad that was held closes it, unless your app is listening too (below). A recording under half a second, or a silent one, is not sent anywhere.
+- A hold opens the glasses' microphone and shows "Listening" with eight bars that rise with the voice. The release of the touchpad that was held closes it, unless your app is listening too (below). A release that names another touchpad, or none when the hold named one, does not end it. A recording under half a second, or a silent one, is not sent anywhere.
 - `transcribe` gets the sound as 16 kHz, 16-bit, one-channel PCM, and the turn's lifetime to end its request with, and gives back the words. Earshot opens no connection itself; where the sound goes is yours to decide. A transcriber that cannot transcribe gives back `null`: no model is asked, and the agents get the recording with no words.
 - The words show over the page, and the navigator picks from what the app can do now: go back, go home, each action, and the items of the rolling set.
 - When it is sure, the action runs, and one marked `confirm` still asks first. Mark an action `voice` to ask first only when the words chose it: a touch is the person's own act, the model's choice is a guess. A question is dropped when the screen changes before the tap. When it is unsure, the few candidates are listed to tap. When nothing fits, it says "No match".
@@ -176,12 +176,12 @@ enter: life => {
 ```
 
 - `glasses.listen(hear)` opens the glasses' microphone with the first listener and closes it with the last. It returns the function that stops this one.
-- Each `sound` is `{ pcm, speaker }`: 16 kHz, 16-bit, one-channel PCM, and who the Even app says spoke: `self`, `other` or `unknown`. Even makes no promise about that guess.
-- A hold still works while you listen. It takes the microphone alone, so your listener hears nothing between the hold and its release: a voice command is not part of what you are listening to. `glasses.listen(hear, { alone: true })` does the same for a recording of your own. When two have taken it alone, the newest hears, and the other again when that one leaves.
-- Capture stops without a word when the phone suspends the app. So when no sound has arrived for three seconds, Earshot takes the microphone for closed and asks for it again. `reopenAfterMs` sets another time, or `false` for never. A listener that took the microphone alone never asks unless it gives a time, so a hold is asked for once; and while such a listener has the microphone, nobody else's time counts.
-- `glasses.micOpen` says whether Earshot takes the microphone for open now: from the moment it opened until the last listener leaves or the sound stops arriving, and again as soon as sound arrives. `glasses.onMic(told)` is told each time that changes, and `false` once more each time the microphone refuses to open.
-- A microphone that refuses to open, or to close, is asked again after half a second, then one, two and four. Earshot makes one such call at a time, so a close on its way is answered before the next listener's open is asked.
-- A listener that throws does not stop the others or the microphone. What it threw goes to the page's own error reporting (`reportError`); Earshot logs nothing of its own.
+- Each `sound` is `{ pcm, speaker }`: 16 kHz, 16-bit, one-channel PCM, and who the Even app says spoke: `self`, `other` or `unknown`. Even makes no promise about that guess. Each listener gets its own copy, so what one does to a sound changes nothing for the others.
+- A hold still works while you listen, and it has the microphone to itself: your listeners hear nothing from the hold to its release, whenever they joined. A voice command is never part of what you are listening to, and no listener can take it from the shell.
+- Capture stops without a word when the phone suspends the app. So when no sound has arrived for three seconds, Earshot takes the microphone for closed and asks for it again. `reopenAfterMs` sets another time, of half a second or more, or `false` for never. A hold never asks again, and while one has the microphone nobody's time counts.
+- `glasses.micOpen` says whether Earshot takes the microphone for open now: from the moment it opened or sound arrived, until the last listener leaves or the sound stops arriving. `glasses.onMic(told)` is told each time that changes, in the order it happened, and `false` once more each time the microphone refuses to open.
+- A microphone that refuses to open, or to close, is asked again after half a second, then one, two and four. Earshot makes one such call at a time, so a close on its way is answered before the next listener's open is asked. A close that is refused as the app ends is still asked again, a few times.
+- A listener that throws does not stop the others or the microphone. What it threw goes to the page's own error reporting (`reportError`). Where there is none, Earshot logs that a listener threw and not what.
 - `listen` is for the glasses' microphone. An app that opens the phone's microphone through the SDK itself also reads that sound from the SDK.
 - Where the sound goes is yours to decide, as with a hold: Earshot sends it nowhere.
 

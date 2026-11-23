@@ -12,6 +12,7 @@ import type { Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { layoutList, layoutText } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
+import { HOLD } from './mic.js'
 
 export interface ShellWords {
   gone: string
@@ -366,7 +367,7 @@ export class Shell {
         listening()
       }, METER_MS)
     }
-    ends.push(this.#glasses.listen(hear, { alone: true }))
+    ends.push(this.#glasses[HOLD](hear))
     this.#voice.onListen?.()
   }
 
@@ -374,7 +375,7 @@ export class Shell {
     const recording = this.#recording
     const voice = this.#voice
     if (!recording || !voice) return
-    if (source !== undefined && source !== 'unknown' && recording.source !== 'unknown' && source !== recording.source) return
+    if (source !== undefined && recording.source !== 'unknown' && source !== recording.source) return
     recording.end()
     if (recording.failed) return
     const pcm = joinPcm(recording.chunks)

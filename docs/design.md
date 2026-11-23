@@ -340,29 +340,30 @@ The microphone is open while anything listens. A hold is one listener; an app th
   the last one closes it, so no caller opens or closes it for another.
 - Each piece of sound comes with who the Even app says spoke: `self`, `other` or `unknown`. Even makes no promise
   about that guess, and the phone's microphone gives `unknown`.
-- A listener can take the microphone alone. While one does, the others hear nothing; of two that did, the newest
-  hears. The shell's hold does, so a voice command is never part of what an app is listening to, and a hold starts
-  without waiting when the microphone is already open. A hold whose microphone did not open still keeps the others
-  from hearing until its release.
+- A hold has the microphone to itself. While one records, no listener hears anything, whenever it joined; so a voice
+  command is never part of what an app is listening to, and a hold starts without waiting when the microphone is
+  already open. Only the shell can take it: the way in is not part of the public API. A hold whose microphone did not
+  open still keeps the listeners from hearing until its release.
 - When the phone suspends the app, capture stops and nothing says so. So each listener has a time without sound after
-  which Earshot takes the microphone for closed and asks for it again: three seconds unless it says otherwise, and
-  never for one that took the microphone alone and gave no time. Only the listeners that hear now count, and the time
-  is worked out again whenever they change. So a hold is asked for once, also while an app listens.
+  which Earshot takes the microphone for closed and asks for it again: three seconds unless it says otherwise (half a
+  second or more, or never). Only those that hear now count, and the time is worked out again whenever they change.
+  A hold has no such time, so a hold is asked for once, also while an app listens.
 - The microphone is one small machine, in `src/glasses/mic.ts`. It knows two things: whether capture may be on (an
-  open was answered and no close has been), and whether it takes the microphone for open. It makes one call at a
-  time and looks again after each answer, so a close on its way is answered before the next open is asked. A call
-  that is refused, an open or a close, is asked again after 0.5, 1, 2 and then 4 seconds.
-- Sound that arrives is proof the microphone is open, whatever a refused call said. So a refused try to get it back
-  fails nothing that is hearing.
-- `micOpen` says whether Earshot takes it for open; `onMic` is told each change, and `false` again each time an open
-  is refused.
-- What an app is told cannot stop this: what a listener throws goes to the page's error reporting, and the rest goes
-  on. Earshot logs nothing of its own there.
-- A hold ends at the release of the touchpad that was held, so another touchpad cannot end it early and let the rest
-  of a command reach the app's listener.
+  open was answered, or sound arrived, and no close has been answered), and whether it takes the microphone for
+  open. It makes one call at a time and looks again after each answer, so a close on its way is answered before the
+  next open is asked. A call that is refused, an open or a close, is asked again after 0.5, 1, 2 and then 4 seconds.
+  Its timers are its own, so a close that is refused as the app ends is still asked again, up to five times.
+- Sound that arrives is proof the microphone is open, whatever a call answered. So a refused try to get it back fails
+  nothing that is hearing.
+- `micOpen` says whether Earshot takes it for open; `onMic` is told each change in the order it happened, and `false`
+  again each time an open is refused. A microphone that opens after the last listener left is closed and not told of.
+- Each listener gets its own copy of a sound. What a listener throws goes to the page's error reporting, and the rest
+  goes on; where the page has none, Earshot logs that one threw and not what, since the error may carry the sound.
+- A hold ends at the release of the touchpad that was held. A release that names another, or none when the hold
+  named one, does not end it: it would let the rest of a command reach the app's listeners.
 
-Still to try on real glasses: whether sound keeps arriving while nobody speaks, and whether asking for an open
-microphone again is harmless. If the glasses send nothing in silence, a lasting listener asks again every three
+Still to try on real glasses: whether sound keeps arriving while nobody speaks, whether asking for an open
+microphone again is harmless, and whether a hold and its release always name the same touchpad. If the glasses send nothing in silence, a lasting listener asks again every three
 seconds of it.
 
 ## Wake word (built with the first app that uses it, E8)
@@ -378,8 +379,8 @@ stack. A hold ends at release; after the phrase, a pause in speech or a longest 
   not clearly allow commercial apps.
 - Sound marked as someone else's voice is not handed to the detector.
 - It is off until the app turns it on, so an app can make it the user's choice.
-- A hold works as always while it is on: it takes the microphone alone, so the detector does not hear the command.
-- The command after the phrase is recorded by a listener that takes the microphone alone, like a hold.
+- A hold works as always while it is on: it has the microphone to itself, so the detector does not hear the command.
+- The command after the phrase is recorded by the shell the way a hold is, with the microphone to itself.
 - The phrase cannot open the app: an app runs only while it is open on the glasses.
 - An action that asks first is still answered by a tap.
 
