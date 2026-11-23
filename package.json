@@ -47,7 +47,7 @@
     "dist"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.check.json && tsc -p tsconfig.sim.json && tsc -p tsconfig.relay.json",

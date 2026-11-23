@@ -1,6 +1,6 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { openRouter, MODELS } from '../src/openrouter/openrouter.js'
-import { DEFAULT_MODELS, relay } from './relay.js'
+import { CLOSES, DEFAULT_MODELS, DIAL_MS, LIVE_PATH, relay, type Line, type Sockets } from './relay.js'
 
 interface Sent {
   url: string
@@ -233,5 +233,85 @@ describe("Earshot's own transports through the relay", () => {
       ['model', 'questions', 'state'],
       ['max_tokens', 'messages', 'model'],
     ])
+  })
+})
+
+class Wire implements Line {
+  binaryType = 'blob'
+  sent: Array<string | ArrayBuffer> = []
+  closedWith: number | undefined
+  readonly #heard: Array<(event: { data: unknown }) => void> = []
+  readonly #closed: Array<(event: { code: number }) => void> = []
+  send(data: string | ArrayBuffer): void {
+    this.sent.push(data)
+  }
+  close(code?: number): void {
+    this.closedWith ??= code ?? 1005
+  }
+  addEventListener(type: 'message' | 'close', listener: never): void {
+    ;(type === 'message' ? this.#heard : this.#closed).push(listener)
+  }
+  says(data: unknown): void {
+    for (const heard of this.#heard) heard({ data })
+  }
+  goes(code = 1000): void {
+    for (const closed of this.#closed) closed({ code })
+  }
+}
+
+describe('reaching the upstream of live speech', () => {
+  const PHRASE = 'what only this phone was told'
+
+  async function greeted() {
+    vi.useFakeTimers()
+    onTestFinished(() => void vi.useRealTimers())
+    const caller = new Wire()
+    const up = new Wire()
+    let opens = () => {}
+    let stop: AbortSignal | undefined
+    const sockets: Sockets = {
+      accept: async () => ({ line: caller, response: new Response(null) }),
+      dial: (_url, _headers, signal, opened) => {
+        stop = signal
+        return new Promise(done => {
+          opens = () => {
+            opened(up)
+            done()
+          }
+        })
+      },
+    }
+    const handle = relay({ live: { upstream: 'wss://speech.example/v1', key: 'live-developer', secret: PHRASE } })
+    await handle(new Request(`https://relay.example${LIVE_PATH}`, { headers: { upgrade: 'websocket' } }), sockets)
+    caller.says(JSON.stringify({ model: '@cf/deepgram/flux', secret: PHRASE }))
+    return { caller, up, opens: () => opens(), stopped: () => stop?.aborted }
+  }
+
+  it('gives up after five seconds, tells the caller so and tells the host to stop', async () => {
+    const { caller, stopped } = await greeted()
+    await vi.advanceTimersByTimeAsync(DIAL_MS - 1)
+    expect([caller.closedWith, stopped()]).toEqual([undefined, false])
+    await vi.advanceTimersByTimeAsync(1)
+    expect([caller.closedWith, stopped()]).toEqual([CLOSES.upstream, true])
+  })
+
+  it('keeps a line whose upstream opened in time, however long it then lasts', async () => {
+    const { caller, up, opens } = await greeted()
+    opens()
+    await vi.advanceTimersByTimeAsync(DIAL_MS * 3)
+    up.says('{"type":"Connected"}')
+    expect(caller.closedWith).toBeUndefined()
+    expect(caller.sent).toEqual(['{"type":"Connected"}'])
+  })
+
+  it('closes an upstream that a host opened after the caller had left', async () => {
+    const { caller, up, opens, stopped } = await greeted()
+    caller.goes()
+    expect(stopped()).toBe(true)
+    opens()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(up.closedWith).toBe(1000)
+    up.says('{"type":"Connected"}')
+    expect(caller.sent).toEqual([])
   })
 })

@@ -1,8 +1,8 @@
 import { relay, relayOptions, type Line, type Sockets } from '../relay/relay.js'
 
 interface Env {
-  OPENROUTER_KEY: string
-  UPSTREAM: string
+  OPENROUTER_KEY?: string
+  UPSTREAM?: string
   MODELS?: string
   LIVE_UPSTREAM?: string
   LIVE_KEY?: string
@@ -19,14 +19,16 @@ const sockets: Sockets = {
     line.accept()
     return { line, response: new Response(null, { status: 101, webSocket: caller } as ResponseInit) }
   },
-  // Fact: a Worker opens a WebSocket with its own headers through fetch, and its WebSocket constructor takes none.
-  async dial(url, headers) {
-    const { webSocket: line } = (await fetch(url.replace(/^ws/, 'http'), { headers: { ...headers, upgrade: 'websocket' } })) as Response & {
-      webSocket: Accepted | null
-    }
+  // Fact: a Worker opens a WebSocket with its own headers through fetch, which would follow a redirect unless told not to.
+  async dial(url, headers, signal, opened) {
+    const { webSocket: line } = (await fetch(url.replace(/^ws/, 'http'), {
+      headers: { ...headers, upgrade: 'websocket' },
+      redirect: 'manual',
+      signal,
+    })) as Response & { webSocket: Accepted | null }
     if (!line) throw new Error('The upstream refused.')
     line.accept()
-    return line
+    opened(line)
   },
 }
 

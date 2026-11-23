@@ -6,8 +6,8 @@ export interface LiveOptions {
 }
 
 export interface RelayOptions {
-  key: string
-  upstream: string
+  key?: string
+  upstream?: string
   models?: string[]
   live?: LiveOptions
   maxBytes?: number
@@ -15,8 +15,8 @@ export interface RelayOptions {
 }
 
 export interface RelaySettings {
-  key: string
-  upstream: string
+  key: string | undefined
+  upstream: string | undefined
   models: string | undefined
   liveUpstream: string | undefined
   liveKey: string | undefined
@@ -34,7 +34,7 @@ export interface Line {
 
 export interface Sockets {
   accept(request: Request): Promise<{ line: Line; response: Response }>
-  dial(url: string, headers: Record<string, string>): Promise<Line>
+  dial(url: string, headers: Record<string, string>, stop: AbortSignal, opened: (line: Line) => void): Promise<void>
 }
 
 export const MIN_SECRET = 16
@@ -48,18 +48,19 @@ const listed = (models: string | undefined) => {
 }
 
 export function relayOptions({ key, upstream, models, liveUpstream, liveKey, liveModels, secret }: RelaySettings): RelayOptions {
-  const options: RelayOptions = { key, upstream, ...listed(models) }
-  if (!liveUpstream) return options
-  if (!liveKey) throw new Error('Live speech needs the key of its upstream.')
-  if (!secret || secret.length < MIN_SECRET) throw new Error(`Live speech needs a secret of ${MIN_SECRET} characters or more.`)
-  return { ...options, live: { upstream: liveUpstream, key: liveKey, secret, ...listed(liveModels) } }
+  return {
+    ...(key || upstream ? { key, upstream } : {}),
+    ...listed(models),
+    ...(liveUpstream ? { live: { upstream: liveUpstream, key: liveKey ?? '', secret: secret ?? '', ...listed(liveModels) } } : {}),
+  }
 }
 
 export const DEFAULT_MODELS = ['openai/whisper-large-v3-turbo', 'typesafe/jev-1.14', 'mistralai/mistral-nemo']
 export const DEFAULT_LIVE_MODELS = ['@cf/deepgram/flux']
 export const LIVE_PATH = '/api/v1/live'
-export const CLOSES = { hello: 4400, secret: 4401, model: 4403, upstream: 4502 }
+export const CLOSES = { hello: 4400, secret: 4401, model: 4403, upstream: 4502, big: 1009 }
 export const HELLO_MS = 3_000
+export const DIAL_MS = 5_000
 export const MAX_FRAME = 65_536
 
 const SPEECH = '/api/v1/audio/transcriptions'
@@ -68,7 +69,8 @@ const FIELDS = new Map([
   ['/api/alpha/decisions', ['model', 'state', 'questions']],
   ['/api/v1/chat/completions', ['model', 'messages', 'max_tokens']],
 ])
-const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_timeout_ms', 'eager_eot_threshold']
+const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_timeout_ms', 'eager_eot_threshold', 'mip_opt_out']
+const THIS_MACHINE = new Set(['localhost', '127.0.0.1', '[::1]'])
 const MAX_HELLO = 4_096
 const MAX_BYTES = 4_000_000
 const WAIT_MS = 10_000
@@ -113,14 +115,36 @@ function same(given: string, wanted: string): boolean {
   return differ === 0
 }
 
+function sealed(address: string | undefined, scheme: string, what: string): string {
+  let url: URL | undefined
+  try {
+    url = new URL(address ?? '')
+  } catch {
+    throw new Error(`${what} needs the address of its upstream.`)
+  }
+  if (url.protocol !== `${scheme}:` && !THIS_MACHINE.has(url.hostname))
+    throw new Error(`${what} sends a key, so its upstream is named with ${scheme}.`)
+  if (url.search || url.hash) throw new Error(`${what} names its upstream with no query.`)
+  return url.href.replace(/\/+$/, '')
+}
+
+function checked(live: LiveOptions): LiveOptions {
+  if (!live.key) throw new Error('Live speech needs the key of its upstream.')
+  if (typeof live.secret !== 'string' || live.secret.length < MIN_SECRET)
+    throw new Error(`Live speech needs a secret of ${MIN_SECRET} characters or more.`)
+  return { ...live, upstream: sealed(live.upstream, 'wss', 'Live speech') }
+}
+
 function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models }: LiveOptions): void {
   const allowed = new Set(models ?? DEFAULT_LIVE_MODELS)
+  const reaching = new AbortController()
   let up: Line | undefined
   let greeted = false
   let over = false
   const leave = () => {
     over = true
     clearTimeout(waiting)
+    reaching.abort()
     up?.close(1000)
   }
   const end = (code: number) => {
@@ -128,15 +152,18 @@ function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models
     leave()
     line.close(code)
   }
-  const waiting = setTimeout(() => end(CLOSES.hello), HELLO_MS)
+  let waiting = setTimeout(() => end(CLOSES.hello), HELLO_MS)
 
   const reach = async (url: string) => {
+    waiting = setTimeout(() => end(CLOSES.upstream), DIAL_MS)
     try {
-      const opened = await dial(url, { 'cf-aig-authorization': `Bearer ${key}` })
-      if (over) return opened.close(1000)
-      up = opened
-      up.addEventListener('message', ({ data }) => void (!over && typeof data === 'string' && line.send(data)))
-      up.addEventListener('close', () => end(CLOSES.upstream))
+      await dial(url, { 'cf-aig-authorization': `Bearer ${key}` }, reaching.signal, opened => {
+        if (over) return opened.close(1000)
+        clearTimeout(waiting)
+        up = opened
+        up.addEventListener('message', ({ data }) => void (!over && typeof data === 'string' && line.send(data)))
+        up.addEventListener('close', () => end(CLOSES.upstream))
+      })
     } catch {
       end(CLOSES.upstream)
     }
@@ -148,7 +175,7 @@ function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models
     if (over) return
     if (greeted) {
       if (!(data instanceof ArrayBuffer)) return
-      if (data.byteLength > MAX_FRAME) return end(CLOSES.hello)
+      if (data.byteLength > MAX_FRAME) return end(CLOSES.big)
       return up?.send(data)
     }
     greeted = true
@@ -163,7 +190,11 @@ function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models
 }
 
 export function relay(options: RelayOptions): (request: Request, sockets?: Sockets) => Promise<Response> {
-  const upstream = options.upstream.replace(/\/+$/, '')
+  const forwards = options.key !== undefined || options.upstream !== undefined
+  if (!forwards && !options.live) throw new Error('A relay needs an upstream: for its calls, for live speech, or for both.')
+  if (forwards && !options.key) throw new Error("The relay's calls need the key of their upstream.")
+  const upstream = forwards ? sealed(options.upstream, 'https', "The relay's calls") : ''
+  const speech = options.live && checked(options.live)
   const models = new Set(options.models ?? DEFAULT_MODELS)
   const limit = options.maxBytes ?? MAX_BYTES
 
@@ -180,14 +211,14 @@ export function relay(options: RelayOptions): (request: Request, sockets?: Socke
         },
       })
     }
-    if (pathname === LIVE_PATH && options.live) {
+    if (pathname === LIVE_PATH && speech) {
       const asksForOne = request.method === 'GET' && request.headers.get('upgrade')?.toLowerCase() === 'websocket'
       if (!asksForOne || !sockets) return refuse(426, 'Only a WebSocket.')
       const { line, response } = await sockets.accept(request)
-      live(line, sockets.dial, options.live)
+      live(line, sockets.dial, speech)
       return response
     }
-    const fields = FIELDS.get(pathname)
+    const fields = forwards ? FIELDS.get(pathname) : undefined
     if (!fields) return refuse(404, 'Not a call this relay forwards.')
     if (request.method !== 'POST') return refuse(405, 'Only POST.')
     const text = await read(request, limit)

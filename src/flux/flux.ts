@@ -24,11 +24,13 @@ export const LIVE_PATH = '/api/v1/live'
 export const REFUSALS = { hello: 4400, secret: 4401, model: 4403 }
 const BYTES_PER_S = SAMPLE_RATE * 2
 export const HELD_BYTES = 10 * BYTES_PER_S
+export const PIECE_BYTES = BYTES_PER_S
 export const QUIET_MS = 10_000
 export const CONNECT_MS = 10_000
 const RETRY_FIRST_MS = 500
 const RETRY_MAX_MS = 8_000
 const FOR_GOOD = new Set<number>(Object.values(REFUSALS))
+const THIS_DEVICE = new Set(['localhost', '127.0.0.1', '[::1]'])
 
 export const retryDelay = (failures: number) => Math.min(RETRY_MAX_MS, RETRY_FIRST_MS * 2 ** (failures - 1))
 
@@ -38,6 +40,7 @@ interface Piece {
 }
 
 interface Run {
+  start: number
   end: number
   speaker: Speaker
 }
@@ -52,13 +55,21 @@ function parse(data: unknown): Record<string, unknown> | null {
   }
 }
 
+function lineTo(host: string): string {
+  const relay = new URL(host)
+  if (relay.protocol !== 'https:' && !THIS_DEVICE.has(relay.hostname))
+    throw new Error('Live speech carries a secret and sound, so its relay is named with https.')
+  return `${host.replace(/\/+$/, '').replace(/^http/, 'ws')}${LIVE_PATH}`
+}
+
 export function fluxLive(options: FluxOptions): LiveSpeech {
-  const url = `${options.host.replace(/\/+$/, '').replace(/^http/, 'ws')}${LIVE_PATH}`
+  const url = lineTo(options.host)
   const open = options.open ?? (address => new WebSocket(address) as unknown as FluxSocket)
   const hello = JSON.stringify({
     model: options.model ?? FLUX,
     encoding: 'linear16',
     sample_rate: String(SAMPLE_RATE),
+    mip_opt_out: 'true',
     ...(options.secret ? { secret: options.secret } : {}),
   })
 
@@ -79,16 +90,25 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
       let quiet: Timer | undefined
 
       const tell = (now: LiveState) => {
-        if (state === now) return
+        if (state === now || life.ended) return
         state = now
         told?.(now)
       }
 
-      const endTurn = () => {
+      const say = (turn: Turn) => {
+        if (!life.ended) heard(turn)
+      }
+
+      const cutTurn = () => {
         if (!growing) return
-        const turn = { ...growing, final: true }
+        const turn = { ...growing, final: true, cut: true }
         growing = null
-        heard(turn)
+        say(turn)
+      }
+
+      const forget = () => {
+        held = []
+        heldBytes = 0
       }
 
       const leave = (code?: number) => {
@@ -105,11 +125,8 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
 
       const who = (from: number, to: number): Speaker => {
         const by: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
-        let start = 0
-        for (const run of runs) {
-          by[run.speaker] += Math.max(0, Math.min(run.end, to * BYTES_PER_S) - Math.max(start, from * BYTES_PER_S))
-          start = run.end
-        }
+        for (const run of runs)
+          by[run.speaker] += Math.max(0, Math.min(run.end, to * BYTES_PER_S) - Math.max(run.start, from * BYTES_PER_S))
         return most(by)
       }
 
@@ -119,22 +136,23 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
         const id = first + index
         const words = transcript.trim()
         if (!words || (id < next && growing?.id !== id)) return
-        if (growing && growing.id !== id) endTurn()
+        if (growing && growing.id !== id) cutTurn()
         const final = message.event === 'EndOfTurn'
-        const turn: Turn = { id, words, final, speaker: who(Number(from) || 0, Number(to) || 0) }
+        const until = Number(to) || 0
+        const turn: Turn = { id, words, final, cut: false, speaker: who(Number(from) || 0, until) }
         if (!final && growing?.words === words && growing.speaker === turn.speaker) return
         growing = final ? null : turn
         next = id + 1
-        heard(turn)
+        if (final) runs = runs.filter(run => run.end > until * BYTES_PER_S)
+        say(turn)
       }
 
       const lost = (code: number) => {
         leave()
-        endTurn()
+        cutTurn()
         if (FOR_GOOD.has(code)) {
           refused = true
-          held = []
-          heldBytes = 0
+          forget()
           quiet?.cancel()
           return tell('refused')
         }
@@ -149,15 +167,14 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
       const flush = () => {
         if (!line?.connected) return
         if (line.socket.bufferedAmount > HELD_BYTES) return lost(0)
-        for (const piece of held) {
-          line.socket.send(piece.pcm)
-          sent += piece.pcm.length
+        for (const { pcm, speaker } of held) {
+          for (let at = 0; at < pcm.length; at += PIECE_BYTES) line.socket.send(pcm.subarray(at, at + PIECE_BYTES))
           const last = runs.at(-1)
-          if (last?.speaker === piece.speaker) last.end = sent
-          else runs.push({ end: sent, speaker: piece.speaker })
+          if (last?.speaker === speaker) last.end = sent + pcm.length
+          else runs.push({ start: sent, end: sent + pcm.length, speaker })
+          sent += pcm.length
         }
-        held = []
-        heldBytes = 0
+        forget()
       }
 
       function connect(): void {
@@ -185,7 +202,7 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
         quiet = life.timeout(() => {
           if (heldBytes > 0) return rest()
           leave(1000)
-          endTurn()
+          cutTurn()
         }, QUIET_MS)
       }
 
@@ -193,6 +210,7 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
         retry?.cancel()
         quiet?.cancel()
         leave(1000)
+        forget()
       })
 
       return sound => {

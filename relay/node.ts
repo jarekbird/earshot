@@ -1,7 +1,7 @@
 import { createServer, STATUS_CODES, type IncomingMessage, type Server } from 'node:http'
 import { Readable } from 'node:stream'
-import { WebSocketServer } from 'ws'
-import { relay, relayOptions, type Line, type RelayOptions, type Sockets } from './relay.js'
+import { WebSocket as Upstream, WebSocketServer } from 'ws'
+import { MAX_FRAME, relay, relayOptions, type Line, type RelayOptions, type Sockets } from './relay.js'
 
 export interface ServeOptions extends RelayOptions {
   port?: number
@@ -9,8 +9,7 @@ export interface ServeOptions extends RelayOptions {
 }
 
 const PORT = 8787
-// Fact: a Worker takes a WebSocket message of one mebibyte at most, so this server takes no more.
-const MAX_MESSAGE = 1_048_576
+const MAX_FROM_UPSTREAM = 1_048_576
 
 function requestOf(incoming: IncomingMessage): Request {
   const headers = new Headers()
@@ -23,17 +22,28 @@ function requestOf(incoming: IncomingMessage): Request {
   } as RequestInit)
 }
 
-// Fact: Node's WebSocket takes headers in its second argument, which the standard one does not.
-const dial: Sockets['dial'] = (url, headers) =>
-  new Promise((opened, failed) => {
-    const line = new WebSocket(url, { headers } as never)
-    line.addEventListener('open', () => opened(line as Line))
-    line.addEventListener('close', () => failed(new Error('The upstream closed.')))
+const UNHEARD = () => {}
+
+// Fact: Node's own WebSocket cannot drop a connection it is still making, so the upstream is opened with ws, which can.
+const dial: Sockets['dial'] = (url, headers, stop, opened) =>
+  new Promise((done, failed) => {
+    const line = new Upstream(url, { headers, maxPayload: MAX_FROM_UPSTREAM })
+    const drop = () => line.terminate()
+    stop.addEventListener('abort', drop)
+    line.on('error', () => failed(new Error('The upstream could not be reached.')))
+    line.once('close', () => failed(new Error('The upstream closed.')))
+    // Fact: ws hands on what came with the opening before a promise made at the opening is read, so the line is handed on here.
+    line.once('open', () => {
+      stop.removeEventListener('abort', drop)
+      opened(line as Line)
+      done()
+    })
+    if (stop.aborted) drop()
   })
 
 export function serve({ port = PORT, hostname, ...options }: ServeOptions): Promise<Server> {
   const handle = relay(options)
-  const lines = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE })
+  const lines = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME })
   const server = createServer(async (incoming, outgoing) => {
     try {
       const response = await handle(requestOf(incoming))
@@ -48,7 +58,10 @@ export function serve({ port = PORT, hostname, ...options }: ServeOptions): Prom
     const accept: Sockets['accept'] = () => {
       taken = true
       return new Promise(done =>
-        lines.handleUpgrade(incoming, socket, head, line => done({ line: line as Line, response: new Response(null) })),
+        lines.handleUpgrade(incoming, socket, head, line => {
+          line.on('error', UNHEARD)
+          done({ line: line as Line, response: new Response(null) })
+        }),
       )
     }
     try {
@@ -69,15 +82,10 @@ export function serve({ port = PORT, hostname, ...options }: ServeOptions): Prom
 }
 
 export function settings(env: Record<string, string | undefined>): ServeOptions {
-  const need = (name: string) => {
-    const value = env[name]
-    if (!value) throw new Error(`Set ${name}.`)
-    return value
-  }
   return {
     ...relayOptions({
-      key: need('EARSHOT_RELAY_KEY'),
-      upstream: need('EARSHOT_RELAY_UPSTREAM'),
+      key: env.EARSHOT_RELAY_KEY,
+      upstream: env.EARSHOT_RELAY_UPSTREAM,
       models: env.EARSHOT_RELAY_MODELS,
       liveUpstream: env.EARSHOT_RELAY_LIVE_UPSTREAM,
       liveKey: env.EARSHOT_RELAY_LIVE_KEY,

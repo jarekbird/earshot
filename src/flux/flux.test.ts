@@ -4,7 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Sound, Speaker } from '../audio.js'
 import { Lifetime } from '../lifetime.js'
 import type { LiveState, Turn } from '../live.js'
-import { CONNECT_MS, FLUX, fluxLive, HELD_BYTES, QUIET_MS, REFUSALS, retryDelay, type FluxOptions, type FluxSocket } from './flux.js'
+import {
+  CONNECT_MS,
+  FLUX,
+  fluxLive,
+  HELD_BYTES,
+  PIECE_BYTES,
+  QUIET_MS,
+  REFUSALS,
+  retryDelay,
+  type FluxOptions,
+  type FluxSocket,
+} from './flux.js'
 
 const RECORDED = readFileSync(join(import.meta.dirname, 'recorded.jsonl'), 'utf8')
   .trim()
@@ -87,6 +98,19 @@ function listening(options: Partial<FluxOptions> = {}) {
 beforeEach(() => void vi.useFakeTimers())
 afterEach(() => void vi.useRealTimers())
 
+describe('the relay of live speech', () => {
+  it.each(['http://relay.example', 'ws://relay.example', 'http://127.0.0.2.example'])(
+    'is refused when named %s: the secret and the sound would be readable',
+    host => {
+      expect(() => fluxLive({ host })).toThrow('https')
+    },
+  )
+
+  it.each(['https://relay.example', 'http://127.0.0.1:8787', 'http://localhost:8787', 'http://[::1]:8787'])('may be %s', host => {
+    expect(() => fluxLive({ host })).not.toThrow()
+  })
+})
+
 describe('live speech from Flux, through the relay', () => {
   it('says a recorded stream as three turns, each growing under one id and told final once', () => {
     const { lines, turns, hear } = listening()
@@ -98,7 +122,7 @@ describe('live speech from Flux, through the relay', () => {
       [1, 'I did, yes. Revenue is up eleven percent, but support costs worry me.'],
       [2, "Let's put that on the agenda for Thursday."],
     ])
-    expect(turns[0]).toEqual({ id: 0, words: 'Goodbye', final: false, speaker: 'unknown' })
+    expect(turns[0]).toEqual({ id: 0, words: 'Goodbye', final: false, cut: false, speaker: 'unknown' })
     expect(turns.map(turn => turn.id)).toEqual(turns.map(turn => turn.id).sort())
     expect(turns.some((turn, at) => at > 0 && !turn.final && !turns[at - 1].final && turns[at - 1].words === turn.words)).toBe(false)
   })
@@ -134,14 +158,18 @@ describe('live speech from Flux, through the relay', () => {
     expect(lines[0].binaryType).toBe('arraybuffer')
     expect(lines[0].sent).toEqual([])
     lines[0].opens()
-    expect(lines[0].sent).toEqual([JSON.stringify({ model: FLUX, encoding: 'linear16', sample_rate: '16000', secret: PHRASE })])
+    expect(lines[0].sent).toEqual([
+      JSON.stringify({ model: FLUX, encoding: 'linear16', sample_rate: '16000', mip_opt_out: 'true', secret: PHRASE }),
+    ])
   })
 
   it('asks for the model the app named, and sends no secret when the app has none', () => {
     const { lines, hear } = listening({ model: 'other/model' })
     hear(sound(100))
     lines[0].opens()
-    expect(lines[0].sent).toEqual([JSON.stringify({ model: 'other/model', encoding: 'linear16', sample_rate: '16000' })])
+    expect(lines[0].sent).toEqual([
+      JSON.stringify({ model: 'other/model', encoding: 'linear16', sample_rate: '16000', mip_opt_out: 'true' }),
+    ])
   })
 
   it('holds the sound that comes while it connects, and sends it in order once Flux says it is connected', () => {
@@ -172,14 +200,14 @@ describe('live speech from Flux, through the relay', () => {
     lines[0].says(info(0, 'first', 'EndOfTurn'))
     lines[0].says(info(1, 'half a'))
     lines[0].drops()
-    expect(turns.at(-1)).toEqual({ id: 1, words: 'half a', final: true, speaker: 'unknown' })
+    expect(turns.at(-1)).toEqual({ id: 1, words: 'half a', final: true, cut: true, speaker: 'unknown' })
     expect(states).toEqual(['down'])
     hear(sound(100))
     vi.advanceTimersByTime(retryDelay(1))
     expect(lines).toHaveLength(2)
     lines[1].connects()
     lines[1].says(info(0, 'second line'))
-    expect(turns.at(-1)).toEqual({ id: 2, words: 'second line', final: false, speaker: 'unknown' })
+    expect(turns.at(-1)).toEqual({ id: 2, words: 'second line', final: false, cut: false, speaker: 'unknown' })
     expect(states).toEqual(['down', 'on'])
   })
 
@@ -255,7 +283,7 @@ describe('live speech from Flux, through the relay', () => {
     expect(lines[0].closedWith).toBeUndefined()
     vi.advanceTimersByTime(1)
     expect(lines[0].closedWith).toBe(1000)
-    expect(turns.at(-1)).toEqual({ id: 0, words: 'trailing', final: true, speaker: 'unknown' })
+    expect(turns.at(-1)).toEqual({ id: 0, words: 'trailing', final: true, cut: true, speaker: 'unknown' })
     hear(sound(100))
     expect(lines).toHaveLength(2)
     lines[1].connects()
@@ -296,8 +324,8 @@ describe('live speech from Flux, through the relay', () => {
     lines[0].says(info(0, 'one', 'EndOfTurn'))
     lines[0].says(info(0, 'one more'))
     expect(turns).toEqual([
-      { id: 0, words: 'one', final: false, speaker: 'unknown' },
-      { id: 0, words: 'one', final: true, speaker: 'unknown' },
+      { id: 0, words: 'one', final: false, cut: false, speaker: 'unknown' },
+      { id: 0, words: 'one', final: true, cut: false, speaker: 'unknown' },
     ])
   })
 
@@ -307,11 +335,48 @@ describe('live speech from Flux, through the relay', () => {
     lines[0].connects()
     lines[0].says(info(0, 'one'))
     lines[0].says(info(1, 'two'))
-    expect(turns.map(turn => [turn.id, turn.words, turn.final])).toEqual([
-      [0, 'one', false],
-      [0, 'one', true],
-      [1, 'two', false],
+    expect(turns.map(turn => [turn.id, turn.words, turn.final, turn.cut])).toEqual([
+      [0, 'one', false, false],
+      [0, 'one', true, true],
+      [1, 'two', false, false],
     ])
+  })
+
+  it('says a turn was cut only when the line or the sound ended it, never when Flux did', () => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    lines[0].opens()
+    for (const message of RECORDED) lines[0].says(message)
+    expect(turns.filter(turn => turn.cut)).toEqual([])
+    lines[0].says(info(3, 'and then'))
+    lines[0].drops()
+    expect(turns.at(-1)).toMatchObject({ words: 'and then', final: true, cut: true })
+  })
+
+  it('says nothing more to a listener that ended the lifetime as it was told a turn', () => {
+    const life = new Lifetime()
+    const lines: Line[] = []
+    const told: string[] = []
+    const open = (url: string) => lines[lines.push(new Line(url)) - 1]
+    const hear = fluxLive({ host: 'https://relay.example', open }).start(life, turn => {
+      told.push(`${turn.words}${turn.final ? '.' : ''}`)
+      if (turn.final) life.end()
+    })
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(0, 'one'))
+    lines[0].says(info(1, 'two'))
+    expect(told).toEqual(['one', 'one.'])
+  })
+
+  it('sends a long piece of sound a second at a time, so the relay takes it', () => {
+    const { lines, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    hear(sound(3_000, 'unknown', 9))
+    const pieces = lines[0].sent.slice(2).map(data => (data as Uint8Array).length)
+    expect(pieces).toEqual([PIECE_BYTES, PIECE_BYTES, PIECE_BYTES])
+    expect(lines[0].marks.slice(1)).toEqual([9, 9, 9])
   })
 
   it('keeps a line that connected, however long the sound goes on', () => {
@@ -349,7 +414,7 @@ describe('live speech from Flux, through the relay', () => {
     lines[0].drops()
     hear(sound(100))
     vi.advanceTimersByTime(60_000)
-    expect(turns).toEqual([{ id: 0, words: 'so far', final: false, speaker: 'unknown' }])
+    expect(turns).toEqual([{ id: 0, words: 'so far', final: false, cut: false, speaker: 'unknown' }])
     expect(states).toEqual([])
     expect(lines).toHaveLength(1)
     expect(lines[0].sound).toBe(3_200)

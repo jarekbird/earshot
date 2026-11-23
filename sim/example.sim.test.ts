@@ -3,18 +3,40 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { build } from 'esbuild'
 import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
+import { WebSocketServer } from 'ws'
 import { serve } from '../relay/node.js'
 import { Simulator } from './simulator.js'
+
+const RECORDED = readFileSync('src/flux/recorded.jsonl', 'utf8').trim().split('\n')
+const LIVE_KEY = 'live-developer'
+const PHRASE = 'what only this phone was told'
 
 describe('the example app in the real Even Hub simulator', () => {
   let server: Server
   let relay: Server
+  let flux: WebSocketServer
   let url: string
   const forwarded: string[] = []
   beforeAll(async () => {
+    flux = new WebSocketServer({
+      port: 0,
+      host: '127.0.0.1',
+      verifyClient: ({ req }: { req: { headers: Record<string, unknown> } }) =>
+        req.headers['cf-aig-authorization'] === `Bearer ${LIVE_KEY}`,
+    })
+    await new Promise<void>(listening => flux.once('listening', listening))
+    flux.on('connection', caller => {
+      caller.send(RECORDED[0])
+      caller.once('message', () => RECORDED.slice(1).forEach(message => caller.send(message)))
+    })
     relay = await serve({
       key: 'sk-developer',
       upstream: 'https://upstream.example',
+      live: {
+        upstream: `ws://127.0.0.1:${(flux.address() as AddressInfo).port}/v1/account/gateway/workers-ai`,
+        key: LIVE_KEY,
+        secret: PHRASE,
+      },
       port: 0,
       hostname: '127.0.0.1',
       fetch: async (address, init) => {
@@ -32,25 +54,30 @@ describe('the example app in the real Even Hub simulator', () => {
       format: 'esm',
       write: false,
       logLevel: 'silent',
-      define: { EARSHOT_RELAY: JSON.stringify(`http://127.0.0.1:${(relay.address() as AddressInfo).port}`) },
+      define: { EARSHOT_RELAY: JSON.stringify(`http://127.0.0.1:${(relay.address() as AddressInfo).port}`), EARSHOT_TRACE: 'true' },
     })
     const script = bundle.outputFiles[0].text
-    const page = readFileSync('example/index.html')
+    const page = readFileSync('example/index.html', 'utf8')
+    const typed = page.replace('id="secret"', `id="secret" value="${PHRASE}"`)
     server = createServer((request, response) => {
       const wanted = request.url === '/main.js'
       response.setHeader('content-type', wanted ? 'text/javascript' : 'text/html')
-      response.end(wanted ? script : page)
+      response.end(wanted ? script : request.url === TYPED ? typed : page)
     })
     await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
-    url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/#trace`
+    url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   })
   afterAll(() => {
     server.close()
+    relay.closeAllConnections()
     relay.close()
+    for (const caller of flux.clients) caller.terminate()
+    flux.close()
   })
 
-  const start = async (more = '', mic = false) => {
-    const sim = await Simulator.start({ url: url + more, limitSeconds: 300, mic })
+  const TYPED = '/with-the-secret-typed'
+  const start = async (more = '', mic = false, path = '/') => {
+    const sim = await Simulator.start({ url: `${url}${path}#${more}`, limitSeconds: 300, mic })
     onTestFinished(() => sim.stop())
     await sim.shows('Earshot example', 60_000)
     return sim
@@ -126,6 +153,16 @@ describe('the example app in the real Even Hub simulator', () => {
     await sim.shows('Someone: hello there', 30_000)
     await sim.shows('Someone: how are you', 30_000)
   })
+
+  it.runIf(process.platform === 'linux')(
+    "shows what Flux says through the developer's relay, once the secret is typed on the phone",
+    async () => {
+      const sim = await start('', true, TYPED)
+      await sim.pick('Listen')
+      await sim.shows('Listening')
+      await sim.shows('Someone: Good morning.', 30_000)
+    },
+  )
 
   it.runIf(process.platform === 'linux')("sends a hold through the developer's relay: speech to words, then Jev's pick", async () => {
     const sim = await start('', true)

@@ -22,6 +22,7 @@ import {
 } from '../src/index.js'
 
 declare const EARSHOT_RELAY: string
+declare const EARSHOT_TRACE: boolean
 
 interface Note {
   id: string
@@ -44,7 +45,6 @@ let taps = 0
 const flags = new URLSearchParams(location.hash.slice(1))
 const scripted = flags.get('say')?.split('|')
 const secret = document.getElementById('secret') as HTMLInputElement
-secret.value = flags.get('secret') ?? ''
 const speech = () => {
   if (flags.has('live')) return scriptedLive(flags.get('live')!.split('|'))
   return EARSHOT_RELAY && secret.value ? fluxLive({ host: EARSHOT_RELAY, secret: secret.value }) : undefined
@@ -52,7 +52,7 @@ const speech = () => {
 
 const life = new Lifetime()
 const bridge = await waitForEvenAppBridge()
-const glasses = new Glasses(life, bridge, { trace: flags.has('trace') })
+const glasses = new Glasses(life, bridge, { trace: EARSHOT_TRACE })
 const service = EARSHOT_RELAY ? openRouter({ host: EARSHOT_RELAY }) : undefined
 
 const open = action({

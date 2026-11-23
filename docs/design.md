@@ -244,8 +244,8 @@ use it, compaction. Earshot ships all three for OpenRouter, paid by the develope
 
 - **The key cannot be in the app.** An app is web files on the user's phone; anyone can read them, and the key
   travels in every request. So the key stays on a server of the developer's, the relay, and the app calls the relay.
-- **Earshot ships the relay** as one function on web standards, request in and response out. Its Node server needs
-  Node 22 and, for live speech, the `ws` package.
+- **Earshot ships the relay** as one function on web standards, request in and response out. Its Node server uses
+  the `ws` package for live speech.
   It runs unchanged on Node, where Earshot also ships a server and a command, and as a Cloudflare Worker, Deno or
   Bun. Earshot is tied to none of them.
 - **The relay waits just under what the app waits.** Ten seconds for a question or a shortening, where the app
@@ -398,13 +398,18 @@ Words while they are said. A hold's recording is sent when it is finished; an ap
 words as they come.
 
 - One interface, `LiveSpeech`: `start(life, heard, told)` gives back the function that takes each sound, and tells of
-  turns. A turn has an id, its words so far, whether it is final, and who spoke most of it. It is told again as it
-  grows. `told` hears `down`, `on` and `refused`, and nothing while all is well.
-- `scriptedLive` is the offline stand-in (E4), driven by the amount of sound alone, so a test needs no clock. The
-  example's Listen screen shows its turns.
+  turns. A turn has an id, its words so far, whether it is final, whether it was cut, and who spoke most of it. It is
+  told again as it grows. `told` hears `down`, `on` and `refused`, and nothing while all is well.
+- A turn is `cut` when the sound or the line ended it and not the speaker, so an app that scores or files whole
+  sentences can tell half of one.
+- Nothing is told once the lifetime has ended, also when the listener ended it while being told: a turn that was
+  growing then stays as it was last told (E7).
+- `scriptedLive` is the offline stand-in (E4), driven by the amount of sound alone, so a test needs no clock. Each
+  start plays the lines from the first, so two listeners on one script do not take each other's lines. The example's
+  Listen screen shows its turns.
 - `fluxLive` (`src/flux`, the second folder that may open a connection, E2) is the transport: sound to the
   developer's relay over one WebSocket, and Deepgram Flux's turns back. Flux decides where a turn ends, so Earshot
-  cuts nothing by pauses.
+  cuts nothing by pauses. The relay is named with `https`, or is on the same device: the line carries the secret.
 
 The line, as states:
 
@@ -416,11 +421,16 @@ The line, as states:
 | Waiting    | No line, after a loss; sound is held   | Half a second, then double, up to eight: a line, if sound is held   |
 | Refused    | The relay closed with 4400, 4401, 4403 | Never: nothing is sent or held until the app starts again           |
 
-- A line that closes for any reason ends the turn that was growing, as final, with the words it had. Turns of the
-  next line are numbered on from there.
-- The transport holds at most the last ten seconds of sound it could not send. A line whose sound is not getting out
-  (ten seconds of it queued) counts as lost.
+- A line that closes while the lifetime goes on ends the turn that was growing, as final and cut, with the words it
+  had. Turns of the next line are numbered on from there.
+- The transport holds at most the last ten seconds of sound it could not send, and lets go of it when the lifetime
+  ends. It sends that sound however long the line was away: an app that would rather lose it ends the lifetime and
+  starts again. A setting for that waits for an app that needs it (E8).
+- Sound goes out a second at a time at most, whatever size the glasses hand over, so the relay's limit on one piece
+  is never met by a well-behaved app. A line whose sound is not getting out (ten seconds of it queued) counts as lost.
 - The speaker of a turn is whoever the glasses named for most of the stretch of sound Flux says the turn came from.
+  The transport keeps who spoke only for sound no finished turn has covered.
+- Every line asks Deepgram to keep its sound out of the model-improvement programme (`mip_opt_out`).
 - The first tests ran on what Flux really sent: 90 messages recorded on 2026-11-23 from 21 seconds of synthetic
   speech, kept as `src/flux/recorded.jsonl`.
 
@@ -429,28 +439,42 @@ The line, as states:
 - One path, `/api/v1/live`, a WebSocket. The caller's first message is a greeting: the secret, the model, and the
   few settings the relay lists. The relay checks them, opens the upstream with the developer's key, and from then on
   passes sound up and text down. Nothing else the caller says is passed on.
-- It closes with a code of its own: 4400 for no proper greeting in three seconds or a piece of sound over 64
-  kilobytes, 4401 for a wrong secret, 4403 for a model nobody listed, 4502 when the upstream cannot be reached or
-  goes. The first three are for good; the transport tries again after any other.
-- **The secret is required.** Live speech is billed by the minute and the provider offers no limit to set, so a relay
-  given a live upstream does not start without a secret of sixteen characters or more. It is the user's to type on
-  the phone, never the build's. The relay does not count minutes yet: that comes with the first app that needs it.
+- It closes with a code of its own: 4400 for no proper greeting in three seconds, 4401 for a wrong secret, 4403 for
+  a model nobody listed, 4502 when the upstream does not open in five seconds or goes, and 1009 for a piece of sound
+  over 64 kilobytes. The first three are for good; the transport tries again after any other.
+- **The secret is required.** Live speech is billed by the minute and the provider offers no limit to set, so no
+  relay is made with a live upstream and a secret under sixteen characters. The relay itself refuses, so a host that
+  builds its options by hand cannot skip the check. The secret is the user's to type on the phone, never the
+  build's, and never part of an address. The relay does not count minutes yet: that comes with the first app that
+  needs it.
+- **No key travels in the clear.** An upstream is named with `https`, or `wss` for live speech, unless it is on the
+  same machine. The relay follows an upstream to no other address, so a redirect gets no key.
+- **What the relay starts ends with the caller.** When the caller leaves, the relay tells the host to stop reaching
+  for the upstream, and closes it if it opened all the same.
 - **The upstream is Cloudflare's AI Gateway, for both hosts.** Reaching Workers AI through a Worker's own binding
   would have made the Worker a different server from the Node one (E13). Tried on 2026-11-23: a WebSocket to the
   gateway's Workers AI path opens with the header `cf-aig-authorization`, and Flux answers as it does directly.
-- **Each host takes and opens a WebSocket in its own way**, because no web standard covers either: a Worker takes one
-  with `WebSocketPair` and opens one with its own headers through `fetch`; Node takes one with the `ws` package and
-  opens one with its own WebSocket, which takes headers. Each is a few lines beside `relay`, and every case of the
-  live path runs against both hosts for real, the Worker in Cloudflare's own runtime on the test machine.
+- **Each host takes and opens a WebSocket in its own way** (E13, as Jarek agreed on 2026-11-23), because no web
+  standard covers either: a Worker takes one with `WebSocketPair` and opens one with its own headers through
+  `fetch`; Node does both with the `ws` package. Each is a few lines beside `relay`, and every case of the live path
+  runs against both hosts for real, the Worker in Cloudflare's own runtime on the test machine.
+- **A relay can be for live speech alone.** With no upstream for the three calls it forwards none of them.
 - What those runs and the gateway showed, which the docs did not say:
   - The gateway does not answer with a subprotocol when the token is sent as one, the way its docs give for
     browsers. Node's WebSocket then fails the connection; a Worker's does not. So the token goes in a header.
-  - A Worker gives a WebSocket's sound as a Blob unless asked for an ArrayBuffer.
-  - Node's WebSocket asks a second time when it is answered 401.
-  - A Worker drops what it was reaching for when its caller leaves; the Node server lets it open, and closes it.
+  - A Worker gives a WebSocket's sound as a Blob unless asked for an ArrayBuffer, and takes a message of more than a
+    mebibyte, so the limit on a piece of sound is the relay's own.
+  - A Worker's `fetch` follows a redirect, headers and all, unless told not to.
+  - Node's own WebSocket can send a header, but it asks a second time when answered 401, and it cannot drop a
+    connection it is still making. So the Node server opens the upstream with `ws`.
+  - `ws` hands on a message that came with the opening before a promise made at the opening is read. So a host hands
+    the relay the line at the moment it opens, and the relay listens at once.
   - Workers AI takes every setting of a speech model as text, a number or a boolean being refused.
 - The app lists the relay twice in its whitelist: `https://` for a hold and `wss://` for live speech. The store
   check cannot see a missing `wss://` entry, because the address is made from the host as the app runs.
+- The example takes the relay's secret from a field on its phone page only. What the glasses show is written to the
+  console only in the build the simulator tests make, never in the packed one: with live speech a frame holds what
+  was said.
 - Not tried yet: a deployed Worker, and live speech from inside the Even app.
 
 ## Wake word (built with the first app that uses it, E8)

@@ -5,6 +5,7 @@ export interface Turn {
   id: number
   words: string
   final: boolean
+  cut: boolean
   speaker: Speaker
 }
 
@@ -22,34 +23,34 @@ export function most(heard: Record<Speaker, number>): Speaker {
 }
 
 export function scriptedLive(lines: readonly string[], msPerWord = 300): LiveSpeech {
-  const left = lines.map(line => line.split(/\s+/).filter(Boolean)).filter(words => words.length)
+  const script = lines.map(line => line.split(/\s+/).filter(Boolean)).filter(words => words.length)
   return {
     start(life, heard) {
+      const left = [...script]
       let id = 0
       let said = 0
       let waiting = 0
       let by: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
-      const turn = (final: boolean) => heard({ id, words: left[0].slice(0, said).join(' '), final, speaker: most(by) })
+      const turn = (final: boolean, cut: boolean) => heard({ id, words: left[0].slice(0, said).join(' '), final, cut, speaker: most(by) })
       const next = () => {
         left.shift()
         id++
         said = 0
         by = { self: 0, other: 0, unknown: 0 }
       }
-      life.own(() => void (said > 0 && left.shift()))
       return sound => {
         if (life.ended) return
         if (sound.gap && said > 0) {
-          turn(true)
+          turn(true, true)
           next()
         }
         waiting += sound.pcm.length
-        by[sound.speaker] += sound.pcm.length
-        while (left.length && waiting >= msPerWord * BYTES_PER_MS) {
+        while (!life.ended && left.length && waiting >= msPerWord * BYTES_PER_MS) {
           waiting -= msPerWord * BYTES_PER_MS
           said++
+          by[sound.speaker]++
           const final = said === left[0].length
-          turn(final)
+          turn(final, false)
           if (final) next()
         }
       }
