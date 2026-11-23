@@ -340,9 +340,12 @@ The microphone is open while anything listens. A hold is one listener; an app th
   the last one closes it, so no caller opens or closes it for another.
 - Each piece of sound comes with who the Even app says spoke: `self`, `other` or `unknown`. Even makes no promise
   about that guess, and the phone's microphone gives `unknown`.
-- A hold has the microphone to itself. While one records, no listener hears anything, whenever it joined; so a voice
-  command is never part of what an app is listening to, and a hold starts without waiting when the microphone is
-  already open. Only the shell can take it: the way in is not part of the public API. A hold whose microphone did not
+- A hold has the microphone to itself. A listener hears a sound exactly when no touchpad is held down, whenever it
+  joined and whichever touchpads were pressed meanwhile; so a voice command is never part of what an app is listening
+  to, and a hold starts without waiting when the microphone is already open. The hold asks for the microphone only
+  while it records: called off, or past its longest length, it still keeps the listeners from hearing until the
+  release, and no longer keeps the microphone open by itself. It is told of a refused open by a way of its own, so
+  news meant for others, such as the close a departing listener asked for, cannot fail it. Only the shell can take it: the way in is not part of the public API. A hold whose microphone did not
   open still keeps the listeners from hearing until its release, and so does one that was called off or reached its
   longest length. A release can be lost, and a session must not go deaf for it: the listeners hear again after twice
   the longest hold, or when the app leaves the foreground.
@@ -366,7 +369,9 @@ The microphone is open while anything listens. A hold is one listener; an app th
   app that then opens a microphone of its own knows Earshot will not close it. A microphone that opens after the last
   listener left is closed and not told of.
 - Each sound says whether there was a break before it in what that listener heard (`gap`): the first sound, the
-  first after a hold, the first after the microphone was asked for again.
+  first after a hold, the first after the microphone was closed, opened or asked for again.
+- The function that stops a listener gives a promise that is kept when the machine is calm: nothing asked, nothing
+  owed. An open that is refused when nobody listens any more is owed a close, since capture may have begun.
 - Each listener gets its own copy of a sound. A listener that throws stops nothing. Earshot reports that one threw
   and not what, to the page's error reporting or the console, since the error may carry what was heard.
 - A hold ends at the release of the touchpad that was held. A release that names another, or none when the hold
