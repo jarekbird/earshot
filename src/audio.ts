@@ -8,6 +8,13 @@ export interface Audio {
   seconds: number
 }
 
+export type Speaker = 'self' | 'other' | 'unknown'
+
+export interface Sound {
+  pcm: Uint8Array
+  speaker: Speaker
+}
+
 export function scriptedSpeech(lines: readonly string[]): (audio: Audio) => Promise<string> {
   const left = [...lines]
   return async () => left.shift() ?? ''

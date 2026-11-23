@@ -6,7 +6,7 @@ import { Rolling } from '../rolling.js'
 import { Router, type Screen } from '../router.js'
 import { boxes, list, text } from '../view.js'
 import { fakeBridge } from './fake.js'
-import { Glasses, OVERLAY_DIM } from './glasses.js'
+import { Glasses, MIC_SILENT_MS, OVERLAY_DIM } from './glasses.js'
 import { SayError } from '../say.js'
 import { Shell, type VoiceOptions } from './shell.js'
 
@@ -630,6 +630,43 @@ describe('a hold', () => {
     fake.hold()
     await settle(50)
     expect(front()).toBe('The microphone did not open')
+  })
+
+  it('takes the microphone alone while something else listens: the command stays out of what that hears, and the microphone stays open', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, glasses, ran } = world({ voice })
+    await settle()
+    const session: number[] = []
+    glasses.listen(sound => session.push(sound.pcm.length))
+    await settle(50)
+    fake.sound(tone(100))
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(800))
+    fake.release()
+    await settle(50)
+    fake.sound(tone(200))
+    expect(session).toEqual([tone(100).length, tone(200).length])
+    expect(asked).toEqual([0.8])
+    expect(ran).toEqual(['refresh'])
+    expect(fake.mic).toBe('glasses')
+    expect(fake.calls.filter(call => call.startsWith('mic'))).toEqual(['mic open'])
+  })
+
+  it('keeps a hold through a long silence', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, front, ran } = world({ voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(800))
+    await settle(MIC_SILENT_MS * 3)
+    expect(front()).toMatch(/^Listening/)
+    fake.release()
+    await settle(50)
+    expect(asked).toEqual([0.8])
+    expect(ran).toEqual(['refresh'])
+    expect(fake.calls.filter(call => call.startsWith('mic'))).toEqual(['mic open', 'mic close'])
   })
 
   it('says no match when the words fit nothing and no other agent takes them', async () => {

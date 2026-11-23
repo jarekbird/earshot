@@ -8,7 +8,7 @@
   "permissions": [
     {
       "name": "g2-microphone",
-      "desc": "Hears a voice command while you hold the touchpad."
+      "desc": "Hears a voice command while you hold the touchpad, and counts how long each speaker talks while the Listen screen is open."
     }
   ],
   "supported_languages": ["en"]
