@@ -247,6 +247,9 @@ use it, compaction. Earshot ships all three for OpenRouter, paid by the develope
 - **Earshot ships the relay** as one function on web standards, request in and response out, with no dependencies.
   It runs unchanged on Node, where Earshot also ships a server and a command, and as a Cloudflare Worker, Deno or
   Bun. Earshot is tied to none of them.
+- **The relay waits just under what the app waits.** Ten seconds for a question or a shortening, where the app
+  waits twelve; twenty-eight for speech, where it waits thirty for each part of a recording. A slow upstream is then
+  the relay's own answer, and a long part is not cut off early.
 - **A long recording goes in parts.** Over a minute, the transcriber cuts it at its quietest moment near each minute
   and joins the words, so each part fits the relay's four megabytes.
 - **A request ends with its turn.** The shell hands the transcriber and the model the lifetime of the command; the
