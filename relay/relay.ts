@@ -6,6 +6,20 @@ export interface RelayOptions {
   fetch?: typeof fetch
 }
 
+export interface RelaySettings {
+  key: string
+  upstream: string
+  models: string | undefined
+}
+
+export function relayOptions({ key, upstream, models }: RelaySettings): RelayOptions {
+  const listed = models
+    ?.split(',')
+    .map(model => model.trim())
+    .filter(Boolean)
+  return { key, upstream, ...(listed?.length ? { models: listed } : {}) }
+}
+
 export const DEFAULT_MODELS = ['openai/whisper-large-v3-turbo', 'typesafe/jev-1.14', 'mistralai/mistral-nemo']
 
 const SPEECH = '/api/v1/audio/transcriptions'

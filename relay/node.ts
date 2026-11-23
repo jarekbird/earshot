@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http'
 import { Readable } from 'node:stream'
-import { relay, type RelayOptions } from './relay.js'
+import { relay, relayOptions, type RelayOptions } from './relay.js'
 
 export interface ServeOptions extends RelayOptions {
   port?: number
@@ -40,13 +40,8 @@ export function settings(env: Record<string, string | undefined>): ServeOptions 
     if (!value) throw new Error(`Set ${name}.`)
     return value
   }
-  const models = env.EARSHOT_RELAY_MODELS?.split(',')
-    .map(model => model.trim())
-    .filter(Boolean)
   return {
-    key: need('EARSHOT_RELAY_KEY'),
-    upstream: need('EARSHOT_RELAY_UPSTREAM'),
-    ...(models?.length ? { models } : {}),
+    ...relayOptions({ key: need('EARSHOT_RELAY_KEY'), upstream: need('EARSHOT_RELAY_UPSTREAM'), models: env.EARSHOT_RELAY_MODELS }),
     port: Number(env.PORT) || PORT,
     ...(env.HOST ? { hostname: env.HOST } : {}),
   }

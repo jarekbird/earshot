@@ -23,6 +23,8 @@ Checks cite these IDs. Changing one needs Jarek's OK.
 - **E10** Double tap goes up. The stack is the path from home to the screen on show, never a history. A screen opens
   as a child of the one on show; a jump from anywhere (an action of the app, a rolling item, an alert) replaces the
   path.
+- **E13** The relay's hosts, the Node server and the example's Worker, are one server: each only hands requests to
+  `relay`, and a setting or a feature of one is in the other in the same change. Only where a host listens is its own.
 
 ## Code rules
 

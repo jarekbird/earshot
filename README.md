@@ -217,13 +217,15 @@ It listens on `PORT` (8787 unless set) and on `HOST` when set. `EARSHOT_RELAY_MO
 As a Cloudflare Worker, or on anything else that speaks web requests:
 
 ```ts
-import { relay } from 'earshot/relay'
+import { relay, relayOptions } from 'earshot/relay'
 
 export default {
-  fetch: (request: Request, env: { OPENROUTER_KEY: string; UPSTREAM: string }) =>
-    relay({ key: env.OPENROUTER_KEY, upstream: env.UPSTREAM })(request),
+  fetch: (request: Request, env: { OPENROUTER_KEY: string; UPSTREAM: string; MODELS?: string }) =>
+    relay(relayOptions({ key: env.OPENROUTER_KEY, upstream: env.UPSTREAM, models: env.MODELS }))(request),
 }
 ```
+
+`MODELS` is the same comma-separated list as `EARSHOT_RELAY_MODELS`. The two are one server: `relayOptions` reads the settings for both, and what the Node server does the Worker does. `example/worker.ts` is this Worker.
 
 `serve` from `earshot/relay/node` starts the same Node server from your own code.
 
