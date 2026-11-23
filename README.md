@@ -185,6 +185,24 @@ enter: life => {
 - `listen` is for the glasses' microphone. An app that opens the phone's microphone through the SDK itself also reads that sound from the SDK.
 - Where the sound goes is yours to decide, as with a hold: Earshot sends it nowhere.
 
+### Live speech
+
+Words while they are said, for an app that listens: captions, dictation, a transcript.
+
+```ts
+import { scriptedLive, type LiveSpeech } from 'earshot'
+
+const speech: LiveSpeech = scriptedLive(['good morning', 'how are you'])
+enter: life => {
+  const hear = speech.start(life, turn => show(turn.id, turn.speaker, turn.words, turn.final))
+  life.own(glasses.listen(hear))
+}
+```
+
+- A `LiveSpeech` takes sound and gives turns. `start(life, heard)` returns the function to hand each `sound` to, and stops with the lifetime.
+- A turn is `{ id, words, final, speaker }`. It is told again as it grows, with the same `id`, and once more with `final: true`. `speaker` is who spoke most of it: `self`, `other` or `unknown`.
+- `scriptedLive(lines)` is the stand-in for tests and demos: it calls no service. It says each line a word at a time as sound comes in, one word for each 300 ms of it, and ends a turn at a break in the sound.
+
 ### What the navigator is offered
 
 One question, with everything the user could mean:

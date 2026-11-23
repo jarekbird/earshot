@@ -390,6 +390,18 @@ Still to try on real glasses: whether sound keeps arriving while nobody speaks, 
 microphone again is harmless, and whether a hold and its release always name the same touchpad. If the glasses send nothing in silence, a lasting listener asks again every three
 seconds of it.
 
+## Live speech (slice 6, built in part)
+
+Words while they are said. A hold's recording is sent when it is finished; an app that listens for longer wants the
+words as they come.
+
+- One interface, `LiveSpeech`: `start(life, heard)` gives back the function that takes each sound, and tells of turns.
+  A turn has an id, its words so far, whether it is final, and who spoke most of it. It is told again as it grows.
+- Built: the interface and `scriptedLive`, the offline stand-in (E4), driven by the amount of sound alone, so a test
+  needs no clock. The example's Listen screen shows its turns.
+- Not built yet: the transport that holds a connection to the developer's relay and comes back after a drop, and the
+  relay's path for it.
+
 ## Wake word (built with the first app that uses it, E8)
 
 A second way to start a voice command, hands-free: a spoken phrase in place of a hold. Hold and the phrase are two
