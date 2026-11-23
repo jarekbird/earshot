@@ -187,7 +187,7 @@ export class Glasses {
   readonly #trace: ((line: string) => void) | undefined
   readonly #watch: (drawing: Drawing) => void
   #frames = 0
-  readonly #listeners = new Set<(input: Input) => void>()
+  readonly #listeners = new Set<{ hear: (input: Input) => void }>()
   readonly #mic: Mic
   #frame: Frame = { boxes: [] }
   #overlay: string | null = null
@@ -310,8 +310,9 @@ export class Glasses {
   }
 
   onInput(listener: (input: Input) => void): () => void {
-    this.#listeners.add(listener)
-    return () => void this.#listeners.delete(listener)
+    const placed = { hear: listener }
+    this.#listeners.add(placed)
+    return () => void this.#listeners.delete(placed)
   }
 
   async leave(): Promise<void> {
@@ -327,7 +328,7 @@ export class Glasses {
     const input = decode(event)
     if (!input) return
     serve(() => this.#trace?.(`${INPUT_TAG} ${JSON.stringify(input)}`), 'touchpad')
-    for (const listener of [...this.#listeners]) if (this.#listeners.has(listener)) serve(() => listener(input), 'touchpad')
+    for (const placed of [...this.#listeners]) if (this.#listeners.has(placed)) serve(() => placed.hear(input), 'touchpad')
     if (input.kind === 'exit') this.#life.end()
   }
 
