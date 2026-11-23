@@ -1479,6 +1479,22 @@ describe('a hold', () => {
     expect(session).toEqual([tone(200).length])
   })
 
+  it('keeps a listener from hearing while a touchpad is held, also when no voice is set up', async () => {
+    const { fake, glasses, front } = world()
+    await settle()
+    const session: number[] = []
+    glasses.listen(sound => session.push(sound.pcm.length))
+    await settle(50)
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(300))
+    expect(front()).toBe('Voice is not set up')
+    expect(session).toEqual([])
+    fake.release()
+    fake.sound(tone(200))
+    expect(session).toEqual([tone(200).length])
+  })
+
   it('lets the listeners hear again when no release came for twice its longest length', async () => {
     const { voice } = hearing('refresh')
     const { fake, glasses } = world({ voice })

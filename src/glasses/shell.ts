@@ -351,11 +351,7 @@ export class Shell {
 
   #hold(source: HoldSource): void {
     const voice = this.#voice
-    if (!voice) {
-      if (!this.#recording) this.#callOff()
-      return this.notice(this.#words.noVoice)
-    }
-    const longest = voice.maxHoldMs ?? MAX_HOLD_MS
+    const longest = voice?.maxHoldMs ?? MAX_HOLD_MS
     this.#down.get(source)?.cancel()
     this.#down.set(
       source,
@@ -366,7 +362,14 @@ export class Shell {
       this.#recording.end()
       this.notice(this.#words.noMic)
     }
-    this.#held ??= this.#glasses[HOLD](sound => this.#recording?.hear(sound), refused)
+    if (!this.#held) {
+      this.#held = this.#glasses[HOLD](sound => this.#recording?.hear(sound), refused)
+      this.#held.want(false)
+    }
+    if (!voice) {
+      if (!this.#recording) this.#callOff()
+      return this.notice(this.#words.noVoice)
+    }
     if (this.#recording) return
     this.#callOff()
     const chunks: Uint8Array[] = []

@@ -49,7 +49,7 @@ function report(): void {
 function serve(call: () => unknown): void {
   try {
     const answer = call()
-    if (answer instanceof Promise) answer.catch(report)
+    if (typeof (answer as { then?: unknown } | null | undefined)?.then === 'function') Promise.resolve(answer).catch(report)
   } catch {
     report()
   }
@@ -70,7 +70,7 @@ export class Mic {
   readonly #ears = new Set<Ear>()
   readonly #told = new Set<Told>()
   readonly #news: boolean[] = []
-  readonly #waiting: Array<() => void> = []
+  readonly #waiting: Array<(settled: boolean) => void> = []
   #holder: Holder | null = null
   #ended = false
   #gaveUp = false
@@ -82,6 +82,7 @@ export class Mic {
   #failures = 0
   #closesRefused = 0
   #heardAt = 0
+  #heardSinceAsked = false
   #retry: Timer | undefined
   #watch: Timer | undefined
 
@@ -100,11 +101,11 @@ export class Mic {
     return this.#open
   }
 
-  listen(hear: (sound: Sound) => unknown, options: ListenOptions = {}): () => Promise<void> {
+  listen(hear: (sound: Sound) => unknown, options: ListenOptions = {}): () => Promise<boolean> {
     const reopenAfterMs = options.reopenAfterMs ?? MIC_SILENT_MS
     if (reopenAfterMs !== false && !(Number.isFinite(reopenAfterMs) && reopenAfterMs >= MIN_REOPEN_MS))
       throw new RangeError(`reopenAfterMs is ${MIN_REOPEN_MS} milliseconds or more, or false.`)
-    if (this.#ended) return () => Promise.resolve()
+    if (this.#ended) return () => Promise.resolve(!this.#gaveUp)
     const ear: Ear = { hear, reopenAfterMs, gap: true }
     this.#ears.add(ear)
     this.#changed()
@@ -143,6 +144,7 @@ export class Mic {
 
   heard(sound: Omit<Sound, 'gap'>): void {
     this.#heardAt = this.#now()
+    this.#heardSinceAsked = true
     if (this.#issued && this.#asking !== 'close') this.#capturing = true
     const ears = this.#hearing()
     if (this.#holder) for (const ear of this.#ears) ear.gap = true
@@ -184,23 +186,27 @@ export class Mic {
   #settle(): void {
     if (this.#asking) return
     if (this.#gaveUp) return this.#calm()
-    if (this.#ended && this.#issued) this.#capturing = true
     this.#watch?.cancel()
     this.#watch = undefined
-    const wanted = this.#wanted()
-    if (wanted ? this.#capturing && this.#open : !this.#capturing) {
+    if (!this.#wanted() && this.#issued) this.#capturing = true
+    if (this.#isCalm()) {
       this.#retry?.cancel()
       this.#retry = undefined
       this.#failures = 0
-      if (wanted) this.#watchForSilence()
+      if (this.#wanted()) this.#watchForSilence()
       else if (this.#ended) this.#clock.end()
       return this.#calm()
     }
-    if (!this.#retry) void this.#ask(wanted)
+    if (!this.#retry) void this.#ask(this.#wanted())
+  }
+
+  #isCalm(): boolean {
+    return this.#wanted() ? this.#capturing && this.#open : !this.#capturing
   }
 
   #calm(): void {
-    for (const settled of this.#waiting.splice(0)) settled()
+    if (this.#asking || !(this.#gaveUp || this.#isCalm())) return
+    for (const settled of this.#waiting.splice(0)) settled(!this.#gaveUp)
   }
 
   // Capture stops without a word when the phone suspends the app, so sound that stops arriving is a closed microphone.
@@ -212,6 +218,7 @@ export class Mic {
       this.#watch = this.#clock.timeout(() => this.#settle(), left)
       return
     }
+    this.#breakForAll()
     this.#set(false)
     this.#settle()
   }
@@ -219,19 +226,18 @@ export class Mic {
   async #ask(on: boolean): Promise<void> {
     this.#asking = on ? 'open' : 'close'
     if (on) this.#issued = true
+    this.#heardSinceAsked = false
     const done = await answered(on ? this.#calls.open : this.#calls.close)
     this.#asking = null
     if (done) {
       this.#capturing = on
       this.#issued = on
       this.#heardAt = this.#now()
-      this.#breakForAll()
+      if (!on || !this.#heardSinceAsked) this.#breakForAll()
       if (!on) this.#set(false)
     } else if (!on && this.#ended && ++this.#closesRefused >= CLOSES_AFTER_THE_END) {
       this.#gaveUp = true
       this.#clock.end()
-    } else if (on && !this.#wanted()) {
-      this.#capturing = true
     } else if (++this.#failures > 0 && on === this.#wanted()) {
       this.#retry = this.#clock.timeout(() => {
         this.#retry = undefined
