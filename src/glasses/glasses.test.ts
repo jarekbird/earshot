@@ -546,7 +546,7 @@ describe('the microphone', () => {
     await settle()
     expect(session.heard.map(({ pcm }) => pcm.length)).toEqual([2, 8])
     expect(command.heard.map(({ pcm }) => pcm.length)).toEqual([6])
-    expect(mics(fake)).toEqual(['mic open'])
+    expect(mics(fake)).toEqual(['mic open', 'mic open'])
   })
 
   it('asks for the microphone again when the sound stops arriving, as it does when the phone suspends the app', async () => {
@@ -654,16 +654,16 @@ describe('the microphone', () => {
     expect(mics(patient.fake)).toEqual(['mic open'])
   })
 
-  it('asks for nothing again while a hold has the microphone', async () => {
+  it('asks once as a hold starts to record, and for nothing more while the hold has the microphone', async () => {
     const { fake, glasses } = setup()
     listening(glasses)
     await settle()
     const command = holding(glasses)
     await settle(MIC_SILENT_MS * 3)
-    expect(mics(fake)).toEqual(['mic open'])
+    expect(mics(fake)).toEqual(['mic open', 'mic open'])
     command.stop()
     await settle(MIC_SILENT_MS - 1)
-    expect(mics(fake)).toEqual(['mic open', 'mic open'])
+    expect(mics(fake)).toEqual(['mic open', 'mic open', 'mic open'])
   })
 
   it('says whether the microphone is open to whoever asks later', async () => {
@@ -1258,6 +1258,30 @@ describe('the microphone', () => {
       [1, true],
       [2, true],
     ])
+  })
+
+  it('keeps its word to one who stopped when others, told the news, stop again and start anew: it waits for all of it', async () => {
+    const { fake, glasses } = setup()
+    const answer = fake.bridge.audioControl.bind(fake.bridge)
+    let opened = () => {}
+    let hang = false
+    fake.bridge.audioControl = async (on, source) => {
+      if (on && hang) await new Promise<void>(done => (opened = done))
+      return answer(on, source)
+    }
+    const { stop } = listening(glasses)
+    await settle()
+    hang = true
+    let again = false
+    glasses.onMic(open => void (open || again || ((again = true), void stop())))
+    glasses.onMic(open => void (open || glasses.listen(() => {})))
+    let settledWhile: string | null | undefined
+    void stop().then(() => (settledWhile = fake.mic))
+    await settle()
+    expect(settledWhile).toBeUndefined()
+    opened()
+    await settle()
+    expect(settledWhile).toBe('glasses')
   })
 
   it('tells of the close when the last listener leaves', async () => {

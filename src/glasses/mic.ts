@@ -84,6 +84,7 @@ export class Mic {
   #closesRefused = 0
   #heardAt = 0
   #heardSinceAsked = false
+  #askAnyway = false
   #retry: Timer | undefined
   #watch: Timer | undefined
 
@@ -128,6 +129,7 @@ export class Mic {
       want: sound => {
         if (this.#holder !== holder || holder.wants === sound) return
         holder.wants = sound
+        if (sound) this.#askAnyway = true
         this.#changed()
       },
       letGo: () => {
@@ -191,7 +193,8 @@ export class Mic {
     this.#watch?.cancel()
     this.#watch = undefined
     if (!this.#wanted() && this.#issued) this.#capturing = true
-    if (this.#isCalm()) {
+    if (!this.#wanted()) this.#askAnyway = false
+    if (this.#isCalm() && !this.#askAnyway) {
       this.#retry?.cancel()
       this.#retry = undefined
       this.#failures = 0
@@ -207,7 +210,7 @@ export class Mic {
   }
 
   #calm(): void {
-    if (this.#asking || !(this.#gaveUp || this.#isCalm())) return
+    if (this.#asking || this.#telling || !(this.#gaveUp || (this.#isCalm() && !this.#askAnyway))) return
     for (const settled of this.#waiting.splice(0)) settled(!this.#gaveUp)
   }
 
@@ -228,6 +231,7 @@ export class Mic {
   async #ask(on: boolean): Promise<void> {
     this.#asking = on ? 'open' : 'close'
     if (on) this.#issued = true
+    if (on) this.#askAnyway = false
     this.#heardSinceAsked = false
     const done = await answered(on ? this.#calls.open : this.#calls.close, on)
     this.#asking = null
@@ -276,6 +280,7 @@ export class Mic {
       }
     } finally {
       this.#telling = false
+      this.#calm()
     }
   }
 }

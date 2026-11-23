@@ -650,7 +650,7 @@ describe('a hold', () => {
     expect(asked).toEqual([0.8])
     expect(ran).toEqual(['refresh'])
     expect(fake.mic).toBe('glasses')
-    expect(fake.calls.filter(call => call.startsWith('mic'))).toEqual(['mic open'])
+    expect(fake.calls.filter(call => call.startsWith('mic'))).toEqual(['mic open', 'mic open'])
   })
 
   it('keeps a hold through a long silence', async () => {
@@ -669,7 +669,7 @@ describe('a hold', () => {
     expect(fake.calls.filter(call => call.startsWith('mic'))).toEqual(['mic open', 'mic close'])
   })
 
-  it('is never asked for twice, even while something else listens through a long silence', async () => {
+  it('asks for the microphone once as it starts, and never again through a long silence, also while something else listens', async () => {
     const { voice } = hearing('refresh')
     const { fake, glasses, front } = world({ voice })
     await settle()
@@ -678,7 +678,7 @@ describe('a hold', () => {
     fake.hold()
     await settle(MIC_SILENT_MS * 3)
     expect(front()).toMatch(/^Listening/)
-    expect(fake.calls.filter(call => call.startsWith('mic'))).toEqual(['mic open'])
+    expect(fake.calls.filter(call => call.startsWith('mic'))).toEqual(['mic open', 'mic open'])
   })
 
   it('keeps what is said until the release from another listener, also when the microphone did not open at first', async () => {
@@ -1503,6 +1503,23 @@ describe('a hold', () => {
     fake.release()
     await settle(50)
     expect(fake.calls.filter(call => call.startsWith('mic'))).toEqual([])
+  })
+
+  it('asks for the microphone as it starts to record, so a hold right after the phone suspended the app still hears', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, glasses } = world({ voice })
+    await settle()
+    glasses.listen(() => {})
+    await settle(50)
+    fake.sound(tone(100))
+    fake.mic = null
+    fake.hold()
+    await settle(50)
+    expect(fake.mic).toBe('glasses')
+    fake.sound(tone(800))
+    fake.release()
+    await settle(50)
+    expect(asked).toEqual([0.8])
   })
 
   it('lets the listeners hear again when no release came for twice its longest length', async () => {
