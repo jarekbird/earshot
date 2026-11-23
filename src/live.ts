@@ -8,13 +8,15 @@ export interface Turn {
   speaker: Speaker
 }
 
+export type LiveState = 'on' | 'down' | 'refused'
+
 export interface LiveSpeech {
-  start(life: Lifetime, heard: (turn: Turn) => void): (sound: Sound) => void
+  start(life: Lifetime, heard: (turn: Turn) => void, told?: (state: LiveState) => void): (sound: Sound) => void
 }
 
 const BYTES_PER_MS = (SAMPLE_RATE * 2) / 1000
 
-function most(heard: Record<Speaker, number>): Speaker {
+export function most(heard: Record<Speaker, number>): Speaker {
   const [first, second] = (Object.entries(heard) as Array<[Speaker, number]>).sort((a, b) => b[1] - a[1])
   return first[1] > second[1] ? first[0] : 'unknown'
 }

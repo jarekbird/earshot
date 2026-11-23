@@ -13,6 +13,7 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 | 3     | Hold to talk, and the agent stack with an offline navigator                                                                            | here  |
 | 4     | Navigation by [Jev](https://typesafe.ai), with speech-to-text and compaction through OpenRouter, paid by the developer through a relay | here  |
 | 5     | Listening for longer than a hold, with who spoke                                                                                       | here  |
+| 6     | Live speech: words while they are said, through the relay                                                                              | here  |
 
 The design is in [`docs/design.md`](docs/design.md).
 
@@ -203,6 +204,21 @@ enter: life => {
 - A turn is `{ id, words, final, speaker }`. It is told again as it grows, with the same `id`, and once more with `final: true`. `speaker` is who spoke most of it: `self`, `other` or `unknown`.
 - `scriptedLive(lines)` is the stand-in for tests and demos: it calls no service. It says each line a word at a time as sound comes in, one word for each 300 ms of it, and ends a turn at a break in the sound.
 
+For real words, `fluxLive` sends the sound through your relay (below) to Deepgram's Flux, a model that hears where a turn ends:
+
+```ts
+import { fluxLive } from 'earshot'
+
+const speech = fluxLive({ host: 'https://relay.example.com', secret })
+const hear = speech.start(life, showTurn, state => showWhetherWordsCome(state))
+```
+
+- `host` is your relay, the same one as for a hold. Live speech reaches it over a WebSocket, so list it in your `app.json` whitelist a second time, as `wss://…`. `secret` is the relay's secret (below). It is not a key to put in your build, where anyone can read it: have the user type it once, on the phone.
+- The third argument is told `down` when the line to the relay is lost, `on` when it is back and `refused` when the relay will not have this app: a wrong secret, or a model you did not list. Nothing is told while all is well.
+- It opens the line at the first sound and closes it when no sound has come for ten seconds. After a drop it tries again, after half a second and then longer, up to eight. It keeps the last ten seconds of sound it could not send, and sends them first.
+- A turn that was still growing when the line dropped, or when the sound stopped, is told once more as final with the words it had. Turns are numbered on across lines.
+- `speaker` is whoever the glasses said was speaking for most of the stretch of sound the turn was made from.
+
 ### What the navigator is offered
 
 One question, with everything the user could mean:
@@ -246,9 +262,9 @@ new Shell(life, glasses, router, { voice: { transcribe: service.transcribe, mode
 
 ### The relay
 
-A glasses app is web files on the user's phone, and anyone can read a key out of them. So your OpenRouter key stays on a small server of yours, the relay, and the app calls that. Earshot ships it: one function with no dependencies that takes a request and gives a response.
+A glasses app is web files on the user's phone, and anyone can read a key out of them. So your OpenRouter key stays on a small server of yours, the relay, and the app calls that. Earshot ships it: one function that takes a request and gives a response.
 
-On Node, on any host that keeps a process running:
+On Node 22 or later, on any host that keeps a process running:
 
 ```sh
 EARSHOT_RELAY_KEY=sk-or-... EARSHOT_RELAY_UPSTREAM=https://openrouter.ai npx earshot-relay
@@ -271,6 +287,17 @@ export default {
 
 `serve` from `earshot/relay/node` starts the same Node server from your own code.
 
+For live speech the relay needs three more settings, and its hosts each take and open a WebSocket in their own way: copy `example/worker.ts` for a Worker.
+
+| Node                          | Worker          | What                                                                                     |
+| ----------------------------- | --------------- | ---------------------------------------------------------------------------------------- |
+| `EARSHOT_RELAY_LIVE_UPSTREAM` | `LIVE_UPSTREAM` | The `wss` address of your Cloudflare AI Gateway's Workers AI path, with no query         |
+| `EARSHOT_RELAY_LIVE_KEY`      | `LIVE_KEY`      | A Cloudflare token that may run requests through that gateway                            |
+| `EARSHOT_RELAY_SECRET`        | `SECRET`        | What an app must say before a line opens: sixteen characters or more, of your own making |
+| `EARSHOT_RELAY_LIVE_MODELS`   | `LIVE_MODELS`   | A comma-separated list, when your app uses another model than `@cf/deepgram/flux`        |
+
+With no upstream for it the relay has no live path. With one, it will not start without the key and the secret. Turn the gateway's logs off: they are on for a new gateway, and they would keep what was said.
+
 What the relay does:
 
 - It forwards only Earshot's three calls, only for the models you list, and only the fields Earshot sends. It is not a general key for anyone who finds its address.
@@ -278,7 +305,9 @@ What the relay does:
 - It adds your key on the way out and passes back only the answer.
 - It waits ten seconds for a question or a shortening and twenty-eight for speech, just under what Earshot waits for each, so a slow upstream comes back as the relay's own answer.
 
-What it does not do: tell one user from another. Anyone who finds the address can spend your credit on those three calls, so **set a spending limit on the key at OpenRouter**, for example a few dollars a month. That limit is the most a stranger can cost you; when it is reached, voice is off for everyone until it resets.
+- For live speech it takes one WebSocket at `/api/v1/live`. The caller's first message must carry the secret and a model you list, within three seconds; then sound goes up and words come back. Text the caller sends after that goes nowhere, and a piece of sound over 64 kilobytes ends the line.
+
+What it does not do: tell one user from another. Anyone who finds the address can spend your credit on the three calls, so **set a spending limit on the key at OpenRouter**, for example a few dollars a month. That limit is the most a stranger can cost you; when it is reached, voice is off for everyone until it resets. Live speech is billed by the minute and Cloudflare offers no such limit, which is why a line opens only with the secret. The relay does not yet count the minutes: whoever holds the secret can use as many as they like.
 
 ### Draw it yourself
 

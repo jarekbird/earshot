@@ -1,7 +1,15 @@
+export interface LiveOptions {
+  upstream: string
+  key: string
+  secret: string
+  models?: string[]
+}
+
 export interface RelayOptions {
   key: string
   upstream: string
   models?: string[]
+  live?: LiveOptions
   maxBytes?: number
   fetch?: typeof fetch
 }
@@ -10,17 +18,49 @@ export interface RelaySettings {
   key: string
   upstream: string
   models: string | undefined
+  liveUpstream: string | undefined
+  liveKey: string | undefined
+  liveModels: string | undefined
+  secret: string | undefined
 }
 
-export function relayOptions({ key, upstream, models }: RelaySettings): RelayOptions {
-  const listed = models
+export interface Line {
+  binaryType: string
+  send(data: string | ArrayBuffer): void
+  close(code?: number, reason?: string): void
+  addEventListener(type: 'message', heard: (event: { data: unknown }) => void): void
+  addEventListener(type: 'close', closed: (event: { code: number }) => void): void
+}
+
+export interface Sockets {
+  accept(request: Request): Promise<{ line: Line; response: Response }>
+  dial(url: string, headers: Record<string, string>): Promise<Line>
+}
+
+export const MIN_SECRET = 16
+
+const listed = (models: string | undefined) => {
+  const names = models
     ?.split(',')
     .map(model => model.trim())
     .filter(Boolean)
-  return { key, upstream, ...(listed?.length ? { models: listed } : {}) }
+  return names?.length ? { models: names } : {}
+}
+
+export function relayOptions({ key, upstream, models, liveUpstream, liveKey, liveModels, secret }: RelaySettings): RelayOptions {
+  const options: RelayOptions = { key, upstream, ...listed(models) }
+  if (!liveUpstream) return options
+  if (!liveKey) throw new Error('Live speech needs the key of its upstream.')
+  if (!secret || secret.length < MIN_SECRET) throw new Error(`Live speech needs a secret of ${MIN_SECRET} characters or more.`)
+  return { ...options, live: { upstream: liveUpstream, key: liveKey, secret, ...listed(liveModels) } }
 }
 
 export const DEFAULT_MODELS = ['openai/whisper-large-v3-turbo', 'typesafe/jev-1.14', 'mistralai/mistral-nemo']
+export const DEFAULT_LIVE_MODELS = ['@cf/deepgram/flux']
+export const LIVE_PATH = '/api/v1/live'
+export const CLOSES = { hello: 4400, secret: 4401, model: 4403, upstream: 4502 }
+export const HELLO_MS = 3_000
+export const MAX_FRAME = 65_536
 
 const SPEECH = '/api/v1/audio/transcriptions'
 const FIELDS = new Map([
@@ -28,6 +68,8 @@ const FIELDS = new Map([
   ['/api/alpha/decisions', ['model', 'state', 'questions']],
   ['/api/v1/chat/completions', ['model', 'messages', 'max_tokens']],
 ])
+const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_timeout_ms', 'eager_eot_threshold']
+const MAX_HELLO = 4_096
 const MAX_BYTES = 4_000_000
 const WAIT_MS = 10_000
 const SPEECH_WAIT_MS = 28_000
@@ -65,12 +107,67 @@ function parse(text: string): Record<string, unknown> | null {
   }
 }
 
-export function relay(options: RelayOptions): (request: Request) => Promise<Response> {
+function same(given: string, wanted: string): boolean {
+  let differ = given.length ^ wanted.length
+  for (let at = 0; at < wanted.length; at++) differ |= given.charCodeAt(at) ^ wanted.charCodeAt(at)
+  return differ === 0
+}
+
+function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models }: LiveOptions): void {
+  const allowed = new Set(models ?? DEFAULT_LIVE_MODELS)
+  let up: Line | undefined
+  let greeted = false
+  let over = false
+  const leave = () => {
+    over = true
+    clearTimeout(waiting)
+    up?.close(1000)
+  }
+  const end = (code: number) => {
+    if (over) return
+    leave()
+    line.close(code)
+  }
+  const waiting = setTimeout(() => end(CLOSES.hello), HELLO_MS)
+
+  const reach = async (url: string) => {
+    try {
+      const opened = await dial(url, { 'cf-aig-authorization': `Bearer ${key}` })
+      if (over) return opened.close(1000)
+      up = opened
+      up.addEventListener('message', ({ data }) => void (!over && typeof data === 'string' && line.send(data)))
+      up.addEventListener('close', () => end(CLOSES.upstream))
+    } catch {
+      end(CLOSES.upstream)
+    }
+  }
+
+  line.binaryType = 'arraybuffer'
+  line.addEventListener('close', leave)
+  line.addEventListener('message', ({ data }) => {
+    if (over) return
+    if (greeted) {
+      if (!(data instanceof ArrayBuffer)) return
+      if (data.byteLength > MAX_FRAME) return end(CLOSES.hello)
+      return up?.send(data)
+    }
+    greeted = true
+    clearTimeout(waiting)
+    const hello = typeof data === 'string' && data.length <= MAX_HELLO ? parse(data) : null
+    if (!hello) return end(CLOSES.hello)
+    if (typeof hello.secret !== 'string' || !same(hello.secret, secret)) return end(CLOSES.secret)
+    if (typeof hello.model !== 'string' || !allowed.has(hello.model)) return end(CLOSES.model)
+    const asked = LIVE_FIELDS.flatMap(field => (typeof hello[field] === 'string' ? [[field, hello[field] as string]] : []))
+    void reach(`${upstream}?${new URLSearchParams(asked)}`)
+  })
+}
+
+export function relay(options: RelayOptions): (request: Request, sockets?: Sockets) => Promise<Response> {
   const upstream = options.upstream.replace(/\/+$/, '')
   const models = new Set(options.models ?? DEFAULT_MODELS)
   const limit = options.maxBytes ?? MAX_BYTES
 
-  return async request => {
+  return async (request, sockets) => {
     const { pathname } = new URL(request.url)
     if (request.method === 'OPTIONS') {
       return new Response(null, {
@@ -82,6 +179,13 @@ export function relay(options: RelayOptions): (request: Request) => Promise<Resp
           'access-control-max-age': '86400',
         },
       })
+    }
+    if (pathname === LIVE_PATH && options.live) {
+      const asksForOne = request.method === 'GET' && request.headers.get('upgrade')?.toLowerCase() === 'websocket'
+      if (!asksForOne || !sockets) return refuse(426, 'Only a WebSocket.')
+      const { line, response } = await sockets.accept(request)
+      live(line, sockets.dial, options.live)
+      return response
     }
     const fields = FIELDS.get(pathname)
     if (!fields) return refuse(404, 'Not a call this relay forwards.')
