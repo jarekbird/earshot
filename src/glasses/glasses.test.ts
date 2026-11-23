@@ -427,6 +427,29 @@ describe('input', () => {
   })
 })
 
+describe('input', () => {
+  it('is not handed to a listener put in place while that same input was being handed out, also when it is the same function', async () => {
+    const { fake, glasses } = setup()
+    const taps: string[] = []
+    const confirm = () => void taps.push('confirmed')
+    let stop = () => {}
+    let replaced = false
+    glasses.onInput(() => {
+      if (replaced) return
+      replaced = true
+      stop()
+      stop = glasses.onInput(confirm)
+    })
+    stop = glasses.onInput(confirm)
+    glasses.draw(frame(box('title', 'One')))
+    await settle()
+    fake.tap()
+    expect(taps).toEqual([])
+    fake.tap()
+    expect(taps).toEqual(['confirmed'])
+  })
+})
+
 describe('the microphone', () => {
   const listening = (glasses: Glasses, options?: ListenOptions) => {
     const heard: Sound[] = []
