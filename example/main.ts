@@ -9,11 +9,13 @@ import {
   openRouter,
   Rolling,
   Router,
+  SAMPLE_RATE,
   scriptedSpeech,
   SCREEN_WIDTH,
   Shell,
   text,
   type Agent,
+  type Speaker,
 } from '../src/index.js'
 
 declare const EARSHOT_RELAY: string
@@ -88,10 +90,42 @@ const counter = action({
     }),
 })
 
+const heard: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
+let micOpen = true
+const seconds = (bytes: number) => `${Math.floor(bytes / (SAMPLE_RATE * 2))} s`
+
+const listen = action({
+  id: 'listen',
+  say: 'Listen',
+  hint: 'Shows how long each speaker has been heard',
+  run: () =>
+    router.open({
+      id: 'listen',
+      view: () =>
+        text({
+          title: 'Listening',
+          body: micOpen
+            ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}`
+            : 'The microphone is off',
+        }),
+      enter: life => {
+        heard.self = heard.other = heard.unknown = 0
+        life.own(glasses.listen(sound => void (heard[sound.speaker] += sound.pcm.length)))
+        life.own(
+          glasses.onMic(open => {
+            micOpen = open
+            shell.redraw()
+          }),
+        )
+        life.interval(() => shell.redraw(), 500)
+      },
+    }),
+})
+
 const router: Router = new Router({
   home: {
     id: 'notes',
-    actions: () => [open, remove, counter, send],
+    actions: () => [open, remove, counter, listen, send],
     context: () => `A list of ${notes.length} notes`,
     view: () => list({ title: 'Earshot example', action: open, empty: 'No notes' }),
   },

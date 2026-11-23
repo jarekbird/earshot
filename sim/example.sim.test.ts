@@ -59,7 +59,7 @@ describe('the example app in the real Even Hub simulator', () => {
   it('draws a list, moves the cursor, opens an item and comes back to it', async () => {
     const sim = await start()
     expect(sim.shown()).toEqual(['Earshot example', '> Welcome', 'Voice', 'A long note'])
-    expect(sim.menu()).toEqual(['Delete note', 'Tap counter', 'Send', 'Go back', 'Go home'])
+    expect(sim.menu()).toEqual(['Delete note', 'Tap counter', 'Listen', 'Send', 'Go back', 'Go home'])
     await sim.input('down')
     await sim.shows('> Voice')
     await sim.input('tap')
@@ -107,6 +107,16 @@ describe('the example app in the real Even Hub simulator', () => {
     const lines = await sim.shows('Saved')
     expect(lines.slice(0, 5)).toEqual(['Earshot example', '> Welcome', 'Voice', 'A long note', 'buy milk'])
     expect(lines.slice(5).map(line => line.replace(/[╭╮╰╯─│]/g, '').trim())).toEqual(['', 'Saved', ''])
+  })
+
+  it.runIf(process.platform === 'linux')('listens for as long as a screen is open, and still takes a hold meanwhile', async () => {
+    const sim = await start('&say=go%20back', true)
+    await sim.pick('Listen')
+    await sim.shows('Listening')
+    const heardSome = () => (sim.shown().some(line => /: [1-9]\d* s$/.test(line)) ? true : undefined)
+    await sim.until('a second of sound to be counted', heardSome, 30_000)
+    await sim.hold(1_200)
+    await sim.shows('Earshot example')
   })
 
   it.runIf(process.platform === 'linux')("sends a hold through the developer's relay: speech to words, then Jev's pick", async () => {

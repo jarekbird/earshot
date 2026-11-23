@@ -1,4 +1,5 @@
 import { ImageRawDataUpdateResult, validateEvenHubPageContainer, type EvenAppBridge, type EvenHubEvent } from '@evenrealities/even_hub_sdk'
+import type { Speaker } from '../audio.js'
 import { byteLength, linesOf, type Brightness, type MenuItem } from './frame.js'
 import { overlayWords } from './glasses.js'
 export { overlayWords }
@@ -164,7 +165,8 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
     calls: [] as string[],
     exits: [] as number[],
     mic: null as string | null,
-    sound: (pcm: Uint8Array) => emit({ audioEvent: { audioPcm: pcm } }),
+    sound: (pcm: Uint8Array, speaker?: Speaker) =>
+      emit({ audioEvent: { audioPcm: pcm, ...(speaker === undefined ? {} : { speakerRole: speaker }) } }),
     listening: () => listeners.size,
     boxes: (): FakeBox[] => [...(page ?? [])].sort((a, b) => a.order - b.order),
     pictures: () => pictures.map(({ name, x, y, w, h, data }) => ({ name, x, y, w, h, data })),

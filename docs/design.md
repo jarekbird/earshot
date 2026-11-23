@@ -124,8 +124,7 @@ ends, each call to the glasses with its answer and how long it took, each retry 
 put off: between two rebuilds, or behind a retry.
 
 No rebuild starts while the microphone opens: the Even app answers one call at a time, so a rebuild on its way would
-hold the microphone back past a short hold. Text still changes in place meanwhile. An app that opens the microphone
-itself says so with `holdRebuilds`.
+hold the microphone back past a short hold. Text still changes in place meanwhile.
 
 Still to try on real glasses: how the dimmed page reads behind
 the overlay, and which levels to use. It is 1 now.
@@ -332,21 +331,42 @@ say where a double tap lands.
 - Known: the jump lasts until the action's promise settles, so a child opened by another input in that time is
   taken for a step of the jump.
 
+## Listening (slice 5, built)
+
+The microphone is open while anything listens. A hold is one listener; an app that hears for longer is another.
+
+- `glasses.listen(hear)` adds a listener and returns what removes it. The first one opens the glasses' microphone and
+  the last one closes it, so no caller opens or closes it for another.
+- Each piece of sound comes with who the Even app says spoke: `self`, `other` or `unknown`. Even makes no promise
+  about that guess, and the phone's microphone gives `unknown`.
+- A listener can take the microphone alone. While one does, the others hear nothing. The shell's hold does, so a
+  voice command is never part of what an app is listening to, and a hold starts without waiting when the microphone
+  is already open.
+- When the phone suspends the app, capture stops and nothing says so. So when no sound has arrived for three seconds
+  and something still listens, Earshot asks for the microphone again. A listener that took it alone is a recording
+  someone ends: a hold is never asked for twice.
+- A refused microphone is asked for again like a refused draw, after 0.5, 1, 2 and then 4 seconds, for as long as
+  something listens. `onMic` is told the outcome of every try.
+
+Still to try on real glasses: whether sound keeps arriving while nobody speaks, and whether asking for an open
+microphone again is harmless. If the glasses send nothing in silence, a lasting listener asks again every three
+seconds of it.
+
 ## Wake word (built with the first app that uses it, E8)
 
 A second way to start a voice command, hands-free: a spoken phrase in place of a hold. Hold and the phrase are two
 triggers of one path. After either, Earshot shows the overlay, records, transcribes and sends the words down the
 stack. A hold ends at release; after the phrase, a pause in speech or a longest length ends it.
 
-- It listens through the glasses. While it is on and the app is open on the glasses, Earshot keeps the glasses'
-  microphone open and hands the audio to a detector on the phone. Nothing leaves the phone until the phrase is heard.
+- It is one more listener (above). While it is on and the app is open on the glasses, the detector listens through
+  `glasses.listen`, on the phone. Nothing leaves the phone until the phrase is heard.
 - The detector is the app's: it takes the audio and says when it heard the phrase. The app picks the engine and sets
   its own phrase. Earshot ships no detector and no model, because the open models found so far have licences that do
   not clearly allow commercial apps.
-- Audio the SDK marks as someone else's voice is not handed to the detector.
+- Sound marked as someone else's voice is not handed to the detector.
 - It is off until the app turns it on, so an app can make it the user's choice.
-- A hold works as always while it is on.
-- When the phone suspends the app the microphone stops; Earshot opens it again when the app is back.
+- A hold works as always while it is on: it takes the microphone alone, so the detector does not hear the command.
+- The command after the phrase is recorded by a listener that takes the microphone alone, like a hold.
 - The phrase cannot open the app: an app runs only while it is open on the glasses.
 - An action that asks first is still answered by a tap.
 
@@ -363,7 +383,9 @@ stack. A hold ends at release; after the phrase, a pause in speech or a longest 
   item, 240,000 a question, 5 seconds.
 - Which other standard options every app gets. Candidates: "what can I say", which lists the actions to tap, and
   "never mind".
-- For the wake word, on real glasses, before it is built: what it costs the glasses' battery to send audio the whole
-  time, whether a detector runs in the Even app's web view, and whether the phrase also wakes Even's own assistant.
+- For listening, on real glasses: what it costs the glasses' battery to send audio the whole time, whether sound
+  arrives in silence, and whether the microphone stays open with the phone locked.
+- For the wake word, before it is built: whether a detector runs in the Even app's web view, and whether the phrase
+  also wakes Even's own assistant.
 - How long a pause ends a command started by the wake word, and the longest command.
 - Streaming speech-to-text, so words show while the user talks. It needs a second service and probably a back end.

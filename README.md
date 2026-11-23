@@ -12,6 +12,7 @@ An Earshot app declares what it can do as **actions**. The menu, the touchpad an
 | 2     | Glasses renderer and touch input; the brightness of the voice overlay is still to be tried on real glasses                             | here  |
 | 3     | Hold to talk, and the agent stack with an offline navigator                                                                            | here  |
 | 4     | Navigation by [Jev](https://typesafe.ai), with speech-to-text and compaction through OpenRouter, paid by the developer through a relay | here  |
+| 5     | Listening for longer than a hold, with who spoke                                                                                       | here  |
 
 The design is in [`docs/design.md`](docs/design.md).
 
@@ -151,7 +152,7 @@ new Shell(life, glasses, router, {
 })
 ```
 
-- A hold opens the glasses' microphone and shows "Listening" with eight bars that rise with the voice. The release closes it. A recording under half a second, or a silent one, is not sent anywhere.
+- A hold opens the glasses' microphone and shows "Listening" with eight bars that rise with the voice. The release closes it, unless your app is listening too (below). A recording under half a second, or a silent one, is not sent anywhere.
 - `transcribe` gets the sound as 16 kHz, 16-bit, one-channel PCM, and the turn's lifetime to end its request with, and gives back the words. Earshot opens no connection itself; where the sound goes is yours to decide. A transcriber that cannot transcribe gives back `null`: no model is asked, and the agents get the recording with no words.
 - The words show over the page, and the navigator picks from what the app can do now: go back, go home, each action, and the items of the rolling set.
 - When it is sure, the action runs, and one marked `confirm` still asks first. Mark an action `voice` to ask first only when the words chose it: a touch is the person's own act, the model's choice is a guess. A question is dropped when the screen changes before the tap. When it is unsure, the few candidates are listed to tap. When nothing fits, it says "No match".
@@ -161,6 +162,24 @@ new Shell(life, glasses, router, {
 - A double tap calls a command off while it listens, and so does leaving the app. What was said is dropped when the screen changed while it listened or was decided.
 - `onListen` is called when a hold starts to listen: bind there what the words are for. `shell.busy` is true from then until the command is done. A hold with no release ends after a minute (`maxHoldMs`). No answer in forty-five seconds is given up on (`timeoutMs`), which ends the turn's lifetime.
 - Throw `SayError` from a transcriber to say what went wrong in your own words.
+
+### Listen for longer than a hold
+
+An app can hear for as long as it likes: a screen that takes dictation, a meter, a phrase that wakes it.
+
+```ts
+enter: life => {
+  life.own(glasses.listen(sound => meter.add(sound.pcm, sound.speaker)))
+  life.own(glasses.onMic(open => show(open ? 'Listening' : 'The microphone is off')))
+}
+```
+
+- `glasses.listen(hear)` opens the glasses' microphone with the first listener and closes it with the last. It returns the function that stops this one.
+- Each `sound` is `{ pcm, speaker }`: 16 kHz, 16-bit, one-channel PCM, and who the Even app says spoke: `self`, `other` or `unknown`. Even makes no promise about that guess.
+- A hold still works while you listen. It takes the microphone alone, so your listener hears nothing between the hold and its release: a voice command is not part of what you are listening to. `glasses.listen(hear, { alone: true })` does the same for a recording of your own.
+- Capture stops without a word when the phone suspends the app. When no sound has arrived for three seconds, Earshot asks for the microphone again, for as long as something listens. A listener that took it alone is left as it is.
+- `glasses.onMic(told)` is told after every try to open the microphone: `true` when it is open, `false` when it was refused. A refused microphone is asked for again after half a second, then one, two and four, while something listens.
+- Where the sound goes is yours to decide, as with a hold: Earshot sends it nowhere.
 
 ### What the navigator is offered
 
@@ -263,7 +282,7 @@ glasses.onInput(input => {
 - An app gets seven text boxes. Earshot keeps one behind them for input, and draws its overlay there, as a rounded card along the bottom; while it shows, a box of yours keeps only the lines above the card. Text over 999 bytes in a box is cut, with an ellipsis.
 - A frame can carry up to four `pictures`, each `{ id, x, y, w, h, key, data }`, from 20 to 288 wide and 20 to 144 high. A picture is sent again only when its `key` changes.
 - `draw` returns the frame's number, and `shown` is the number of the newest frame on the glasses. Pass `watch` in the options to be told of each frame when it is asked for, its begin and end, each call to the glasses with its answer and time, each retry, and each time a frame has to wait: for your own log.
-- No rebuild starts while the microphone opens, because the Even app answers one call at a time. If your app opens the microphone itself, pass that promise to `holdRebuilds`.
+- No rebuild starts while the microphone opens, because the Even app answers one call at a time.
 - `brightness` runs from 0 to 4, and 4 is the default.
 - Even reports `foreground` when its menu opens and `background` when it closes, so Earshot keeps drawing through both.
 
@@ -280,6 +299,7 @@ expect(fake.lines()).toEqual(['Notes', '> First note', 'Second note'])
 fake.down() // also tap, double, up, hold, release, foreground, background, exit
 fake.pick('Refresh') // an item of Even's menu
 fake.sound(pcm) // what the microphone hears, between a hold and a release
+fake.sound(pcm, 'other') // the same, with who the Even app says spoke
 ```
 
 The stand-in refuses what Even's simulator refuses: a ninth text box, text of 1,000 bytes, a second page. `fake.refuse('rebuild', 2)` makes it refuse on request.

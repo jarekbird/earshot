@@ -1,5 +1,5 @@
 import { action, type Action, type TargetInfo } from '../action.js'
-import { joinPcm, levelOf, problemWith, QUIET, secondsOf, type Audio } from '../audio.js'
+import { joinPcm, levelOf, problemWith, QUIET, secondsOf, type Audio, type Sound } from '../audio.js'
 import { LifetimeEnded, type Lifetime, type Timer } from '../lifetime.js'
 import { ITEM_LIMIT } from '../context.js'
 import { matchWords, navigator, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
@@ -329,7 +329,7 @@ export class Shell {
     const bars = Array<string>(METER_BARS).fill(QUIET)
     const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`)
     let meter: Timer | undefined
-    const deaf = this.#glasses.onAudio(pcm => {
+    const hear = ({ pcm }: Sound) => {
       chunks.push(pcm)
       bars.push(levelOf(pcm))
       bars.shift()
@@ -337,27 +337,28 @@ export class Shell {
         meter = undefined
         listening()
       }, METER_MS)
-    })
+    }
     const limit = this.#life.timeout(() => this.#release(), this.#voice.maxHoldMs ?? MAX_HOLD_MS)
     const recording = {
       chunks,
       screen: this.#router.current,
       end: () => {
         deaf()
+        unwatch()
         limit.cancel()
         meter?.cancel()
         this.#recording = null
-        void this.#glasses.closeMic()
       },
     }
     this.#recording = recording
     this.#voice.onListen?.()
     listening()
-    void this.#glasses.openMic().then(open => {
+    const unwatch = this.#glasses.onMic(open => {
       if (open || this.#recording !== recording) return
       recording.end()
       this.notice(this.#words.noMic)
     })
+    const deaf = this.#glasses.listen(hear, { alone: true })
   }
 
   #release(): void {

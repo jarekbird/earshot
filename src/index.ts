@@ -1,7 +1,7 @@
 export { action } from './action.js'
 export type { Action, Outcome, PlainSpec, Risk, Target, TargetInfo, TargetSpec } from './action.js'
 export { SAMPLE_RATE, scriptedSpeech, toWav } from './audio.js'
-export type { Audio } from './audio.js'
+export type { Audio, Sound, Speaker } from './audio.js'
 export type { Compact, ContextOptions } from './context.js'
 export { cleanText, fitText, hasGlyph, oneLine, textWidth, wrapText } from './glasses/text.js'
 export type { Box, Brightness, Frame, MenuItem, Picture } from './glasses/frame.js'
