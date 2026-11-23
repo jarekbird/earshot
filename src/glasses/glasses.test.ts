@@ -1284,6 +1284,37 @@ describe('the microphone', () => {
     expect(settledWhile).toBe('glasses')
   })
 
+  it('asks no second time for a hold that was over before the first answer came, and marks no break for it', async () => {
+    const { fake, glasses } = setup()
+    const answer = fake.bridge.audioControl.bind(fake.bridge)
+    let opened = () => {}
+    let opens = 0
+    fake.bridge.audioControl = async (on, source) => {
+      if (on && ++opens) await new Promise<void>(done => (opened = done))
+      return answer(on, source)
+    }
+    const { heard } = listening(glasses)
+    await settle()
+    fake.sound(new Uint8Array(1))
+    holding(glasses).stop()
+    fake.sound(new Uint8Array(2))
+    opened()
+    await settle()
+    fake.sound(new Uint8Array(3))
+    expect(heard.map(({ pcm, gap }) => [pcm.length, gap])).toEqual([
+      [1, true],
+      [2, true],
+      [3, false],
+    ])
+    expect(opens).toBe(1)
+  })
+
+  it('refuses a time to ask again of more than a day, which no timer could keep', () => {
+    const { glasses } = setup()
+    expect(() => glasses.listen(() => {}, { reopenAfterMs: 86_400_001 })).toThrow(RangeError)
+    expect(() => glasses.listen(() => {}, { reopenAfterMs: 86_400_000 })).not.toThrow()
+  })
+
   it('tells of the close when the last listener leaves', async () => {
     const { glasses } = setup()
     const told: boolean[] = []

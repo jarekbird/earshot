@@ -17,7 +17,7 @@ import type { Sound, Speaker } from '../audio.js'
 import type { Lifetime, Timer } from '../lifetime.js'
 import { clipBytes, linesOf, type Box, type Brightness, type Frame, type MenuItem, type Picture } from './frame.js'
 import { decode, type GlassesEvent, type Input } from './input.js'
-import { HOLD, Mic, MIC_SILENT_MS, retryDelay, type Held, type ListenOptions } from './mic.js'
+import { HOLD, Mic, MIC_SILENT_MS, retryDelay, serve, type Held, type ListenOptions } from './mic.js'
 
 export { MIC_SILENT_MS }
 export type { ListenOptions }
@@ -326,8 +326,8 @@ export class Glasses {
     }
     const input = decode(event)
     if (!input) return
-    this.#trace?.(`${INPUT_TAG} ${JSON.stringify(input)}`)
-    for (const listener of [...this.#listeners]) listener(input)
+    serve(() => this.#trace?.(`${INPUT_TAG} ${JSON.stringify(input)}`), 'touchpad')
+    for (const listener of [...this.#listeners]) serve(() => listener(input), 'touchpad')
     if (input.kind === 'exit') this.#life.end()
   }
 

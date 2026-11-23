@@ -18,6 +18,7 @@ export interface Held {
 export const HOLD = Symbol('the microphone, for a hold alone')
 export const MIC_SILENT_MS = 3_000
 export const MIN_REOPEN_MS = 500
+export const MAX_REOPEN_MS = 86_400_000
 const RETRY_FIRST_MS = 500
 const RETRY_MAX_MS = 4_000
 const CLOSES_AFTER_THE_END = 5
@@ -40,18 +41,18 @@ interface Told {
 }
 
 // Fact: what a listener throws may carry what was heard, so only this sentence leaves.
-function report(): void {
-  const said = 'Earshot: a listener of the microphone threw.'
+function report(of: string): void {
+  const said = `Earshot: a listener of the ${of} threw.`
   if (typeof reportError === 'function') reportError(new Error(said))
   else console.error(said)
 }
 
-function serve(call: () => unknown): void {
+export function serve(call: () => unknown, of = 'microphone'): void {
   try {
     const answer = call()
-    if (typeof (answer as { then?: unknown } | null | undefined)?.then === 'function') Promise.resolve(answer).catch(report)
+    if (typeof (answer as { then?: unknown } | null | undefined)?.then === 'function') Promise.resolve(answer).catch(() => report(of))
   } catch {
-    report()
+    report(of)
   }
 }
 
@@ -105,8 +106,8 @@ export class Mic {
 
   listen(hear: (sound: Sound) => unknown, options: ListenOptions = {}): () => Promise<boolean> {
     const reopenAfterMs = options.reopenAfterMs ?? MIC_SILENT_MS
-    if (reopenAfterMs !== false && !(Number.isFinite(reopenAfterMs) && reopenAfterMs >= MIN_REOPEN_MS))
-      throw new RangeError(`reopenAfterMs is ${MIN_REOPEN_MS} milliseconds or more, or false.`)
+    if (reopenAfterMs !== false && !(reopenAfterMs >= MIN_REOPEN_MS && reopenAfterMs <= MAX_REOPEN_MS))
+      throw new RangeError(`reopenAfterMs is from ${MIN_REOPEN_MS} milliseconds to a day, or false.`)
     if (this.#ended) return () => Promise.resolve(!this.#gaveUp)
     const ear: Ear = { hear, reopenAfterMs, gap: true }
     this.#ears.add(ear)
@@ -129,12 +130,13 @@ export class Mic {
       want: sound => {
         if (this.#holder !== holder || holder.wants === sound) return
         holder.wants = sound
-        if (sound) this.#askAnyway = true
+        this.#askAnyway = sound
         this.#changed()
       },
       letGo: () => {
         if (this.#holder !== holder) return
         this.#holder = null
+        this.#askAnyway = false
         this.#changed()
       },
     }

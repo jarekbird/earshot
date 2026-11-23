@@ -350,10 +350,11 @@ The microphone is open while anything listens. A hold is one listener; an app th
   longest length. A release can be lost, and a session must not go deaf for it: the listeners hear again after twice
   the longest hold, or when the app leaves the foreground.
 - When the phone suspends the app, capture stops and nothing says so. So each listener has a time without sound after
-  which Earshot takes the microphone for closed and asks for it again: three seconds unless it says otherwise (half a
-  second or more, or never). Only those that hear now count, and the time is worked out again whenever they change.
+  which Earshot takes the microphone for closed and asks for it again: three seconds unless it says otherwise (from
+  half a second to a day, or never). Only those that hear now count, and the time is worked out again whenever they change.
   The shortest time among them counts. A hold has no such time, so silence never makes Earshot ask again during a
-  hold, also while an app listens. A microphone that refuses to open is still asked again during one. And a hold asks for the microphone once
+  hold, also while an app listens. When the microphone refuses to open for a hold, the shell says so and ends the recording; the
+  microphone is asked again only while something still wants it, a listener or a new hold. And a hold asks for the microphone once
   as it starts to record, open or not: after a suspension Earshot may still take a dead microphone for open, and the
   simulator answers `true` to a second open.
 - The microphone is one small machine, in `src/glasses/mic.ts`. It knows two things: whether capture may be on (an
