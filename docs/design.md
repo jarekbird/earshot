@@ -124,7 +124,8 @@ ends, each call to the glasses with its answer and how long it took, each retry 
 put off: between two rebuilds, or behind a retry.
 
 No rebuild starts while the microphone opens: the Even app answers one call at a time, so a rebuild on its way would
-hold the microphone back past a short hold. Text still changes in place meanwhile.
+hold the microphone back past a short hold. Text still changes in place meanwhile. An app that makes such a call
+to the Even app itself says so with `holdRebuilds`.
 
 Still to try on real glasses: how the dimmed page reads behind
 the overlay, and which levels to use. It is 1 now.
@@ -339,14 +340,18 @@ The microphone is open while anything listens. A hold is one listener; an app th
   the last one closes it, so no caller opens or closes it for another.
 - Each piece of sound comes with who the Even app says spoke: `self`, `other` or `unknown`. Even makes no promise
   about that guess, and the phone's microphone gives `unknown`.
-- A listener can take the microphone alone. While one does, the others hear nothing. The shell's hold does, so a
-  voice command is never part of what an app is listening to, and a hold starts without waiting when the microphone
-  is already open.
-- When the phone suspends the app, capture stops and nothing says so. So when no sound has arrived for three seconds
-  and something still listens, Earshot asks for the microphone again. A listener that took it alone is a recording
-  someone ends: a hold is never asked for twice.
+- A listener can take the microphone alone. While one does, the others hear nothing; of two that did, the newest
+  hears. The shell's hold does, so a voice command is never part of what an app is listening to, and a hold starts
+  without waiting when the microphone is already open. A hold whose microphone did not open still keeps the others
+  from hearing until its release.
+- When the phone suspends the app, capture stops and nothing says so. So each listener has a time without sound after
+  which Earshot asks for the microphone again: three seconds unless it says otherwise, and never for one that took
+  the microphone alone and gave no time. Only the listeners that hear now count. So a hold is asked for once, also
+  while an app listens.
 - A refused microphone is asked for again like a refused draw, after 0.5, 1, 2 and then 4 seconds, for as long as
-  something listens. `onMic` is told the outcome of every try.
+  something listens. `onMic` is told the outcome of every try, and `micOpen` says how it stands now. One that was
+  open and could not be got back is still closed when the last listener leaves.
+- What an app is told cannot stop this: a listener that throws is reported, and the rest goes on.
 
 Still to try on real glasses: whether sound keeps arriving while nobody speaks, and whether asking for an open
 microphone again is harmless. If the glasses send nothing in silence, a lasting listener asks again every three
