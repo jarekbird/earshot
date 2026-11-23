@@ -13,6 +13,7 @@ export type Speaker = 'self' | 'other' | 'unknown'
 export interface Sound {
   pcm: Uint8Array
   speaker: Speaker
+  gap: boolean
 }
 
 export function scriptedSpeech(lines: readonly string[]): (audio: Audio) => Promise<string> {

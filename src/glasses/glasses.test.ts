@@ -692,7 +692,9 @@ describe('the microphone', () => {
     await settle(500)
     expect(told).toEqual([false, true])
     expect(fake.mic).toBe('glasses')
-    expect(reported.mock.calls).toEqual([[failure], [failure]])
+    expect(reported.mock.calls.map(([error]) => String(error))).toEqual(
+      Array(2).fill('Error: Earshot: a listener of the microphone threw.'),
+    )
     expect(logged).not.toHaveBeenCalled()
     vi.unstubAllGlobals()
   })
@@ -709,7 +711,8 @@ describe('the microphone', () => {
     await settle()
     fake.sound(new Uint8Array(2))
     expect(heard.map(({ pcm }) => pcm.length)).toEqual([2])
-    expect(reported.mock.calls).toEqual([[failure]])
+    expect(reported.mock.calls.map(([error]) => String(error))).toEqual(['Error: Earshot: a listener of the microphone threw.'])
+    expect(JSON.stringify(reported.mock.calls)).not.toContain(failure.message)
     vi.unstubAllGlobals()
   })
 
@@ -781,9 +784,10 @@ describe('the microphone', () => {
     stop()
     await settle()
     expect(fake.mic).toBe('glasses')
-    expect(glasses.micOpen).toBe(false)
+    expect(glasses.micOpen).toBe(true)
     await settle(500)
     expect(fake.mic).toBeNull()
+    expect(glasses.micOpen).toBe(false)
   })
 
   it('still closes the microphone when its lifetime ends and the first close is refused', async () => {
@@ -914,7 +918,7 @@ describe('the microphone', () => {
     await settle()
     expect(fake.mic).toBeNull()
     expect(glasses.micOpen).toBe(false)
-    expect(told).toEqual([false])
+    expect(told).toEqual([false, false])
   })
 
   it('hands a sound that came during a hold to no listener, also when the news of it ends the hold', async () => {
@@ -981,6 +985,68 @@ describe('the microphone', () => {
     expect(told).toEqual([true])
   })
 
+  it('still asks for a close at the end, when tries to get the microphone back had been refused before it', async () => {
+    const { life, fake, glasses } = setup()
+    const answer = fake.bridge.audioControl.bind(fake.bridge)
+    let refuse = false
+    let pending = () => {}
+    let hang = false
+    fake.bridge.audioControl = (on, source) => {
+      if (on && hang) return new Promise<boolean>(done => (pending = () => done(false)))
+      return on && refuse ? (fake.calls.push('mic open'), Promise.resolve(false)) : answer(on, source)
+    }
+    listening(glasses)
+    await settle()
+    refuse = true
+    await settle(MIC_SILENT_MS + 500 + 1_000 + 2_000)
+    hang = true
+    await settle(4_000)
+    life.end()
+    pending()
+    await settle(60_000)
+    expect(fake.mic).toBeNull()
+  })
+
+  it('asks for a close at the end when an open was still unanswered, since capture may have begun', async () => {
+    const { life, fake, glasses } = setup()
+    const answer = fake.bridge.audioControl.bind(fake.bridge)
+    let refuse = () => {}
+    fake.bridge.audioControl = (on, source) => {
+      if (!on) return answer(on, source)
+      fake.mic = 'glasses'
+      return new Promise<boolean>(done => (refuse = () => done(false)))
+    }
+    listening(glasses)
+    await settle()
+    life.end()
+    refuse()
+    await settle()
+    expect(fake.mic).toBeNull()
+  })
+
+  it('marks the first sound a listener hears, and the first after a break: a hold, or the microphone asked for again', async () => {
+    const { fake, glasses } = setup()
+    const { heard } = listening(glasses)
+    await settle()
+    fake.sound(new Uint8Array(1))
+    fake.sound(new Uint8Array(2))
+    const command = holding(glasses)
+    fake.sound(new Uint8Array(3))
+    command.stop()
+    fake.sound(new Uint8Array(4))
+    fake.sound(new Uint8Array(5))
+    await settle(MIC_SILENT_MS)
+    fake.sound(new Uint8Array(6))
+    expect(heard.map(({ pcm, gap }) => [pcm.length, gap])).toEqual([
+      [1, true],
+      [2, false],
+      [4, true],
+      [5, false],
+      [6, true],
+    ])
+    expect(command.heard.map(({ gap }) => gap)).toEqual([true])
+  })
+
   it('tells of the close when the last listener leaves', async () => {
     const { glasses } = setup()
     const told: boolean[] = []
@@ -988,6 +1054,7 @@ describe('the microphone', () => {
     const { stop } = listening(glasses)
     await settle()
     stop()
+    await settle()
     expect(told).toEqual([true, false])
   })
 

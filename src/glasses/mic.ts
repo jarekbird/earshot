@@ -22,15 +22,18 @@ export const retryDelay = (failures: number) => Math.min(RETRY_MAX_MS, RETRY_FIR
 interface Ear {
   hear: (sound: Sound) => void
   reopenAfterMs: number | false
+  gap: boolean
 }
 
 interface Told {
   tell: (open: boolean) => void
 }
 
-function report(error: unknown): void {
-  if (typeof reportError === 'function') return reportError(error)
-  console.error('Earshot: a listener of the microphone threw.')
+// Fact: what a listener throws may carry what was heard, so only this sentence leaves.
+function report(): void {
+  const said = 'Earshot: a listener of the microphone threw.'
+  if (typeof reportError === 'function') reportError(new Error(said))
+  else console.error(said)
 }
 
 const answered = async (call: () => Promise<unknown>): Promise<boolean> => {
@@ -57,6 +60,7 @@ export class Mic {
   #asking: 'open' | 'close' | null = null
   #telling = false
   #failures = 0
+  #closesRefused = 0
   #heardAt = 0
   #retry: Timer | undefined
   #watch: Timer | undefined
@@ -81,7 +85,7 @@ export class Mic {
     if (reopenAfterMs !== false && !(Number.isFinite(reopenAfterMs) && reopenAfterMs >= MIN_REOPEN_MS))
       throw new RangeError(`reopenAfterMs is ${MIN_REOPEN_MS} milliseconds or more, or false.`)
     if (this.#ended) return () => {}
-    const ear: Ear = { hear, reopenAfterMs }
+    const ear: Ear = { hear, reopenAfterMs, gap: true }
     this.#ears.add(ear)
     this.#changed()
     return () => {
@@ -91,7 +95,7 @@ export class Mic {
 
   hold(hear: (sound: Sound) => void): () => void {
     if (this.#ended) return () => {}
-    const ear: Ear = { hear, reopenAfterMs: false }
+    const ear: Ear = { hear, reopenAfterMs: false, gap: true }
     this.#holder = ear
     this.#changed()
     return () => {
@@ -107,16 +111,19 @@ export class Mic {
     return () => void this.#told.delete(told)
   }
 
-  heard(sound: Sound): void {
+  heard(sound: Omit<Sound, 'gap'>): void {
     this.#heardAt = this.#now()
     if (this.#issued && this.#asking !== 'close') this.#capturing = true
     const ears = this.#hearing()
+    if (this.#holder) for (const ear of this.#ears) ear.gap = true
     for (const ear of ears) {
       if (!this.#hearing().includes(ear)) continue
+      const { gap } = ear
+      ear.gap = false
       try {
-        ear.hear({ ...sound, pcm: new Uint8Array(sound.pcm) })
-      } catch (error) {
-        report(error)
+        ear.hear({ ...sound, pcm: new Uint8Array(sound.pcm), gap })
+      } catch {
+        report()
       }
     }
     if (this.#capturing && this.#asking !== 'close' && this.#wanted()) this.#set(true)
@@ -144,6 +151,7 @@ export class Mic {
 
   #settle(): void {
     if (this.#asking || this.#gaveUp) return
+    if (this.#ended && this.#issued) this.#capturing = true
     this.#watch?.cancel()
     this.#watch = undefined
     const wanted = this.#wanted()
@@ -167,6 +175,7 @@ export class Mic {
       this.#watch = this.#clock.timeout(() => this.#settle(), left)
       return
     }
+    for (const ear of this.#ears) ear.gap = true
     this.#set(false)
     this.#settle()
   }
@@ -174,17 +183,17 @@ export class Mic {
   async #ask(on: boolean): Promise<void> {
     this.#asking = on ? 'open' : 'close'
     if (on) this.#issued = true
-    else this.#set(false)
     const done = await answered(on ? this.#calls.open : this.#calls.close)
     this.#asking = null
     if (done) {
       this.#capturing = on
       this.#issued = on
       this.#heardAt = this.#now()
-    } else if (++this.#failures >= CLOSES_AFTER_THE_END && this.#ended) {
+      if (!on) this.#set(false)
+    } else if (!on && this.#ended && ++this.#closesRefused >= CLOSES_AFTER_THE_END) {
       this.#gaveUp = true
       this.#clock.end()
-    } else if (on === this.#wanted()) {
+    } else if (++this.#failures > 0 && on === this.#wanted()) {
       this.#retry = this.#clock.timeout(() => {
         this.#retry = undefined
         this.#settle()
@@ -213,8 +222,8 @@ export class Mic {
           if (!this.#told.has(told)) continue
           try {
             told.tell(news)
-          } catch (error) {
-            report(error)
+          } catch {
+            report()
           }
         }
       }
