@@ -91,8 +91,11 @@ const counter = action({
 })
 
 const heard: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
-let micOpen = true
 const seconds = (bytes: number) => `${Math.floor(bytes / (SAMPLE_RATE * 2))} s`
+const listened = () =>
+  glasses.micOpen
+    ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}`
+    : 'The microphone is off'
 
 const listen = action({
   id: 'listen',
@@ -101,23 +104,22 @@ const listen = action({
   run: () =>
     router.open({
       id: 'listen',
-      view: () =>
-        text({
-          title: 'Listening',
-          body: micOpen
-            ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}`
-            : 'The microphone is off',
-        }),
+      view: () => text({ title: 'Listening', body: listened() }),
       enter: life => {
         heard.self = heard.other = heard.unknown = 0
-        life.own(glasses.listen(sound => void (heard[sound.speaker] += sound.pcm.length)))
+        let shown = listened()
+        const show = () => {
+          if (shown === listened()) return
+          shown = listened()
+          shell.redraw()
+        }
         life.own(
-          glasses.onMic(open => {
-            micOpen = open
-            shell.redraw()
+          glasses.listen(sound => {
+            heard[sound.speaker] += sound.pcm.length
+            show()
           }),
         )
-        life.interval(() => shell.redraw(), 500)
+        life.own(glasses.onMic(show))
       },
     }),
 })

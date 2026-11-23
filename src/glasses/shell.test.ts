@@ -669,6 +669,53 @@ describe('a hold', () => {
     expect(fake.calls.filter(call => call.startsWith('mic'))).toEqual(['mic open', 'mic close'])
   })
 
+  it('is never asked for twice, even while something else listens through a long silence', async () => {
+    const { voice } = hearing('refresh')
+    const { fake, glasses, front } = world({ voice })
+    await settle()
+    glasses.listen(() => {})
+    await settle(50)
+    fake.hold()
+    await settle(MIC_SILENT_MS * 3)
+    expect(front()).toMatch(/^Listening/)
+    expect(fake.calls.filter(call => call.startsWith('mic'))).toEqual(['mic open'])
+  })
+
+  it('keeps what is said until the release from another listener, also when the microphone did not open at first', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, glasses, front } = world({ voice })
+    await settle()
+    const session: number[] = []
+    fake.refuse('mic', 2)
+    glasses.listen(sound => session.push(sound.pcm.length))
+    fake.hold()
+    await settle(50)
+    expect(front()).toBe('The microphone did not open')
+    await settle(2_000)
+    expect(fake.mic).toBe('glasses')
+    fake.sound(tone(800))
+    fake.release()
+    await settle(50)
+    fake.sound(tone(200))
+    expect(session).toEqual([tone(200).length])
+    expect(asked).toEqual([])
+  })
+
+  it('lets the microphone go when the shell ends in the middle of a hold', async () => {
+    const life = new Lifetime()
+    const fake = fakeBridge()
+    const glasses = new Glasses(life, fake.bridge)
+    const mine = life.child()
+    new Shell(mine, glasses, new Router({ home: { id: 'home' } }), { voice: hearing('refresh').voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    expect(fake.mic).toBe('glasses')
+    mine.end()
+    await settle()
+    expect(fake.mic).toBeNull()
+  })
+
   it('says no match when the words fit nothing and no other agent takes them', async () => {
     const { fake, front, ran } = world({ voice: hearing('what is the weather').voice })
     await settle()

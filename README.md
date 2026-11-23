@@ -169,6 +169,7 @@ An app can hear for as long as it likes: a screen that takes dictation, a meter,
 
 ```ts
 enter: life => {
+  show(glasses.micOpen ? 'Listening' : 'The microphone is off')
   life.own(glasses.listen(sound => meter.add(sound.pcm, sound.speaker)))
   life.own(glasses.onMic(open => show(open ? 'Listening' : 'The microphone is off')))
 }
@@ -176,9 +177,9 @@ enter: life => {
 
 - `glasses.listen(hear)` opens the glasses' microphone with the first listener and closes it with the last. It returns the function that stops this one.
 - Each `sound` is `{ pcm, speaker }`: 16 kHz, 16-bit, one-channel PCM, and who the Even app says spoke: `self`, `other` or `unknown`. Even makes no promise about that guess.
-- A hold still works while you listen. It takes the microphone alone, so your listener hears nothing between the hold and its release: a voice command is not part of what you are listening to. `glasses.listen(hear, { alone: true })` does the same for a recording of your own.
-- Capture stops without a word when the phone suspends the app. When no sound has arrived for three seconds, Earshot asks for the microphone again, for as long as something listens. A listener that took it alone is left as it is.
-- `glasses.onMic(told)` is told after every try to open the microphone: `true` when it is open, `false` when it was refused. A refused microphone is asked for again after half a second, then one, two and four, while something listens.
+- A hold still works while you listen. It takes the microphone alone, so your listener hears nothing between the hold and its release: a voice command is not part of what you are listening to. `glasses.listen(hear, { alone: true })` does the same for a recording of your own. When two have taken it alone, the newest hears, and the other again when that one leaves.
+- Capture stops without a word when the phone suspends the app. So when no sound has arrived for three seconds, Earshot asks for the microphone again. `reopenAfterMs` sets another time, or `false` for never. A listener that took the microphone alone never asks unless it gives a time, so a hold is asked for once; and while such a listener has the microphone, nobody else's time counts.
+- `glasses.micOpen` says whether the microphone is open now. `glasses.onMic(told)` is told after every try to open it: `true` when it is open, `false` when it was refused. A refused microphone is asked for again after half a second, then one, two and four, while something listens.
 - Where the sound goes is yours to decide, as with a hold: Earshot sends it nowhere.
 
 ### What the navigator is offered
@@ -282,7 +283,7 @@ glasses.onInput(input => {
 - An app gets seven text boxes. Earshot keeps one behind them for input, and draws its overlay there, as a rounded card along the bottom; while it shows, a box of yours keeps only the lines above the card. Text over 999 bytes in a box is cut, with an ellipsis.
 - A frame can carry up to four `pictures`, each `{ id, x, y, w, h, key, data }`, from 20 to 288 wide and 20 to 144 high. A picture is sent again only when its `key` changes.
 - `draw` returns the frame's number, and `shown` is the number of the newest frame on the glasses. Pass `watch` in the options to be told of each frame when it is asked for, its begin and end, each call to the glasses with its answer and time, each retry, and each time a frame has to wait: for your own log.
-- No rebuild starts while the microphone opens, because the Even app answers one call at a time.
+- No rebuild starts while the microphone opens, because the Even app answers one call at a time. If your app makes a call of its own that must not wait behind a rebuild, such as opening the phone's microphone through the SDK, pass that promise to `holdRebuilds`.
 - `brightness` runs from 0 to 4, and 4 is the default.
 - Even reports `foreground` when its menu opens and `background` when it closes, so Earshot keeps drawing through both.
 

@@ -118,7 +118,7 @@ export class Shell {
   #asking: (() => void) | null = null
   #overlaid = false
   #fading: Timer | undefined
-  #recording: { chunks: Uint8Array[]; screen: Screen; end: () => void } | null = null
+  #recording: { chunks: Uint8Array[]; screen: Screen; failed: boolean; end: () => void } | null = null
   #turn = 0
   #said = false
   #deciding: Lifetime | null = null
@@ -132,6 +132,7 @@ export class Shell {
     this.#noticeMs = options.noticeMs ?? NOTICE_MS
     this.#voice = options.voice
     this.#life.own(glasses.onInput(input => this.#input(input)))
+    this.#life.own(() => this.#recording?.end())
     this.#life.own(
       router.onChange(() => {
         if (this.#asking) this.#clear()
@@ -330,6 +331,7 @@ export class Shell {
     const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`)
     let meter: Timer | undefined
     const hear = ({ pcm }: Sound) => {
+      if (recording.failed) return
       chunks.push(pcm)
       bars.push(levelOf(pcm))
       bars.shift()
@@ -342,6 +344,7 @@ export class Shell {
     const recording = {
       chunks,
       screen: this.#router.current,
+      failed: false,
       end: () => {
         deaf()
         unwatch()
@@ -354,8 +357,9 @@ export class Shell {
     this.#voice.onListen?.()
     listening()
     const unwatch = this.#glasses.onMic(open => {
-      if (open || this.#recording !== recording) return
-      recording.end()
+      if (open || recording.failed || this.#recording !== recording) return
+      recording.failed = true
+      meter?.cancel()
       this.notice(this.#words.noMic)
     })
     const deaf = this.#glasses.listen(hear, { alone: true })
@@ -366,6 +370,7 @@ export class Shell {
     const voice = this.#voice
     if (!recording || !voice) return
     recording.end()
+    if (recording.failed) return
     const pcm = joinPcm(recording.chunks)
     if (this.#router.current !== recording.screen) return this.#clear()
     if (problemWith(pcm)) return this.notice(this.#words.missed)
