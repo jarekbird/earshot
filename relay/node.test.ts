@@ -69,8 +69,9 @@ describe('its settings', () => {
     })
   })
 
-  it('name what is missing', () => {
-    expect(() => settings({ EARSHOT_RELAY_UPSTREAM: 'https://upstream.example' })).toThrow(/EARSHOT_RELAY_KEY/)
-    expect(() => settings({ EARSHOT_RELAY_KEY: 'k' })).toThrow(/EARSHOT_RELAY_UPSTREAM/)
+  it('are refused by the server when the upstream of its calls or the key is missing', () => {
+    expect(() => serve(settings({ EARSHOT_RELAY_UPSTREAM: 'https://upstream.example' }))).toThrow('need the key')
+    expect(() => serve(settings({ EARSHOT_RELAY_KEY: 'k' }))).toThrow('needs the address')
+    expect(() => serve(settings({}))).toThrow('needs an upstream')
   })
 })

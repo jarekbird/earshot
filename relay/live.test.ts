@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
-import type { AddressInfo } from 'node:net'
+import { createServer } from 'node:http'
+import type { AddressInfo, Socket } from 'node:net'
 import { join } from 'node:path'
 import { build } from 'esbuild'
 import { Miniflare } from 'miniflare'
@@ -9,7 +10,7 @@ import { fluxLive, FLUX, LIVE_PATH as APP_PATH, REFUSALS } from '../src/flux/flu
 import { Lifetime } from '../src/lifetime.js'
 import type { LiveState, Turn } from '../src/live.js'
 import { serve, settings } from './node.js'
-import { CLOSES, HELLO_MS, LIVE_PATH, MAX_FRAME, MIN_SECRET, relayOptions } from './relay.js'
+import { CLOSES, HELLO_MS, LIVE_PATH, MAX_FRAME, MIN_SECRET, relay, relayOptions } from './relay.js'
 
 const ROOT = join(import.meta.dirname, '..')
 const RECORDED = readFileSync(join(ROOT, 'src/flux/recorded.jsonl'), 'utf8').trim().split('\n')
@@ -18,7 +19,6 @@ const LIVE_KEY = 'live-developer'
 const PHRASE = 'what only this phone was told'
 const HELLO = { model: FLUX, encoding: 'linear16', sample_rate: '16000' }
 const WAIT = { timeout: 8_000, interval: 10 }
-const SLOW_MS = 300
 
 interface Setup {
   live?: boolean
@@ -26,17 +26,29 @@ interface Setup {
   models?: string
   script?: readonly string[]
   slowMs?: number
+  silent?: boolean
+  calls?: boolean
+  door?: boolean
 }
 
-async function gateway({ script, slowMs = 0 }: Setup = {}) {
-  const seen = { urls: [] as string[], sound: 0, text: [] as string[], closed: 0, refused: 0 }
+async function gateway({ script, slowMs = 0, silent = false, door = false }: Setup = {}) {
+  const seen = { urls: [] as string[], sound: 0, text: [] as string[], closed: 0, refused: 0, asked: 0, abandoned: 0 }
   const callers = new Set<Caller>()
   const server = new WebSocketServer({
     port: 0,
     host: '127.0.0.1',
-    verifyClient: ({ req }: { req: { headers: Record<string, unknown> } }, answer: (known: boolean, status?: number) => void) => {
+    verifyClient: (
+      { req }: { req: { headers: Record<string, unknown>; socket: Socket } },
+      answer: (known: boolean, status?: number) => void,
+    ) => {
       const known = req.headers['cf-aig-authorization'] === `Bearer ${LIVE_KEY}`
+      seen.asked++
       if (!known) seen.refused++
+      if (silent)
+        return void req.socket
+          .once('close', () => seen.abandoned++)
+          .once('end', () => req.socket.destroy())
+          .resume()
       setTimeout(() => answer(known, 401), slowMs)
     },
   })
@@ -61,9 +73,17 @@ async function gateway({ script, slowMs = 0 }: Setup = {}) {
     server.close()
   }
   onTestFinished(stop)
+  const path = '/v1/account/gateway/workers-ai'
+  const behind = `127.0.0.1:${(server.address() as AddressInfo).port}${path}`
+  const moved = createServer()
+  moved.on('upgrade', (_request, socket) =>
+    socket.end(`HTTP/1.1 302 Found\r\nlocation: http://${behind}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n`),
+  )
+  if (door) await new Promise<void>(listening => moved.listen(0, '127.0.0.1', listening))
+  onTestFinished(() => void moved.close())
   return {
     seen,
-    at: `ws://127.0.0.1:${(server.address() as AddressInfo).port}/v1/account/gateway/workers-ai`,
+    at: door ? `ws://127.0.0.1:${(moved.address() as AddressInfo).port}${path}` : `ws://${behind}`,
     hangUp: () => callers.forEach(caller => caller.close(1000)),
     stop,
   }
@@ -84,12 +104,11 @@ beforeAll(async () => {
 })
 
 const HOSTS: Record<string, (setup: Setup) => Promise<Host>> = {
-  async 'the Node server'({ live = true, key = LIVE_KEY, models, ...rest }) {
+  async 'the Node server'({ live = true, calls = true, key = LIVE_KEY, models, ...rest }) {
     const up = await gateway(rest)
     const server = await serve({
       ...settings({
-        EARSHOT_RELAY_KEY: DEVELOPER,
-        EARSHOT_RELAY_UPSTREAM: 'http://127.0.0.1:9',
+        ...(calls ? { EARSHOT_RELAY_KEY: DEVELOPER, EARSHOT_RELAY_UPSTREAM: 'http://127.0.0.1:9' } : {}),
         ...(live ? { EARSHOT_RELAY_LIVE_UPSTREAM: up.at, EARSHOT_RELAY_LIVE_KEY: key, EARSHOT_RELAY_SECRET: PHRASE } : {}),
         ...(models ? { EARSHOT_RELAY_LIVE_MODELS: models } : {}),
       }),
@@ -100,15 +119,14 @@ const HOSTS: Record<string, (setup: Setup) => Promise<Host>> = {
     onTestFinished(() => void server.close())
     return { at: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, up }
   },
-  async 'the Worker'({ live = true, key = LIVE_KEY, models, ...rest }) {
+  async 'the Worker'({ live = true, calls = true, key = LIVE_KEY, models, ...rest }) {
     const up = await gateway(rest)
     const runtime = new Miniflare({
       modules: true,
       script: worker,
       compatibilityDate: '2026-07-01',
       bindings: {
-        OPENROUTER_KEY: DEVELOPER,
-        UPSTREAM: 'http://127.0.0.1:9',
+        ...(calls ? { OPENROUTER_KEY: DEVELOPER, UPSTREAM: 'http://127.0.0.1:9' } : {}),
         ...(live ? { LIVE_UPSTREAM: up.at, LIVE_KEY: key, SECRET: PHRASE } : {}),
         ...(models ? { LIVE_MODELS: models } : {}),
       },
@@ -168,12 +186,12 @@ describe('E13: live speech through the relay, on the Node server and on the Work
   it('both ask the upstream only for what the relay lists, and never pass the secret on', async () => {
     const urls = await both({}, async ({ at, up }) => {
       const { got, say } = call(at)
-      await say(greeting({ eot_timeout_ms: '3000', eot_threshold: 0.8, mip_opt_out: 'false', tag: 'x' }))
+      await say(greeting({ eot_timeout_ms: '3000', eot_threshold: 0.8, mip_opt_out: 'true', keyterm: 'x', tag: 'x' }))
       await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
       return up.seen.urls
     })
     expect(urls).toEqual([
-      '/v1/account/gateway/workers-ai?model=%40cf%2Fdeepgram%2Fflux&encoding=linear16&sample_rate=16000&eot_timeout_ms=3000',
+      '/v1/account/gateway/workers-ai?model=%40cf%2Fdeepgram%2Fflux&encoding=linear16&sample_rate=16000&eot_timeout_ms=3000&mip_opt_out=true',
     ])
   })
 
@@ -231,24 +249,46 @@ describe('E13: live speech through the relay, on the Node server and on the Work
     expect(Date.now() - started).toBeGreaterThanOrEqual(HELLO_MS - 50)
   })
 
-  // Fact: a Worker drops what it was reaching for when its caller leaves, and the Node server lets it open. Neither may keep it.
-  it('both leave no upstream open when the caller goes while it is being reached', async () => {
-    await both({ slowMs: SLOW_MS }, async ({ at, up }) => {
+  it('both stop reaching for an upstream when the caller leaves before it has answered', async () => {
+    await both({ silent: true }, async ({ at, up }) => {
       const { line, say } = call(at)
       await say(greeting())
+      await vi.waitFor(() => expect(up.seen.asked).toBe(1), WAIT)
       line.close(1000)
-      await new Promise(answered => setTimeout(answered, SLOW_MS * 2))
-      await vi.waitFor(() => expect(up.seen.closed).toBe(up.seen.urls.length), WAIT)
+      await vi.waitFor(() => expect(up.seen.abandoned).toBe(1), WAIT)
     })
+  })
+
+  it('both follow the upstream nowhere else: a redirect gets no key and no caller', async () => {
+    const answer = await both({ door: true }, async ({ at, up }) => {
+      const { ended, say } = call(at)
+      await say(greeting())
+      return { code: await ended, behind: up.seen.asked }
+    })
+    expect(answer).toEqual({ code: CLOSES.upstream, behind: 0 })
+  })
+
+  it('both have live speech alone when the developer set no upstream for the calls', async () => {
+    const answer = await both({ calls: false }, async ({ at }) => {
+      const { got, say } = call(at)
+      await say(greeting())
+      await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
+      const response = await fetch(`${at}/api/v1/chat/completions`, {
+        method: 'POST',
+        body: JSON.stringify({ model: 'mistralai/mistral-nemo' }),
+      })
+      return { call: response.status, body: await response.json() }
+    })
+    expect(answer).toEqual({ call: 404, body: { error: 'Not a call this relay forwards.' } })
   })
 
   it('both say so when the upstream refuses the key', async () => {
     const answer = await both({ key: 'not-the-key' }, async ({ at, up }) => {
       const { got, ended, say } = call(at)
       await say(greeting())
-      return { code: await ended, got, refused: up.seen.refused > 0, opened: up.seen.urls.length }
+      return { code: await ended, got, refused: up.seen.refused, opened: up.seen.urls.length }
     })
-    expect(answer).toEqual({ code: CLOSES.upstream, got: [], refused: true, opened: 0 })
+    expect(answer).toEqual({ code: CLOSES.upstream, got: [], refused: 1, opened: 0 })
   })
 
   it('both say so when the upstream cannot be reached', async () => {
@@ -294,15 +334,21 @@ describe('E13: live speech through the relay, on the Node server and on the Work
     expect(answer).toEqual([])
   })
 
-  it('both hang up on a caller who sends more sound in one piece than a second holds', async () => {
+  it('both hang up on a caller who sends more sound in one piece than the relay takes, and go on serving', async () => {
     const answer = await both({}, async ({ at, up }) => {
-      const { got, ended, say } = call(at)
-      await say(greeting())
-      await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
-      await say(new Uint8Array(MAX_FRAME + 1))
-      return { code: await ended, sound: up.seen.sound }
+      const big = call(at)
+      await big.say(greeting())
+      await vi.waitFor(() => expect(big.got).toHaveLength(1), WAIT)
+      await big.say(new Uint8Array(MAX_FRAME + 1))
+      const code = await big.ended
+      const next = call(at)
+      await next.say(greeting())
+      await vi.waitFor(() => expect(next.got).toHaveLength(1), WAIT)
+      await next.say(new Uint8Array(MAX_FRAME))
+      await vi.waitFor(() => expect(up.seen.sound).toBe(MAX_FRAME), WAIT)
+      return { code, sound: up.seen.sound }
     })
-    expect(answer).toEqual({ code: CLOSES.hello, sound: 0 })
+    expect(answer).toEqual({ code: CLOSES.big, sound: MAX_FRAME })
   })
 
   it('both answer a plain request for the live path without taking it', async () => {
@@ -341,6 +387,23 @@ describe('E13: live speech through the relay, on the Node server and on the Work
     ])
   })
 
+  it("both take a long piece of sound from the app's own transport, which sends it a second at a time", async () => {
+    const sound = await both({}, async ({ at, up }) => {
+      const life = new Lifetime()
+      onTestFinished(() => life.end())
+      const told: LiveState[] = []
+      const hear = fluxLive({ host: at, secret: PHRASE }).start(
+        life,
+        () => {},
+        state => told.push(state),
+      )
+      hear({ pcm: new Uint8Array(96_000), speaker: 'other', gap: false })
+      await vi.waitFor(() => expect(up.seen.sound).toBe(96_000), WAIT)
+      return { sound: up.seen.sound, told }
+    })
+    expect(sound).toEqual({ sound: 96_000, told: [] })
+  })
+
   it("both tell the app's own transport that it is refused when its secret is wrong", async () => {
     const states = await both({}, async ({ at }) => {
       const life = new Lifetime()
@@ -360,7 +423,8 @@ describe('E13: live speech through the relay, on the Node server and on the Work
 })
 
 describe('the settings of live speech', () => {
-  const base = { key: DEVELOPER, upstream: 'https://upstream.example', models: undefined, liveModels: undefined }
+  const calls = { key: DEVELOPER, upstream: 'https://upstream.example' }
+  const live = { upstream: 'wss://speech.example/v1', key: LIVE_KEY, secret: PHRASE }
 
   it('the app and the relay agree on the path and on what is refused for good', () => {
     expect(APP_PATH).toBe(LIVE_PATH)
@@ -368,31 +432,67 @@ describe('the settings of live speech', () => {
     expect(Object.values(REFUSALS)).not.toContain(CLOSES.upstream)
   })
 
-  it('a relay with no live upstream has no live path, whatever else is set', () => {
-    expect(relayOptions({ ...base, liveUpstream: undefined, liveKey: LIVE_KEY, secret: PHRASE }).live).toBeUndefined()
+  it('a host with no live upstream asks for no live speech, whatever else is set', () => {
+    const settings = { ...calls, models: undefined, liveUpstream: undefined, liveKey: LIVE_KEY, liveModels: 'a/one', secret: PHRASE }
+    expect(relayOptions(settings)).toEqual(calls)
   })
 
-  it('a live upstream is refused without its key', () => {
-    expect(() => relayOptions({ ...base, liveUpstream: 'wss://speech.example', liveKey: undefined, secret: PHRASE })).toThrow(
-      'needs the key',
-    )
+  it('a host with a live upstream passes on what it has, with the models the developer listed', () => {
+    const settings = {
+      key: undefined,
+      upstream: undefined,
+      models: undefined,
+      liveUpstream: live.upstream,
+      liveKey: undefined,
+      secret: undefined,
+    }
+    expect(relayOptions({ ...settings, liveModels: ' a/one ,b/two' })).toEqual({
+      live: { upstream: live.upstream, key: '', secret: '', models: ['a/one', 'b/two'] },
+    })
   })
 
-  it.each([undefined, '', 'a'.repeat(MIN_SECRET - 1)])(
-    'a live upstream is refused with the secret %j: anyone could run up the bill',
+  it.each([undefined, '', 'a'.repeat(MIN_SECRET - 1), 0])(
+    'no relay is made with the live secret %j, by any way in: anyone could run up the bill',
     secret => {
-      expect(() => relayOptions({ ...base, liveUpstream: 'wss://speech.example', liveKey: LIVE_KEY, secret })).toThrow('needs a secret')
+      expect(() => relay({ ...calls, live: { ...live, secret: secret as string } })).toThrow('needs a secret')
+      expect(() =>
+        relay(
+          relayOptions({
+            ...calls,
+            models: undefined,
+            liveUpstream: live.upstream,
+            liveKey: LIVE_KEY,
+            liveModels: undefined,
+            secret: secret as string,
+          }),
+        ),
+      ).toThrow('needs a secret')
+      expect(() => serve({ ...calls, live: { ...live, secret: secret as string }, port: 0 })).toThrow('needs a secret')
     },
   )
 
-  it('a live upstream with its key and a secret gives the live path, with the models the developer listed', () => {
-    expect(
-      relayOptions({ ...base, liveUpstream: 'wss://speech.example', liveKey: LIVE_KEY, secret: PHRASE, liveModels: ' a/one ,b/two' }).live,
-    ).toEqual({
-      upstream: 'wss://speech.example',
-      key: LIVE_KEY,
-      secret: PHRASE,
-      models: ['a/one', 'b/two'],
-    })
+  it('no relay is made with a live upstream and no key for it', () => {
+    expect(() => relay({ ...calls, live: { ...live, key: '' } })).toThrow('needs the key')
+  })
+
+  it.each(['ws://speech.example/v1', 'https://speech.example/v1', 'speech.example', ''])(
+    'no relay is made with the live upstream %j: the key and the sound would be readable, or go nowhere',
+    upstream => {
+      expect(() => relay({ ...calls, live: { ...live, upstream } })).toThrow(/wss|address/)
+    },
+  )
+
+  it('no relay is made with a live upstream that carries a query of its own', () => {
+    expect(() => relay({ ...calls, live: { ...live, upstream: `${live.upstream}?model=x` } })).toThrow('no query')
+  })
+
+  it('a relay is made with a plain upstream on this machine, for a test or a tunnel', () => {
+    expect(() =>
+      relay({ key: DEVELOPER, upstream: 'http://127.0.0.1:9', live: { ...live, upstream: 'ws://localhost:9/v1' } }),
+    ).not.toThrow()
+  })
+
+  it("no relay is made with a plain upstream for its calls: the developer's key would be readable", () => {
+    expect(() => relay({ key: DEVELOPER, upstream: 'http://upstream.example' })).toThrow('https')
   })
 })

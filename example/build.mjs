@@ -10,7 +10,7 @@ await build({
   bundle: true,
   format: 'esm',
   minify: true,
-  define: { EARSHOT_RELAY: JSON.stringify(relay) },
+  define: { EARSHOT_RELAY: JSON.stringify(relay), EARSHOT_TRACE: 'false' },
   outfile: 'example/dist/main.js',
   logLevel: 'error',
 })
