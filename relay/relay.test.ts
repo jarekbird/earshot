@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { openRouter, MODELS } from '../src/openrouter/openrouter.js'
 import { DEFAULT_MODELS, relay } from './relay.js'
 
@@ -167,6 +167,41 @@ describe('when the upstream cannot be reached', () => {
     const answer = await post('/api/v1/audio/transcriptions', speech)
     expect(answer.status).toBe(502)
     expect(await answer.text()).not.toContain('sk-developer')
+  })
+})
+
+describe('how long it waits for the upstream', () => {
+  const slow = (seconds: number) => {
+    vi.useFakeTimers()
+    onTestFinished(() => void vi.useRealTimers())
+    const handle = relay({
+      key: 'sk-developer',
+      upstream: 'https://upstream.example',
+      fetch: (_url, init) =>
+        new Promise((resolve, reject) => {
+          const timer = setTimeout(() => resolve(json({ text: 'open voice' })), seconds * 1000)
+          init?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer)
+            reject(new DOMException('timed out', 'TimeoutError'))
+          })
+        }),
+    })
+    return async (path: string, body: unknown) => {
+      const answer = handle(new Request(`https://relay.example${path}`, { method: 'POST', body: JSON.stringify(body) }))
+      await vi.advanceTimersByTimeAsync(60_000)
+      return (await answer).status
+    }
+  }
+
+  it("gives speech nearly the thirty seconds Earshot's transcriber waits, so a long recording is not cut off at ten", async () => {
+    expect(await slow(20)('/api/v1/audio/transcriptions', speech)).toBe(200)
+    expect(await slow(29)('/api/v1/audio/transcriptions', speech)).toBe(502)
+  })
+
+  it('gives a question and a shortening ten seconds, under the twelve Earshot waits', async () => {
+    expect(await slow(9)('/api/alpha/decisions', { model: 'typesafe/jev-1.14', state: {}, questions: [] })).toBe(200)
+    expect(await slow(11)('/api/alpha/decisions', { model: 'typesafe/jev-1.14', state: {}, questions: [] })).toBe(502)
+    expect(await slow(11)('/api/v1/chat/completions', { model: 'mistralai/mistral-nemo', messages: [] })).toBe(502)
   })
 })
 

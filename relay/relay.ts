@@ -8,13 +8,15 @@ export interface RelayOptions {
 
 export const DEFAULT_MODELS = ['openai/whisper-large-v3-turbo', 'typesafe/jev-1.14', 'mistralai/mistral-nemo']
 
+const SPEECH = '/api/v1/audio/transcriptions'
 const FIELDS = new Map([
-  ['/api/v1/audio/transcriptions', ['model', 'input_audio', 'language']],
+  [SPEECH, ['model', 'input_audio', 'language']],
   ['/api/alpha/decisions', ['model', 'state', 'questions']],
   ['/api/v1/chat/completions', ['model', 'messages', 'max_tokens']],
 ])
 const MAX_BYTES = 4_000_000
-const TIMEOUT_MS = 10_000
+const WAIT_MS = 10_000
+const SPEECH_WAIT_MS = 28_000
 const ANY_PAGE = { 'access-control-allow-origin': '*' }
 
 const answer = (status: number, body: string) =>
@@ -76,16 +78,20 @@ export function relay(options: RelayOptions): (request: Request) => Promise<Resp
     if (!body) return refuse(400, 'Not a JSON object.')
     if (typeof body.model !== 'string' || !models.has(body.model)) return refuse(400, 'Not a model this relay allows.')
     const kept = Object.fromEntries(fields.filter(field => field in body).map(field => [field, body[field]]))
+    const control = new AbortController()
+    const timer = setTimeout(() => control.abort(), pathname === SPEECH ? SPEECH_WAIT_MS : WAIT_MS)
     try {
       const response = await (options.fetch ?? fetch)(`${upstream}${pathname}`, {
         method: 'POST',
         headers: { authorization: `Bearer ${options.key}`, 'content-type': 'application/json' },
         body: JSON.stringify(kept),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: control.signal,
       })
       return answer(response.status, await response.text())
     } catch {
       return refuse(502, 'The upstream could not be reached.')
+    } finally {
+      clearTimeout(timer)
     }
   }
 }

@@ -232,6 +232,7 @@ What the relay does:
 - It forwards only Earshot's three calls, only for the models you list, and only the fields Earshot sends. It is not a general key for anyone who finds its address.
 - It refuses a request over four megabytes (`maxBytes`), and answers the cross-origin check a web view makes first.
 - It adds your key on the way out and passes back only the answer.
+- It waits ten seconds for a question or a shortening and twenty-eight for speech, just under what Earshot waits for each, so a slow upstream comes back as the relay's own answer.
 
 What it does not do: tell one user from another. Anyone who finds the address can spend your credit on those three calls, so **set a spending limit on the key at OpenRouter**, for example a few dollars a month. That limit is the most a stranger can cost you; when it is reached, voice is off for everyone until it resets.
 
