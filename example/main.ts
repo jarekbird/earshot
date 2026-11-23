@@ -10,6 +10,7 @@ import {
   Rolling,
   Router,
   SAMPLE_RATE,
+  scriptedLive,
   scriptedSpeech,
   SCREEN_WIDTH,
   Shell,
@@ -40,6 +41,7 @@ let taps = 0
 
 const flags = new URLSearchParams(location.hash.slice(1))
 const scripted = flags.get('say')?.split('|')
+const speech = flags.has('live') ? scriptedLive(flags.get('live')!.split('|')) : undefined
 
 const life = new Lifetime()
 const bridge = await waitForEvenAppBridge()
@@ -93,9 +95,11 @@ const counter = action({
 const heard: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
 const seconds = (bytes: number) => `${Math.floor(bytes / (SAMPLE_RATE * 2))} s`
 let breaks = 0
+let said: string[] = []
+const WHO: Record<Speaker, string> = { self: 'You', other: 'They', unknown: 'Someone' }
 const listened = () =>
   glasses.micOpen
-    ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}\nBreaks: ${breaks}`
+    ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}\nBreaks: ${breaks}${said.map(line => `\n${line}`).join('')}`
     : 'Not hearing'
 
 const listen = action({
@@ -109,7 +113,12 @@ const listen = action({
       enter: life => {
         heard.self = heard.other = heard.unknown = 0
         breaks = -1
+        said = []
         let shown = listened()
+        const words = speech?.start(life, turn => {
+          said[turn.id] = `${WHO[turn.speaker]}: ${turn.words}`
+          show()
+        })
         const show = () => {
           if (shown === listened()) return
           shown = listened()
@@ -119,6 +128,7 @@ const listen = action({
           glasses.listen(sound => {
             heard[sound.speaker] += sound.pcm.length
             if (sound.gap) breaks++
+            words?.(sound)
             show()
           }),
         )
