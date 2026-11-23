@@ -92,9 +92,10 @@ const counter = action({
 
 const heard: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
 const seconds = (bytes: number) => `${Math.floor(bytes / (SAMPLE_RATE * 2))} s`
+let breaks = 0
 const listened = () =>
   glasses.micOpen
-    ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}`
+    ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}\nBreaks: ${breaks}`
     : 'The microphone is off'
 
 const listen = action({
@@ -107,6 +108,7 @@ const listen = action({
       view: () => text({ title: 'Listening', body: listened() }),
       enter: life => {
         heard.self = heard.other = heard.unknown = 0
+        breaks = -1
         let shown = listened()
         const show = () => {
           if (shown === listened()) return
@@ -116,6 +118,7 @@ const listen = action({
         life.own(
           glasses.listen(sound => {
             heard[sound.speaker] += sound.pcm.length
+            if (sound.gap) breaks++
             show()
           }),
         )

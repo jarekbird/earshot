@@ -119,7 +119,8 @@ export class Shell {
   #asking: (() => void) | null = null
   #overlaid = false
   #fading: Timer | undefined
-  #recording: { chunks: Uint8Array[]; screen: Screen; source: HoldSource; failed: boolean; end: () => void } | null = null
+  #recording: { chunks: Uint8Array[]; screen: Screen; end: () => void } | null = null
+  #held: { source: HoldSource; letGo: () => void } | null = null
   #turn = 0
   #said = false
   #deciding: Lifetime | null = null
@@ -135,6 +136,7 @@ export class Shell {
     this.#life.own(glasses.onInput(input => this.#input(input)))
     this.#life.own(() => {
       this.#recording?.end()
+      this.#held?.letGo()
       if (this.#overlaid) this.#glasses.overlay(null)
     })
     this.#life.own(
@@ -284,7 +286,10 @@ export class Shell {
 
   #input(input: Input): void {
     if (input.kind === 'foreground') return
-    if (input.kind === 'background' || input.kind === 'exit') return this.#recording || this.#deciding ? this.#callOff() : undefined
+    if (input.kind === 'background' || input.kind === 'exit') {
+      this.#held?.letGo()
+      return this.#recording || this.#deciding ? this.#callOff() : undefined
+    }
     if (input.kind === 'hold') return this.#hold(input.source)
     if (input.kind === 'release') return this.#release(input.source)
     if (this.#recording || this.#deciding) {
@@ -330,6 +335,8 @@ export class Shell {
     if (this.#recording) return
     this.#callOff()
     if (!this.#voice) return this.notice(this.#words.noVoice)
+    this.#held?.letGo()
+    const longest = this.#voice.maxHoldMs ?? MAX_HOLD_MS
     const chunks: Uint8Array[] = []
     const bars = Array<string>(METER_BARS).fill(QUIET)
     const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`)
@@ -338,27 +345,24 @@ export class Shell {
     const recording = {
       chunks,
       screen: this.#router.current,
-      source,
-      failed: false,
       end: () => {
         for (const end of ends.splice(0)) end()
         meter?.cancel()
-        this.#recording = null
+        if (this.#recording === recording) this.#recording = null
       },
     }
     this.#recording = recording
     listening()
-    ends.push(this.#life.timeout(() => this.#release(), this.#voice.maxHoldMs ?? MAX_HOLD_MS).cancel)
+    ends.push(this.#life.timeout(() => this.#finish(), longest).cancel)
     ends.push(
       this.#glasses.onMic(open => {
-        if (open || recording.failed) return
-        recording.failed = true
-        meter?.cancel()
+        if (open) return
+        recording.end()
         this.notice(this.#words.noMic)
       }),
     )
     const hear = ({ pcm }: Sound) => {
-      if (recording.failed) return
+      if (this.#recording !== recording) return
       chunks.push(pcm)
       bars.push(levelOf(pcm))
       bars.shift()
@@ -367,17 +371,32 @@ export class Shell {
         listening()
       }, METER_MS)
     }
-    ends.push(this.#glasses[HOLD](hear))
+    const deaf = this.#glasses[HOLD](hear)
+    const lost = this.#life.timeout(() => held.letGo(), 2 * longest)
+    const held = {
+      source,
+      letGo: () => {
+        lost.cancel()
+        deaf()
+        if (this.#held === held) this.#held = null
+      },
+    }
+    this.#held = held
     this.#voice.onListen?.()
   }
 
-  #release(source?: HoldSource): void {
+  #release(source: HoldSource): void {
+    const held = this.#held
+    if (!held || (held.source !== 'unknown' && source !== held.source)) return
+    held.letGo()
+    this.#finish()
+  }
+
+  #finish(): void {
     const recording = this.#recording
     const voice = this.#voice
     if (!recording || !voice) return
-    if (source !== undefined && recording.source !== 'unknown' && source !== recording.source) return
     recording.end()
-    if (recording.failed) return
     const pcm = joinPcm(recording.chunks)
     if (this.#router.current !== recording.screen) return this.#clear()
     if (problemWith(pcm)) return this.notice(this.#words.missed)
