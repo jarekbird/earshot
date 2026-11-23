@@ -734,6 +734,39 @@ describe('a hold', () => {
     expect(asked).toEqual([0.8])
   })
 
+  it('does not end at a release that names no touchpad, when the hold named one', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, glasses, front } = world({ voice })
+    await settle()
+    const session: number[] = []
+    glasses.listen(sound => session.push(sound.pcm.length))
+    await settle(50)
+    fake.hold('right')
+    await settle(50)
+    fake.sound(tone(800))
+    fake.release('unknown')
+    await settle(50)
+    fake.sound(tone(200))
+    expect(front()).toMatch(/^Listening/)
+    expect(asked).toEqual([])
+    expect(session).toEqual([])
+    fake.release('right')
+    await settle(50)
+    expect(asked).toEqual([1])
+  })
+
+  it('ends at any release when the hold named no touchpad', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake } = world({ voice })
+    await settle()
+    fake.hold('unknown')
+    await settle(50)
+    fake.sound(tone(800))
+    fake.release('right')
+    await settle(50)
+    expect(asked).toEqual([0.8])
+  })
+
   it('ends cleanly when the app ends the shell from its own callback as the hold starts', async () => {
     const life = new Lifetime()
     const fake = fakeBridge()

@@ -3,6 +3,7 @@ import { Lifetime } from '../lifetime.js'
 import { fakeBridge } from './fake.js'
 import type { Box, Frame, Picture } from './frame.js'
 import type { Sound } from '../audio.js'
+import { HOLD } from './mic.js'
 import { FRAME_TAG, Glasses, INPUT_TAG, MIC_SILENT_MS, OVERLAY_DIM, REBUILD_GAP_MS, type Drawing, type ListenOptions } from './glasses.js'
 import type { Input } from './input.js'
 import { textWidth } from './text.js'
@@ -11,6 +12,7 @@ beforeEach(() => void vi.useFakeTimers())
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 const box = (id: string, text: string, more: Partial<Box> = {}): Box => ({ id, x: 0, y: 0, w: 576, h: 27, text, ...more })
@@ -430,6 +432,10 @@ describe('the microphone', () => {
     const heard: Sound[] = []
     return { heard, stop: glasses.listen(sound => heard.push(sound), options) }
   }
+  const holding = (glasses: Glasses) => {
+    const heard: Sound[] = []
+    return { heard, stop: glasses[HOLD](sound => heard.push(sound)) }
+  }
   const mics = (fake: ReturnType<typeof fakeBridge>) => fake.calls.filter(call => call.startsWith('mic'))
 
   it('opens on the glasses with the first listener, hands on the sound with who spoke, and closes with the last', async () => {
@@ -508,7 +514,7 @@ describe('the microphone', () => {
     listening(glasses)
     await settle(500)
     expect(mics(fake)).toEqual(['mic open', 'mic open'])
-    listening(glasses, { alone: true })
+    listening(glasses)
     await settle()
     expect(mics(fake)).toEqual(['mic open', 'mic open', 'mic open'])
   })
@@ -523,12 +529,12 @@ describe('the microphone', () => {
     expect(mics(fake)).toEqual(['mic open'])
   })
 
-  it('gives all the sound to a listener that takes it alone, and none of it to the others until it leaves', async () => {
+  it('gives all the sound to a hold, and none of it to the listeners until the hold is over', async () => {
     const { fake, glasses } = setup()
     const session = listening(glasses)
     await settle()
     fake.sound(new Uint8Array(2))
-    const command = listening(glasses, { alone: true })
+    const command = holding(glasses)
     fake.sound(new Uint8Array(6))
     command.stop()
     fake.sound(new Uint8Array(8))
@@ -567,16 +573,16 @@ describe('the microphone', () => {
     expect(told).toEqual([true, false, false, true])
   })
 
-  it('does not ask again for a listener that took it alone: that is a recording someone ends', async () => {
+  it('does not ask again for a hold: that is a recording someone ends', async () => {
     const { fake, glasses } = setup()
-    listening(glasses, { alone: true })
+    holding(glasses)
     await settle(60_000)
     expect(mics(fake)).toEqual(['mic open'])
   })
 
   it('starts to watch for lost sound when a lasting listener joins a microphone that is already open', async () => {
     const { fake, glasses } = setup()
-    const command = listening(glasses, { alone: true })
+    const command = holding(glasses)
     await settle(10_000)
     listening(glasses)
     command.stop()
@@ -608,21 +614,33 @@ describe('the microphone', () => {
     expect(mics(fake)).toEqual(['mic open', 'mic open', 'mic close'])
   })
 
-  it('gives the microphone to the newest of two listeners that took it alone, and back to the first when that one leaves', async () => {
+  it('gives a hold the sound also when a listener joins after the hold began', async () => {
     const { fake, glasses } = setup()
-    const first = listening(glasses, { alone: true })
+    const command = holding(glasses)
     await settle()
-    const second = listening(glasses, { alone: true })
+    const late = listening(glasses)
     fake.sound(new Uint8Array(2))
-    second.stop()
+    command.stop()
     fake.sound(new Uint8Array(4))
-    expect(second.heard.map(({ pcm }) => pcm.length)).toEqual([2])
-    expect(first.heard.map(({ pcm }) => pcm.length)).toEqual([4])
+    expect(command.heard.map(({ pcm }) => pcm.length)).toEqual([2])
+    expect(late.heard.map(({ pcm }) => pcm.length)).toEqual([4])
+  })
+
+  it('gives each listener its own copy of a sound, so one that changes it changes nothing for the others', async () => {
+    const { fake, glasses } = setup()
+    glasses.listen(sound => {
+      sound.pcm.fill(0)
+      sound.speaker = 'unknown'
+    })
+    const { heard } = listening(glasses)
+    await settle()
+    fake.sound(new Uint8Array([7, 8]), 'other')
+    expect(heard.map(({ pcm, speaker }) => [[...pcm], speaker])).toEqual([[[7, 8], 'other']])
   })
 
   it('lets a listener say after how long without sound to ask again, or never', async () => {
     const recorder = setup()
-    recorder.glasses.listen(() => {}, { alone: true, reopenAfterMs: 1_000 })
+    recorder.glasses.listen(() => {}, { reopenAfterMs: 1_000 })
     await settle(1_000)
     expect(mics(recorder.fake)).toEqual(['mic open', 'mic open'])
     const patient = setup()
@@ -631,11 +649,11 @@ describe('the microphone', () => {
     expect(mics(patient.fake)).toEqual(['mic open'])
   })
 
-  it('asks for nothing again while a listener that did not ask for it has the microphone alone', async () => {
+  it('asks for nothing again while a hold has the microphone', async () => {
     const { fake, glasses } = setup()
     listening(glasses)
     await settle()
-    const command = listening(glasses, { alone: true })
+    const command = holding(glasses)
     await settle(MIC_SILENT_MS * 3)
     expect(mics(fake)).toEqual(['mic open'])
     command.stop()
@@ -728,7 +746,7 @@ describe('the microphone', () => {
     const { fake, glasses } = setup()
     glasses.listen(() => {}, { reopenAfterMs: 10_000 })
     await settle(100)
-    glasses.listen(() => {}, { alone: true, reopenAfterMs: 500 })
+    glasses.listen(() => {}, { reopenAfterMs: 500 })
     await settle(500)
     expect(mics(fake)).toEqual(['mic open', 'mic open'])
   })
@@ -766,6 +784,102 @@ describe('the microphone', () => {
     expect(glasses.micOpen).toBe(false)
     await settle(500)
     expect(fake.mic).toBeNull()
+  })
+
+  it('still closes the microphone when its lifetime ends and the first close is refused', async () => {
+    const { life, fake, glasses } = setup()
+    const answer = fake.bridge.audioControl.bind(fake.bridge)
+    let refusals = 1
+    fake.bridge.audioControl = async (on, source) => (!on && refusals-- > 0 ? false : answer(on, source))
+    listening(glasses)
+    await settle()
+    life.end()
+    await settle()
+    expect(fake.mic).toBe('glasses')
+    await settle(500)
+    expect(fake.mic).toBeNull()
+  })
+
+  it('hands a sound to nobody else once a hold began while it was being handed out', async () => {
+    const { fake, glasses } = setup()
+    glasses.listen(() => void glasses[HOLD](() => {}))
+    const second = listening(glasses)
+    await settle()
+    fake.sound(new Uint8Array(2))
+    expect(second.heard).toEqual([])
+  })
+
+  it('logs that a listener threw, and not what, where the page has no error reporting', async () => {
+    vi.stubGlobal('reportError', undefined)
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { fake, glasses } = setup()
+    const carried = new Uint8Array([1, 2, 3])
+    glasses.listen(sound => {
+      throw Object.assign(new Error('what was said'), { pcm: sound.pcm })
+    })
+    await settle()
+    fake.sound(carried)
+    expect(logged.mock.calls).toEqual([['Earshot: a listener of the microphone threw Error.']])
+    vi.unstubAllGlobals()
+  })
+
+  it('tells each one the news in the order it happened, also when one of them changes it', async () => {
+    const { glasses } = setup()
+    const told: boolean[] = []
+    let stop = () => {}
+    glasses.onMic(open => void (open && stop()))
+    glasses.onMic(open => told.push(open))
+    stop = listening(glasses).stop
+    await settle()
+    expect(told).toEqual([true, false])
+    expect(glasses.micOpen).toBe(false)
+  })
+
+  it('says nothing of a microphone that opened only after the last listener had left', async () => {
+    const { fake, glasses } = setup()
+    const told: boolean[] = []
+    glasses.onMic(open => told.push(open))
+    const answer = fake.bridge.audioControl.bind(fake.bridge)
+    let open = () => {}
+    fake.bridge.audioControl = async (on, source) => {
+      if (on) await new Promise<void>(opened => (open = opened))
+      return answer(on, source)
+    }
+    const { stop } = listening(glasses)
+    await settle()
+    stop()
+    open()
+    await settle()
+    expect(told).toEqual([])
+    expect(fake.mic).toBeNull()
+  })
+
+  it('takes the microphone for open when sound arrives, also when the first try to open it is then refused', async () => {
+    const { fake, glasses } = setup()
+    const told: boolean[] = []
+    glasses.onMic(open => told.push(open))
+    let refuse = () => {}
+    const answer = fake.bridge.audioControl.bind(fake.bridge)
+    fake.bridge.audioControl = (on, source) => (on ? new Promise<boolean>(done => (refuse = () => done(false))) : answer(on, source))
+    const { heard, stop } = listening(glasses)
+    await settle()
+    fake.sound(new Uint8Array(2))
+    refuse()
+    await settle()
+    expect(heard.length).toBe(1)
+    expect(told).toEqual([true])
+    expect(glasses.micOpen).toBe(true)
+    stop()
+    await settle()
+    expect(mics(fake)).toEqual(['mic close'])
+  })
+
+  it('refuses a time to ask again that is not half a second or more', async () => {
+    const { fake, glasses } = setup()
+    for (const reopenAfterMs of [0, -1, 499, Number.NaN, Number.POSITIVE_INFINITY])
+      expect(() => glasses.listen(() => {}, { reopenAfterMs })).toThrow(RangeError)
+    await settle()
+    expect(mics(fake)).toEqual([])
   })
 
   it('tells of the close when the last listener leaves', async () => {
