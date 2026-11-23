@@ -16,7 +16,9 @@ export interface FluxOptions {
   host: string
   secret?: string
   model?: string
+  staleMs?: number
   open?: (url: string) => FluxSocket
+  now?: () => number
 }
 
 export const FLUX = '@cf/deepgram/flux'
@@ -37,6 +39,7 @@ export const retryDelay = (failures: number) => Math.min(RETRY_MAX_MS, RETRY_FIR
 interface Piece {
   pcm: Uint8Array
   speaker: Speaker
+  at: number
 }
 
 interface Run {
@@ -65,11 +68,12 @@ function lineTo(host: string): string {
 export function fluxLive(options: FluxOptions): LiveSpeech {
   const url = lineTo(options.host)
   const open = options.open ?? (address => new WebSocket(address) as unknown as FluxSocket)
+  const now = options.now ?? Date.now
+  const staleMs = options.staleMs ?? Infinity
   const hello = JSON.stringify({
     model: options.model ?? FLUX,
     encoding: 'linear16',
     sample_rate: String(SAMPLE_RATE),
-    mip_opt_out: 'true',
     ...(options.secret ? { secret: options.secret } : {}),
   })
 
@@ -157,17 +161,18 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
           return tell('refused')
         }
         failures++
-        tell('down')
         retry = life.timeout(() => {
           retry = undefined
           if (heldBytes > 0) connect()
         }, retryDelay(failures))
+        tell('down')
       }
 
       const flush = () => {
         if (!line?.connected) return
         if (line.socket.bufferedAmount > HELD_BYTES) return lost(0)
-        for (const { pcm, speaker } of held) {
+        for (const { pcm, speaker, at: heldAt } of held) {
+          if (now() - heldAt > staleMs) continue
           for (let at = 0; at < pcm.length; at += PIECE_BYTES) line.socket.send(pcm.subarray(at, at + PIECE_BYTES))
           const last = runs.at(-1)
           if (last?.speaker === speaker) last.end = sent + pcm.length
@@ -192,8 +197,8 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
           mine.connected = true
           mine.life.end()
           failures = 0
-          tell('on')
           flush()
+          tell('on')
         }
       }
 
@@ -213,11 +218,26 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
         forget()
       })
 
+      const hold = (piece: Piece) => {
+        held.push(piece)
+        heldBytes += piece.pcm.length
+        while (heldBytes > HELD_BYTES) {
+          const oldest = held[0]
+          const extra = Math.min(oldest.pcm.length, heldBytes - HELD_BYTES + ((heldBytes - HELD_BYTES) % 2))
+          oldest.pcm = oldest.pcm.subarray(extra)
+          heldBytes -= extra
+          if (!oldest.pcm.length) held.shift()
+        }
+      }
+
       return sound => {
         if (life.ended || refused) return
-        held.push({ pcm: sound.pcm, speaker: sound.speaker })
-        heldBytes += sound.pcm.length
-        while (heldBytes > HELD_BYTES && held.length > 1) heldBytes -= held.shift()!.pcm.length
+        if (sound.gap && line?.connected && sent > 0) {
+          leave(1000)
+          cutTurn()
+          if (life.ended) return
+        }
+        hold({ pcm: sound.pcm, speaker: sound.speaker, at: now() })
         rest()
         if (line) flush()
         else if (!retry) connect()

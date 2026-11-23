@@ -69,7 +69,9 @@ const FIELDS = new Map([
   ['/api/alpha/decisions', ['model', 'state', 'questions']],
   ['/api/v1/chat/completions', ['model', 'messages', 'max_tokens']],
 ])
-const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_timeout_ms', 'eager_eot_threshold', 'mip_opt_out']
+const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_timeout_ms', 'eager_eot_threshold']
+const KEPT_OUT_OF_TRAINING = ['mip_opt_out', 'true']
+const BYTES = new TextEncoder()
 const THIS_MACHINE = new Set(['localhost', '127.0.0.1', '[::1]'])
 const MAX_HELLO = 4_096
 const MAX_BYTES = 4_000_000
@@ -173,11 +175,9 @@ function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models
   line.addEventListener('close', leave)
   line.addEventListener('message', ({ data }) => {
     if (over) return
-    if (greeted) {
-      if (!(data instanceof ArrayBuffer)) return
-      if (data.byteLength > MAX_FRAME) return end(CLOSES.big)
-      return up?.send(data)
-    }
+    const size = typeof data === 'string' ? BYTES.encode(data).length : data instanceof ArrayBuffer ? data.byteLength : 0
+    if (size > MAX_FRAME) return end(CLOSES.big)
+    if (greeted) return void (data instanceof ArrayBuffer && up?.send(data))
     greeted = true
     clearTimeout(waiting)
     const hello = typeof data === 'string' && data.length <= MAX_HELLO ? parse(data) : null
@@ -185,7 +185,7 @@ function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models
     if (typeof hello.secret !== 'string' || !same(hello.secret, secret)) return end(CLOSES.secret)
     if (typeof hello.model !== 'string' || !allowed.has(hello.model)) return end(CLOSES.model)
     const asked = LIVE_FIELDS.flatMap(field => (typeof hello[field] === 'string' ? [[field, hello[field] as string]] : []))
-    void reach(`${upstream}?${new URLSearchParams(asked)}`)
+    void reach(`${upstream}?${new URLSearchParams([...asked, KEPT_OUT_OF_TRAINING])}`)
   })
 }
 
@@ -234,6 +234,7 @@ export function relay(options: RelayOptions): (request: Request, sockets?: Socke
         method: 'POST',
         headers: { authorization: `Bearer ${options.key}`, 'content-type': 'application/json' },
         body: JSON.stringify(kept),
+        redirect: 'error',
         signal: control.signal,
       })
       return answer(response.status, await response.text())
