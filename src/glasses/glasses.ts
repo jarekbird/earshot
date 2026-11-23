@@ -327,7 +327,7 @@ export class Glasses {
     const input = decode(event)
     if (!input) return
     serve(() => this.#trace?.(`${INPUT_TAG} ${JSON.stringify(input)}`), 'touchpad')
-    for (const listener of [...this.#listeners]) serve(() => listener(input), 'touchpad')
+    for (const listener of [...this.#listeners]) if (this.#listeners.has(listener)) serve(() => listener(input), 'touchpad')
     if (input.kind === 'exit') this.#life.end()
   }
 
