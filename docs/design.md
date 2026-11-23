@@ -371,7 +371,11 @@ The microphone is open while anything listens. A hold is one listener; an app th
 - Each sound says whether there was a break before it in what that listener heard (`gap`): the first sound, the
   first after a hold, the first after the microphone was closed, opened or asked for again.
 - The function that stops a listener gives a promise that is kept when the machine is calm: nothing asked, nothing
-  owed. An open that is refused when nobody listens any more is owed a close, since capture may have begun.
+  owed, looked at again after anything an app was told. Every open Earshot asked for is owed a close once nothing
+  listens, whatever was answered, since capture may have begun. After that close the microphone is not Earshot's, and
+  sound from one the app opened itself is left alone.
+- A sound that follows a new request for the microphone is marked as after a break once: at the request, or at the
+  answer when nothing was heard in between.
 - Each listener gets its own copy of a sound. A listener that throws stops nothing. Earshot reports that one threw
   and not what, to the page's error reporting or the console, since the error may carry what was heard.
 - A hold ends at the release of the touchpad that was held. A release that names another, or none when the hold

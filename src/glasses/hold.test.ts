@@ -32,12 +32,14 @@ it.each(SEEDS)(
     const life = new Lifetime()
     const fake = fakeBridge()
     const glasses = new Glasses(life, fake.bridge)
-    new Shell(life, glasses, new Router({ home: { id: 'home' } }), { voice: { transcribe: async () => '', maxHoldMs: LONGEST } })
+    const voice = seed % 4 === 0 ? undefined : { transcribe: async () => '', maxHoldMs: LONGEST }
+    const longest = voice ? LONGEST : 60_000
+    new Shell(life, glasses, new Router({ home: { id: 'home' } }), { voice })
     let heard = 0
     glasses.listen(() => void heard++)
     await vi.advanceTimersByTimeAsync(400)
     const pressedAt = new Map<HoldSource, number>()
-    const down = () => [...pressedAt].filter(([, at]) => Date.now() - at < 2 * LONGEST).map(([touchpad]) => touchpad)
+    const down = () => [...pressedAt].filter(([, at]) => Date.now() - at < 2 * longest).map(([touchpad]) => touchpad)
     const log: string[] = []
     try {
       for (let at = 0; at < 80; at++) {

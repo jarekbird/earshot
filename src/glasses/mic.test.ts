@@ -23,6 +23,7 @@ function random(seed: number): () => number {
 
 interface Call {
   open: boolean
+  soundsBefore: number
   answer: (done: boolean) => void
 }
 
@@ -40,7 +41,7 @@ function world(seed: number) {
   const ask = (open: boolean) =>
     new Promise<boolean>(done => {
       if (++asked > MOST_CALLS) throw new Error('The microphone was asked for without end.')
-      calls.push({ open, answer: done })
+      calls.push({ open, soundsBefore: sounds, answer: done })
     })
   const mic = new Mic(life, { open: () => ask(true), close: () => ask(false) }, Date.now)
   const listeners = new Map<number, () => unknown>()
@@ -53,6 +54,7 @@ function world(seed: number) {
   let sounds = 0
   const news: boolean[] = []
   const meddlers = new Set<() => void>()
+  const broken: string[] = []
   mic.onChange(open => news.push(open))
 
   const answer = (how: 'yes' | 'no' | 'no, but it is on') => {
@@ -60,7 +62,7 @@ function world(seed: number) {
     if (!call) return
     if (how === 'yes') {
       on = call.open
-      for (const id of listeners.keys()) due.add(id)
+      if (!call.open || call.soundsBefore === sounds) for (const id of listeners.keys()) due.add(id)
     }
     if (how === 'no, but it is on' && call.open) on = true
     call.answer(how === 'yes')
@@ -98,8 +100,14 @@ function world(seed: number) {
     },
     leave: () => {
       const id = pick([...listeners.keys()])
-      listeners.get(id)?.()
+      const stop = listeners.get(id)
       listeners.delete(id)
+      const settled = stop?.()
+      if (settled instanceof Promise)
+        void settled.then(closed => {
+          if (closed && !ended && listeners.size === 0 && !(hold && wants) && on)
+            broken.push(`listener ${id} was told the microphone had settled while it was on`)
+        })
     },
     'listen and throw': () => {
       const id = ++ids
@@ -144,6 +152,7 @@ function world(seed: number) {
     log.push(name)
     await steps[name]()
     await vi.advanceTimersByTimeAsync(0)
+    expect(broken).toEqual([])
     if (news.length) expect(news.at(-1), 'the last news is how it stands').toBe(mic.open)
     if (mic.open && listeners.size === 0 && !(hold && wants))
       expect(on || calls.length > 0, 'taken for open with nothing listening only until the close is answered').toBe(true)
@@ -173,6 +182,8 @@ function world(seed: number) {
     names: Object.keys(steps),
     pick,
     isOn: () => on,
+    asked: () => asked,
+    foreignSound: () => mic.heard({ pcm: new Uint8Array([1]), speaker: 'unknown' }),
     leaveAll: () => {
       for (const stop of meddlers) stop()
       meddlers.clear()
@@ -207,6 +218,10 @@ it.each(SEEDS)('any order of events, then calm: open if something listens, and c
     await run.settleDown(false)
     expect(run.isOn(), 'capture is off once nothing listens, without a sound to prove it was on').toBe(false)
     expect(run.mic.open).toBe(false)
+    const asked = run.asked()
+    run.foreignSound()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(run.asked(), 'sound from a microphone the app opened itself is none of its business').toBe(asked)
   } catch (error) {
     throw new Error(`After: ${run.log.join(', ')}\n${String(error)}`)
   }

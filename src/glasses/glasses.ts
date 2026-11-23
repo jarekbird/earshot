@@ -229,7 +229,7 @@ export class Glasses {
     return this.#mic.open
   }
 
-  listen(hear: (sound: Sound) => unknown, options?: ListenOptions): () => Promise<void> {
+  listen(hear: (sound: Sound) => unknown, options?: ListenOptions): () => Promise<boolean> {
     return this.#mic.listen(hear, options)
   }
 
