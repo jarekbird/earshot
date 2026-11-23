@@ -434,13 +434,12 @@ describe('the microphone', () => {
   }
   const holding = (glasses: Glasses) => {
     const heard: Sound[] = []
-    return {
-      heard,
-      stop: glasses[HOLD](
-        sound => heard.push(sound),
-        () => {},
-      ).letGo,
-    }
+    const held = glasses[HOLD](
+      sound => heard.push(sound),
+      () => {},
+    )
+    held.want(true)
+    return { heard, stop: held.letGo }
   }
   const mics = (fake: ReturnType<typeof fakeBridge>) => fake.calls.filter(call => call.startsWith('mic'))
 
@@ -784,7 +783,10 @@ describe('the microphone', () => {
     const { fake, glasses } = setup()
     const answer = fake.bridge.audioControl.bind(fake.bridge)
     let refusals = 1
-    fake.bridge.audioControl = async (on, source) => (!on && refusals-- > 0 ? false : answer(on, source))
+    fake.bridge.audioControl = async (on, source) => {
+      if (!on && refusals-- > 0) throw new Error('The close did not go through.')
+      return answer(on, source)
+    }
     const { stop } = listening(glasses)
     await settle()
     stop()
@@ -800,7 +802,10 @@ describe('the microphone', () => {
     const { life, fake, glasses } = setup()
     const answer = fake.bridge.audioControl.bind(fake.bridge)
     let refusals = 1
-    fake.bridge.audioControl = async (on, source) => (!on && refusals-- > 0 ? false : answer(on, source))
+    fake.bridge.audioControl = async (on, source) => {
+      if (!on && refusals-- > 0) throw new Error('The close did not go through.')
+      return answer(on, source)
+    }
     listening(glasses)
     await settle()
     life.end()
@@ -901,7 +906,11 @@ describe('the microphone', () => {
   it('gives up closing a microphone that will not close once its lifetime has ended, after five tries', async () => {
     const { life, fake, glasses } = setup()
     const answer = fake.bridge.audioControl.bind(fake.bridge)
-    fake.bridge.audioControl = async (on, source) => (on ? answer(on, source) : (fake.calls.push('mic close'), false))
+    fake.bridge.audioControl = async (on, source) => {
+      if (on) return answer(on, source)
+      fake.calls.push('mic close')
+      throw new Error('The close did not go through.')
+    }
     listening(glasses)
     await settle()
     life.end()
@@ -1122,7 +1131,10 @@ describe('the microphone', () => {
     const { fake, glasses } = setup()
     const answer = fake.bridge.audioControl.bind(fake.bridge)
     let refusals = 1
-    fake.bridge.audioControl = async (on, source) => (!on && refusals-- > 0 ? false : answer(on, source))
+    fake.bridge.audioControl = async (on, source) => {
+      if (!on && refusals-- > 0) throw new Error('The close did not go through.')
+      return answer(on, source)
+    }
     const { stop } = listening(glasses)
     await settle()
     let closed = false
@@ -1187,7 +1199,10 @@ describe('the microphone', () => {
   it('says it could not close the microphone, to one who waits, when it gave up at the end', async () => {
     const { life, fake, glasses } = setup()
     const answer = fake.bridge.audioControl.bind(fake.bridge)
-    fake.bridge.audioControl = async (on, source) => (on ? answer(on, source) : false)
+    fake.bridge.audioControl = async (on, source) => {
+      if (on) return answer(on, source)
+      throw new Error('The close did not go through.')
+    }
     const { stop } = listening(glasses)
     await settle()
     const closed = stop()
@@ -1230,6 +1245,19 @@ describe('the microphone', () => {
     fake.sound(new Uint8Array(2))
     await settle()
     expect(reported.mock.calls.map(([error]) => String(error))).toEqual(['Error: Earshot: a listener of the microphone threw.'])
+  })
+
+  it('marks the first sound after a hold also when nothing was heard during it', async () => {
+    const { fake, glasses } = setup()
+    const { heard } = listening(glasses)
+    await settle()
+    fake.sound(new Uint8Array(1))
+    holding(glasses).stop()
+    fake.sound(new Uint8Array(2))
+    expect(heard.map(({ pcm, gap }) => [pcm.length, gap])).toEqual([
+      [1, true],
+      [2, true],
+    ])
   })
 
   it('tells of the close when the last listener leaves', async () => {

@@ -55,9 +55,10 @@ function serve(call: () => unknown): void {
   }
 }
 
-const answered = async (call: () => Promise<unknown>): Promise<boolean> => {
+// Fact: Even's simulator answers true to an open, and false to a close that worked. So a close is done when answered.
+const answered = async (call: () => Promise<unknown>, open: boolean): Promise<boolean> => {
   try {
-    return (await call()) === true
+    return ((await call()) === true) === open || !open
   } catch {
     return false
   }
@@ -119,8 +120,9 @@ export class Mic {
 
   hold(hear: (sound: Sound) => unknown, refused: () => void): Held {
     if (this.#ended) return { want: () => {}, letGo: () => {} }
-    const holder: Holder = { hear, refused, reopenAfterMs: false, gap: true, wants: true }
+    const holder: Holder = { hear, refused, reopenAfterMs: false, gap: true, wants: false }
     this.#holder = holder
+    for (const ear of this.#ears) ear.gap = true
     this.#changed()
     return {
       want: sound => {
@@ -227,7 +229,7 @@ export class Mic {
     this.#asking = on ? 'open' : 'close'
     if (on) this.#issued = true
     this.#heardSinceAsked = false
-    const done = await answered(on ? this.#calls.open : this.#calls.close)
+    const done = await answered(on ? this.#calls.open : this.#calls.close, on)
     this.#asking = null
     if (done) {
       this.#capturing = on

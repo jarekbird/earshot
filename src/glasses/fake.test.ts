@@ -12,6 +12,13 @@ const rebuild = (fake: ReturnType<typeof fakeBridge>, ...boxes: TextContainerPro
 
 // Each refusal below is one the Even Hub simulator 0.9.5 makes.
 describe('the stand-in bridge refuses what the simulator refuses', () => {
+  it('answers true to an open of the microphone and false to a close, also the second time', async () => {
+    const fake = fakeBridge()
+    const answers = [true, true, false, false].map(on => fake.bridge.audioControl(on))
+    expect(await Promise.all(answers)).toEqual([true, true, false, false])
+    expect(fake.mic).toBeNull()
+  })
+
   it('a second page', async () => {
     const fake = fakeBridge()
     expect(await create(fake, text(1))).toBe(0)

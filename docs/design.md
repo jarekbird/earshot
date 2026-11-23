@@ -343,7 +343,7 @@ The microphone is open while anything listens. A hold is one listener; an app th
 - A hold has the microphone to itself. A listener hears a sound exactly when no touchpad is held down, whenever it
   joined and whichever touchpads were pressed meanwhile; so a voice command is never part of what an app is listening
   to, and a hold starts without waiting when the microphone is already open. The hold asks for the microphone only
-  while it records: called off, or past its longest length, it still keeps the listeners from hearing until the
+  while it records, so a touchpad held with no voice set up and nothing listening asks nothing of it: called off, or past its longest length, it still keeps the listeners from hearing until the
   release, and no longer keeps the microphone open by itself. It is told of a refused open by a way of its own, so
   news meant for others, such as the close a departing listener asked for, cannot fail it. Only the shell can take it: the way in is not part of the public API. A hold whose microphone did not
   open still keeps the listeners from hearing until its release, and so does one that was called off or reached its
@@ -355,19 +355,21 @@ The microphone is open while anything listens. A hold is one listener; an app th
   The shortest time among them counts. A hold has no such time, so silence never makes Earshot ask again during a
   hold, also while an app listens. A microphone that refuses to open is still asked again during one.
 - The microphone is one small machine, in `src/glasses/mic.ts`. It knows two things: whether capture may be on (an
-  open was answered, or sound arrived after Earshot asked for one, and no close has been answered), and whether it
-  takes the microphone for open. A microphone Earshot never asked for is not its to close: an app that opened the
-  phone's microphone itself keeps it. It makes one call at a time and looks again after each answer, so a close on its way is answered before the
-  next open is asked. A call that is refused, an open or a close, is asked again after 0.5, 1, 2 and then 4 seconds.
-  Its timers are its own, so a close that is refused as the app ends is still asked again, five times in all, and
-  then no more. An open that was asked for and not yet answered as the app ends is owed a close too.
+  open was asked for and no close has been answered since), and whether it takes the microphone for open. A
+  microphone Earshot never asked for is not its to close: an app that opened the phone's microphone itself keeps it.
+  It makes one call at a time and looks again after each answer, so a close on its way is answered before the next
+  open is asked. An open that is refused, and a close that fails to go through, is asked again after 0.5, 1, 2 and
+  then 4 seconds. A close is done when it is answered, whatever the answer: Even's simulator answers `true` to an open
+  and `false` to a close that worked. A simulator test holds that, and the stand-in bridge answers the same. Its
+  timers are its own, so a close that fails as the app ends is still asked again, five times in all, and then no
+  more. An open that was asked for and not yet answered as the app ends is owed a close too.
 - Sound that arrives is proof the microphone is on, whatever a call answered: a refused try to get it back fails
   nothing that is hearing, and capture that proves to be on with nobody listening is closed. A sound is handed out
   before its news is told, and only to those who were to hear it when it came.
 - `micOpen` says whether Earshot takes it for open; `onMic` is told each change in the order it happened, and `false`
-  again each time an open is refused. After the last listener left it turns false when the close is answered, so an
-  app that then opens a microphone of its own knows Earshot will not close it. A microphone that opens after the last
-  listener left is closed and not told of.
+  again each time an open is refused. False means not hearing, which silence alone can make it: the sure sign that the
+  glasses' microphone is closed is the promise of the function that stopped the last listener. A microphone that
+  opens after the last listener left is closed and not told of.
 - Each sound says whether there was a break before it in what that listener heard (`gap`): the first sound, the
   first after a hold, the first after the microphone was closed, opened or asked for again.
 - The function that stops a listener gives a promise that is kept when the machine is calm: nothing asked, nothing

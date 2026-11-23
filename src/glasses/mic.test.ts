@@ -25,6 +25,7 @@ interface Call {
   open: boolean
   soundsBefore: number
   answer: (done: boolean) => void
+  fail: () => void
 }
 
 const MOST_CALLS = 400
@@ -39,9 +40,9 @@ function world(seed: number) {
   let on = false
   let asked = 0
   const ask = (open: boolean) =>
-    new Promise<boolean>(done => {
+    new Promise<boolean>((done, fail) => {
       if (++asked > MOST_CALLS) throw new Error('The microphone was asked for without end.')
-      calls.push({ open, soundsBefore: sounds, answer: done })
+      calls.push({ open, soundsBefore: sounds, answer: done, fail: () => fail(new Error('The call did not go through.')) })
     })
   const mic = new Mic(life, { open: () => ask(true), close: () => ask(false) }, Date.now)
   const listeners = new Map<number, () => unknown>()
@@ -65,7 +66,10 @@ function world(seed: number) {
       if (!call.open || call.soundsBefore === sounds) for (const id of listeners.keys()) due.add(id)
     }
     if (how === 'no, but it is on' && call.open) on = true
-    call.answer(how === 'yes')
+    // Fact: Even's simulator answers true to an open and false to a close that worked.
+    if (call.open) call.answer(how === 'yes')
+    else if (how === 'yes') call.answer(false)
+    else call.fail()
   }
   let ended = false
   const sound = () => {
@@ -124,8 +128,10 @@ function world(seed: number) {
     },
     hold: () => {
       steps.release()
-      wants = true
+      wants = false
+      for (const id of listeners.keys()) due.add(id)
       hold = mic.hold(hear(0), () => {})
+      steps.want()
     },
     rest: () => {
       wants = false
