@@ -26,9 +26,9 @@ it('E1: only src/glasses imports the Even SDK', () => {
   expect(breaking(/@evenrealities\//, file => file.startsWith(`glasses${sep}`))).toEqual([])
 })
 
-it('E2: only src/openrouter opens a connection', () => {
+it('E2: only src/openrouter and src/flux open a connection', () => {
   const connects = /\bfetch\b|\bWebSocket\b|\bXMLHttpRequest\b|\bEventSource\b|\bsendBeacon\b/
-  expect(breaking(connects, file => file.startsWith(`openrouter${sep}`))).toEqual([])
+  expect(breaking(connects, file => file.startsWith(`openrouter${sep}`) || file.startsWith(`flux${sep}`))).toEqual([])
 })
 
 it('E2: the framework holds no address of its own', () => {

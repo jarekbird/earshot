@@ -2,6 +2,7 @@ import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
 import {
   action,
   boxes,
+  fluxLive,
   Glasses,
   Lifetime,
   LINE_HEIGHT,
@@ -16,6 +17,7 @@ import {
   Shell,
   text,
   type Agent,
+  type LiveState,
   type Speaker,
 } from '../src/index.js'
 
@@ -41,7 +43,12 @@ let taps = 0
 
 const flags = new URLSearchParams(location.hash.slice(1))
 const scripted = flags.get('say')?.split('|')
-const speech = flags.has('live') ? scriptedLive(flags.get('live')!.split('|')) : undefined
+const secret = document.getElementById('secret') as HTMLInputElement
+secret.value = flags.get('secret') ?? ''
+const speech = () => {
+  if (flags.has('live')) return scriptedLive(flags.get('live')!.split('|'))
+  return EARSHOT_RELAY && secret.value ? fluxLive({ host: EARSHOT_RELAY, secret: secret.value }) : undefined
+}
 
 const life = new Lifetime()
 const bridge = await waitForEvenAppBridge()
@@ -96,10 +103,12 @@ const heard: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
 const seconds = (bytes: number) => `${Math.floor(bytes / (SAMPLE_RATE * 2))} s`
 let breaks = 0
 let said: string[] = []
+let words: LiveState = 'on'
 const WHO: Record<Speaker, string> = { self: 'You', other: 'They', unknown: 'Someone' }
+const WORDS: Record<LiveState, string> = { on: '', down: '\nNo words for now', refused: '\nWords are off' }
 const listened = () =>
   glasses.micOpen
-    ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}\nBreaks: ${breaks}${said.map(line => `\n${line}`).join('')}`
+    ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}\nBreaks: ${breaks}${WORDS[words]}${said.map(line => `\n${line}`).join('')}`
     : 'Not hearing'
 
 const listen = action({
@@ -114,11 +123,19 @@ const listen = action({
         heard.self = heard.other = heard.unknown = 0
         breaks = -1
         said = []
+        words = 'on'
         let shown = listened()
-        const words = speech?.start(life, turn => {
-          said[turn.id] = `${WHO[turn.speaker]}: ${turn.words}`
-          show()
-        })
+        const say = speech()?.start(
+          life,
+          turn => {
+            said[turn.id] = `${WHO[turn.speaker]}: ${turn.words}`
+            show()
+          },
+          state => {
+            words = state
+            show()
+          },
+        )
         const show = () => {
           if (shown === listened()) return
           shown = listened()
@@ -128,7 +145,7 @@ const listen = action({
           glasses.listen(sound => {
             heard[sound.speaker] += sound.pcm.length
             if (sound.gap) breaks++
-            words?.(sound)
+            say?.(sound)
             show()
           }),
         )

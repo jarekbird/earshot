@@ -1,0 +1,209 @@
+import { SAMPLE_RATE, type Speaker } from '../audio.js'
+import { Lifetime, type Timer } from '../lifetime.js'
+import { most, type LiveSpeech, type LiveState, type Turn } from '../live.js'
+
+export interface FluxSocket {
+  binaryType: string
+  readonly bufferedAmount: number
+  onopen: (() => void) | null
+  onmessage: ((event: { data: unknown }) => void) | null
+  onclose: ((event: { code: number }) => void) | null
+  send(data: string | Uint8Array): void
+  close(code?: number): void
+}
+
+export interface FluxOptions {
+  host: string
+  secret?: string
+  model?: string
+  open?: (url: string) => FluxSocket
+}
+
+export const FLUX = '@cf/deepgram/flux'
+export const LIVE_PATH = '/api/v1/live'
+export const REFUSALS = { hello: 4400, secret: 4401, model: 4403 }
+const BYTES_PER_S = SAMPLE_RATE * 2
+export const HELD_BYTES = 10 * BYTES_PER_S
+export const QUIET_MS = 10_000
+export const CONNECT_MS = 10_000
+const RETRY_FIRST_MS = 500
+const RETRY_MAX_MS = 8_000
+const FOR_GOOD = new Set<number>(Object.values(REFUSALS))
+
+export const retryDelay = (failures: number) => Math.min(RETRY_MAX_MS, RETRY_FIRST_MS * 2 ** (failures - 1))
+
+interface Piece {
+  pcm: Uint8Array
+  speaker: Speaker
+}
+
+interface Run {
+  end: number
+  speaker: Speaker
+}
+
+function parse(data: unknown): Record<string, unknown> | null {
+  if (typeof data !== 'string') return null
+  try {
+    const message: unknown = JSON.parse(data)
+    return message && typeof message === 'object' && !Array.isArray(message) ? (message as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+export function fluxLive(options: FluxOptions): LiveSpeech {
+  const url = `${options.host.replace(/\/+$/, '').replace(/^http/, 'ws')}${LIVE_PATH}`
+  const open = options.open ?? (address => new WebSocket(address) as unknown as FluxSocket)
+  const hello = JSON.stringify({
+    model: options.model ?? FLUX,
+    encoding: 'linear16',
+    sample_rate: String(SAMPLE_RATE),
+    ...(options.secret ? { secret: options.secret } : {}),
+  })
+
+  return {
+    start(life, heard, told) {
+      let line: { socket: FluxSocket; life: Lifetime; connected: boolean } | null = null
+      let held: Piece[] = []
+      let heldBytes = 0
+      let runs: Run[] = []
+      let sent = 0
+      let first = 0
+      let next = 0
+      let growing: Turn | null = null
+      let failures = 0
+      let state: LiveState = 'on'
+      let refused = false
+      let retry: Timer | undefined
+      let quiet: Timer | undefined
+
+      const tell = (now: LiveState) => {
+        if (state === now) return
+        state = now
+        told?.(now)
+      }
+
+      const endTurn = () => {
+        if (!growing) return
+        const turn = { ...growing, final: true }
+        growing = null
+        heard(turn)
+      }
+
+      const leave = (code?: number) => {
+        if (!line) return
+        const { socket } = line
+        socket.onopen = socket.onmessage = socket.onclose = null
+        line.life.end()
+        line = null
+        socket.close(code)
+        runs = []
+        sent = 0
+        first = next
+      }
+
+      const who = (from: number, to: number): Speaker => {
+        const by: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
+        let start = 0
+        for (const run of runs) {
+          by[run.speaker] += Math.max(0, Math.min(run.end, to * BYTES_PER_S) - Math.max(start, from * BYTES_PER_S))
+          start = run.end
+        }
+        return most(by)
+      }
+
+      const turned = (message: Record<string, unknown>) => {
+        const { turn_index: index, transcript, audio_window_start: from, audio_window_end: to } = message
+        if (message.type !== 'TurnInfo' || typeof index !== 'number' || typeof transcript !== 'string') return
+        const id = first + index
+        const words = transcript.trim()
+        if (!words || (id < next && growing?.id !== id)) return
+        if (growing && growing.id !== id) endTurn()
+        const final = message.event === 'EndOfTurn'
+        const turn: Turn = { id, words, final, speaker: who(Number(from) || 0, Number(to) || 0) }
+        if (!final && growing?.words === words && growing.speaker === turn.speaker) return
+        growing = final ? null : turn
+        next = id + 1
+        heard(turn)
+      }
+
+      const lost = (code: number) => {
+        leave()
+        endTurn()
+        if (FOR_GOOD.has(code)) {
+          refused = true
+          held = []
+          heldBytes = 0
+          quiet?.cancel()
+          return tell('refused')
+        }
+        failures++
+        tell('down')
+        retry = life.timeout(() => {
+          retry = undefined
+          if (heldBytes > 0) connect()
+        }, retryDelay(failures))
+      }
+
+      const flush = () => {
+        if (!line?.connected) return
+        if (line.socket.bufferedAmount > HELD_BYTES) return lost(0)
+        for (const piece of held) {
+          line.socket.send(piece.pcm)
+          sent += piece.pcm.length
+          const last = runs.at(-1)
+          if (last?.speaker === piece.speaker) last.end = sent
+          else runs.push({ end: sent, speaker: piece.speaker })
+        }
+        held = []
+        heldBytes = 0
+      }
+
+      function connect(): void {
+        const socket = open(url)
+        const mine = { socket, life: new Lifetime(), connected: false }
+        line = mine
+        socket.binaryType = 'arraybuffer'
+        mine.life.timeout(() => lost(0), CONNECT_MS)
+        socket.onopen = () => socket.send(hello)
+        socket.onclose = event => lost(event.code)
+        socket.onmessage = event => {
+          const message = parse(event.data)
+          if (!message) return
+          if (message.type !== 'Connected') return turned(message)
+          mine.connected = true
+          mine.life.end()
+          failures = 0
+          tell('on')
+          flush()
+        }
+      }
+
+      const rest = () => {
+        quiet?.cancel()
+        quiet = life.timeout(() => {
+          if (heldBytes > 0) return rest()
+          leave(1000)
+          endTurn()
+        }, QUIET_MS)
+      }
+
+      life.own(() => {
+        retry?.cancel()
+        quiet?.cancel()
+        leave(1000)
+      })
+
+      return sound => {
+        if (life.ended || refused) return
+        held.push({ pcm: sound.pcm, speaker: sound.speaker })
+        heldBytes += sound.pcm.length
+        while (heldBytes > HELD_BYTES && held.length > 1) heldBytes -= held.shift()!.pcm.length
+        rest()
+        if (line) flush()
+        else if (!retry) connect()
+      }
+    },
+  }
+}
