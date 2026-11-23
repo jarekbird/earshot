@@ -347,14 +347,18 @@ The microphone is open while anything listens. A hold is one listener; an app th
 - When the phone suspends the app, capture stops and nothing says so. So each listener has a time without sound after
   which Earshot takes the microphone for closed and asks for it again: three seconds unless it says otherwise (half a
   second or more, or never). Only those that hear now count, and the time is worked out again whenever they change.
-  A hold has no such time, so a hold is asked for once, also while an app listens.
+  The shortest time among them counts. A hold has no such time, so silence never makes Earshot ask again during a
+  hold, also while an app listens. A microphone that refuses to open is still asked again during one.
 - The microphone is one small machine, in `src/glasses/mic.ts`. It knows two things: whether capture may be on (an
-  open was answered, or sound arrived, and no close has been answered), and whether it takes the microphone for
-  open. It makes one call at a time and looks again after each answer, so a close on its way is answered before the
+  open was answered, or sound arrived after Earshot asked for one, and no close has been answered), and whether it
+  takes the microphone for open. A microphone Earshot never asked for is not its to close: an app that opened the
+  phone's microphone itself keeps it. It makes one call at a time and looks again after each answer, so a close on its way is answered before the
   next open is asked. A call that is refused, an open or a close, is asked again after 0.5, 1, 2 and then 4 seconds.
-  Its timers are its own, so a close that is refused as the app ends is still asked again, up to five times.
-- Sound that arrives is proof the microphone is open, whatever a call answered. So a refused try to get it back fails
-  nothing that is hearing.
+  Its timers are its own, so a close that is refused as the app ends is still asked again, five times in all, and
+  then no more.
+- Sound that arrives is proof the microphone is on, whatever a call answered: a refused try to get it back fails
+  nothing that is hearing, and capture that proves to be on with nobody listening is closed. A sound is handed out
+  before its news is told, and only to those who were to hear it when it came.
 - `micOpen` says whether Earshot takes it for open; `onMic` is told each change in the order it happened, and `false`
   again each time an open is refused. A microphone that opens after the last listener left is closed and not told of.
 - Each listener gets its own copy of a sound. What a listener throws goes to the page's error reporting, and the rest
