@@ -1522,6 +1522,31 @@ describe('a hold', () => {
     expect(asked).toEqual([0.8])
   })
 
+  it('still takes a hold when a listener of the touchpad that the app put first throws', async () => {
+    const reported = vi.fn()
+    vi.stubGlobal('reportError', reported)
+    const life = new Lifetime()
+    const fake = fakeBridge()
+    const glasses = new Glasses(life, fake.bridge)
+    glasses.onInput(() => {
+      throw new Error('an app failed')
+    })
+    const { voice, asked } = hearing('refresh')
+    new Shell(life, glasses, new Router({ home: { id: 'home' } }), { voice })
+    const session: number[] = []
+    glasses.listen(sound => session.push(sound.pcm.length))
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(800))
+    fake.release()
+    await settle(50)
+    expect(session).toEqual([])
+    expect(asked).toEqual([0.8])
+    expect(reported.mock.calls.map(([error]) => String(error))).toEqual(Array(2).fill('Error: Earshot: a listener of the touchpad threw.'))
+    vi.unstubAllGlobals()
+  })
+
   it('lets the listeners hear again when no release came for twice its longest length', async () => {
     const { voice } = hearing('refresh')
     const { fake, glasses } = world({ voice })
