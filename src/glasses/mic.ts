@@ -24,9 +24,13 @@ interface Ear {
   reopenAfterMs: number | false
 }
 
+interface Told {
+  tell: (open: boolean) => void
+}
+
 function report(error: unknown): void {
   if (typeof reportError === 'function') return reportError(error)
-  console.error(`Earshot: a listener of the microphone threw ${error instanceof Error ? error.name : 'something'}.`)
+  console.error('Earshot: a listener of the microphone threw.')
 }
 
 const answered = async (call: () => Promise<unknown>): Promise<boolean> => {
@@ -42,13 +46,15 @@ export class Mic {
   readonly #now: () => number
   readonly #clock = new Lifetime()
   readonly #ears = new Set<Ear>()
-  readonly #told = new Set<(open: boolean) => void>()
+  readonly #told = new Set<Told>()
   readonly #news: boolean[] = []
   #holder: Ear | null = null
   #ended = false
+  #gaveUp = false
+  #issued = false
   #capturing = false
   #open = false
-  #asking = false
+  #asking: 'open' | 'close' | null = null
   #telling = false
   #failures = 0
   #heardAt = 0
@@ -95,28 +101,26 @@ export class Mic {
     }
   }
 
-  onChange(listener: (open: boolean) => void): () => void {
-    this.#told.add(listener)
-    return () => void this.#told.delete(listener)
+  onChange(tell: (open: boolean) => void): () => void {
+    const told: Told = { tell }
+    this.#told.add(told)
+    return () => void this.#told.delete(told)
   }
 
   heard(sound: Sound): void {
     this.#heardAt = this.#now()
-    if (!this.#open && this.#wanted()) {
-      this.#capturing = true
-      this.#set(true)
-      this.#settle()
-    }
+    if (this.#issued && this.#asking !== 'close') this.#capturing = true
     const ears = this.#hearing()
-    const sounds = ears.map((_, at) => (at === 0 ? sound : { ...sound, pcm: sound.pcm.slice() }))
-    for (const [at, ear] of ears.entries()) {
+    for (const ear of ears) {
       if (!this.#hearing().includes(ear)) continue
       try {
-        ear.hear(sounds[at])
+        ear.hear({ ...sound, pcm: new Uint8Array(sound.pcm) })
       } catch (error) {
         report(error)
       }
     }
+    if (this.#capturing && this.#asking !== 'close' && this.#wanted()) this.#set(true)
+    this.#settle()
   }
 
   #wanted(): boolean {
@@ -139,7 +143,7 @@ export class Mic {
   }
 
   #settle(): void {
-    if (this.#asking) return
+    if (this.#asking || this.#gaveUp) return
     this.#watch?.cancel()
     this.#watch = undefined
     const wanted = this.#wanted()
@@ -168,16 +172,19 @@ export class Mic {
   }
 
   async #ask(on: boolean): Promise<void> {
-    this.#asking = true
-    if (!on) this.#set(false)
+    this.#asking = on ? 'open' : 'close'
+    if (on) this.#issued = true
+    else this.#set(false)
     const done = await answered(on ? this.#calls.open : this.#calls.close)
-    this.#asking = false
+    this.#asking = null
     if (done) {
       this.#capturing = on
+      this.#issued = on
       this.#heardAt = this.#now()
     } else if (++this.#failures >= CLOSES_AFTER_THE_END && this.#ended) {
+      this.#gaveUp = true
       this.#clock.end()
-    } else {
+    } else if (on === this.#wanted()) {
       this.#retry = this.#clock.timeout(() => {
         this.#retry = undefined
         this.#settle()
@@ -202,10 +209,10 @@ export class Mic {
     this.#telling = true
     try {
       for (let news = this.#news.shift(); news !== undefined; news = this.#news.shift()) {
-        for (const listener of [...this.#told]) {
-          if (!this.#told.has(listener)) continue
+        for (const told of [...this.#told]) {
+          if (!this.#told.has(told)) continue
           try {
-            listener(news)
+            told.tell(news)
           } catch (error) {
             report(error)
           }
