@@ -1,6 +1,7 @@
+import { fileURLToPath } from 'node:url'
 import { configDefaults, defineConfig } from 'vitest/config'
 
-const source = (path: string) => new URL(path, import.meta.url).pathname
+const source = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 
 export default defineConfig({
   resolve: {
