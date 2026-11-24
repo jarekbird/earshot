@@ -9,7 +9,7 @@ export interface ContextOptions {
 }
 
 export const ITEM_LIMIT = 1_200
-export const SETTLE_MS = 5_000
+const SETTLE_MS = 5_000
 
 interface Entry {
   text: string
