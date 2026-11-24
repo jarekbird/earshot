@@ -8,3 +8,4 @@ export const MAX_QUEUED = 1_048_576
 export const MIN_SECRET = 16
 export const MAX_SECRET = 1_024
 export const MAX_HELLO = 4_096
+export const GOODBYE_MS = 1_000

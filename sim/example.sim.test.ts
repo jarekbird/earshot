@@ -178,6 +178,14 @@ describe('the example app in the real Even Hub simulator', () => {
     await sim.shows('Words are off', 30_000)
   })
 
+  it.runIf(process.platform === 'linux')('keeps the newest words on the glasses when what was said no longer fits', async () => {
+    const long = Array.from({ length: 22 }, (_, at) => `word${at}`).join('%20')
+    const sim = await start(`&live=${long}|${long}|${long}|and%20the%20last`, true)
+    await sim.pick('Listen')
+    await sim.shows('Listening')
+    await sim.shows('Someone: and the last', 60_000)
+  })
+
   it.runIf(process.platform === 'linux')('marks a turn that a hold cut off', async () => {
     const words = Array.from({ length: 80 }, (_, at) => `w${at}`).join('%20')
     const sim = await start(`&say=zzz%20qqq&live=${words}`, true)

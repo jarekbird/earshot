@@ -1,7 +1,7 @@
 import { createServer, STATUS_CODES, type IncomingMessage, type Server } from 'node:http'
 import { Readable, type Duplex } from 'node:stream'
-import { WebSocket as Upstream, WebSocketServer } from 'ws'
-import { LIVE_PATH, MAX_FRAME } from './limits.js'
+import { WebSocket as Upstream, WebSocketServer, type ServerOptions } from 'ws'
+import { GOODBYE_MS, LIVE_PATH, MAX_FRAME } from './limits.js'
 import { relay, relayOptions, type Line, type RelayOptions, type Sockets } from './relay.js'
 
 export interface ServeOptions extends RelayOptions {
@@ -48,7 +48,9 @@ interface Upgrade {
 }
 
 export function serve({ port = PORT, hostname, ...options }: ServeOptions): Promise<Server> {
-  const lines = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME })
+  // Fact: ws waits thirty seconds for a peer to answer a close unless told otherwise; its types do not know the setting yet.
+  const taking: ServerOptions & { closeTimeout: number } = { noServer: true, maxPayload: MAX_FRAME, closeTimeout: GOODBYE_MS }
+  const lines = new WebSocketServer(taking)
   const upgrades = new WeakMap<Request, Upgrade>()
   let closing = new AbortController()
   const handle = relay(options, {

@@ -8,6 +8,7 @@ import {
   CONNECT_MS,
   FLUX,
   fluxLive,
+  fluxOver,
   HELD_BYTES,
   PIECE_BYTES,
   QUIET_MS,
@@ -74,20 +75,13 @@ const info = (turn_index: number, transcript: string, event = 'Update', from = 0
   audio_window_end: to,
 })
 
-function listening(options: Partial<FluxOptions> = {}) {
+function listening({ now = Date.now, ...options }: Partial<FluxOptions> & { now?: () => number } = {}) {
   const life = new Lifetime()
   const lines: Line[] = []
   const turns: Turn[] = []
   const states: LiveState[] = []
-  const speech = fluxLive({
-    host: 'https://relay.example/',
-    ...options,
-    open: url => {
-      const line = new Line(url)
-      lines.push(line)
-      return line
-    },
-  })
+  const open = (url: string) => lines[lines.push(new Line(url)) - 1]
+  const speech = fluxOver({ host: 'https://relay.example/', ...options }, { open, now })
   const hear = speech.start(
     life,
     turn => turns.push(turn),
@@ -278,7 +272,7 @@ describe('live speech from Flux, through the relay', () => {
     const life = new Lifetime()
     const lines: Line[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxLive({ host: 'https://relay.example', open }).start(life, turn => void (turn.cut && life.end()))
+    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(life, turn => void (turn.cut && life.end()))
     hear(sound(100))
     lines[0].connects()
     lines[0].says(info(0, 'before the'))
@@ -292,7 +286,10 @@ describe('live speech from Flux, through the relay', () => {
     const life = new Lifetime()
     const lines: Line[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxLive({ host: 'https://relay.example', open }).start(life, turn => void (turn.cut && hear(sound(100))))
+    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(
+      life,
+      turn => void (turn.cut && hear(sound(100))),
+    )
     hear(sound(100))
     lines[0].connects()
     lines[0].says(info(0, 'half a'))
@@ -311,7 +308,7 @@ describe('live speech from Flux, through the relay', () => {
     const life = new Lifetime()
     const lines: Line[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxLive({ host: 'https://relay.example', open }).start(life, () => void seen.push(lines.length))
+    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(life, () => void seen.push(lines.length))
     hear(sound(100))
     lines[0].connects()
     lines[0].says(info(0, 'before the'))
@@ -360,7 +357,7 @@ describe('live speech from Flux, through the relay', () => {
     const lines: Line[] = []
     const told: string[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxLive({ host: 'https://relay.example', open }).start(life, turn => {
+    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(life, turn => {
       told.push(`${turn.id} ${turn.words}${turn.final ? '.' : ''}`)
       turn.id = 99
       turn.words = 'changed'
@@ -424,7 +421,7 @@ describe('live speech from Flux, through the relay', () => {
     const life = new Lifetime()
     const lines: Line[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxLive({ host: 'https://relay.example', open }).start(life, turn => fail(turn.words))
+    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(life, turn => fail(turn.words))
     hear(sound(100))
     lines[0].connects()
     lines[0].says(info(0, 'what was said in confidence'))
@@ -432,6 +429,47 @@ describe('live speech from Flux, through the relay', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(said).toEqual(['Earshot: a listener of the live speech threw.', 'Earshot: a listener of the live speech threw.'])
+  })
+
+  it('counts a line that could not even be opened as a line lost: it says so and tries again', () => {
+    const lines: Line[] = []
+    const states: LiveState[] = []
+    let refuse = true
+    const open = (url: string) => {
+      if (refuse) throw new SyntaxError('not an address the browser takes')
+      return lines[lines.push(new Line(url)) - 1]
+    }
+    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(
+      new Lifetime(),
+      () => {},
+      state => states.push(state),
+    )
+    expect(() => hear(sound(100))).not.toThrow()
+    expect(states).toEqual(['down'])
+    refuse = false
+    vi.advanceTimersByTime(retryDelay(1))
+    expect(lines).toHaveLength(1)
+    lines[0].connects()
+    expect(lines[0].sound).toBe(3_200)
+    expect(states).toEqual(['down', 'on'])
+  })
+
+  it("opens a line with the browser's own WebSocket when nothing else is handed in", () => {
+    const made: string[] = []
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        constructor(url: string) {
+          made.push(url)
+        }
+        close() {}
+      },
+    )
+    onTestFinished(() => void vi.unstubAllGlobals())
+    const life = new Lifetime()
+    fluxLive({ host: 'https://relay.example' }).start(life, () => {})(sound(100))
+    life.end()
+    expect(made).toEqual(['wss://relay.example/api/v1/live'])
   })
 
   it('sends at once, and whole, a piece of sound of any length while the line is up', () => {
@@ -473,7 +511,7 @@ describe('live speech from Flux, through the relay', () => {
     const life = new Lifetime()
     const lines: Line[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxLive({ host: 'https://relay.example', open }).start(
+    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(
       life,
       () => {},
       state => state === 'down' && hear(sound(100)),
@@ -661,7 +699,7 @@ describe('live speech from Flux, through the relay', () => {
     const lines: Line[] = []
     const told: string[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxLive({ host: 'https://relay.example', open }).start(life, turn => {
+    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(life, turn => {
       told.push(`${turn.words}${turn.final ? '.' : ''}`)
       if (turn.final) life.end()
     })

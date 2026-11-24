@@ -125,7 +125,7 @@ const shell = new Shell(life, glasses, router)
 ```
 
 - `list({ title, action, empty })` shows the targets of one action as lines of text. A swipe moves the cursor and a tap runs the action on that item.
-- `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines.
+- `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines. With `end: true` it shows its last lines and goes on showing the last as the text grows, for a log or a transcript; a swipe up still reads back.
 - `boxes(boxes, { on, pictures })` places each box yourself. `on` says which action a tap, a swipe up and a swipe down run: `{ tap: open, up: older, down: { action: open, target: 'next' } }`. A screen gets no raw touches, so whatever touch can do, voice can do too. A screen with no `view` lists its actions.
 - By voice, a long text scrolls a screenful ("scroll down"), a list's cursor moves ("move down") and "choose this one" runs the row it is on. The model is told which row that is, unless the row is private.
 - A double tap goes up, to the screen the current one was opened from. From the home screen it asks Even to close the app.
@@ -303,7 +303,7 @@ export default {
 
 `relayOptions` names every setting a host passes, set or not, so a host cannot leave one out. `Env` is those settings as your Worker has them, and `sockets` is how a Worker takes and opens a WebSocket, for live speech: copy both from `example/worker.ts`, which is this Worker. A relay without live speech needs no `sockets`, and what `relay` gives back takes one request, as it always did. `MODELS` is the same comma-separated list as `EARSHOT_RELAY_MODELS`. The two are one server: what the Node server does the Worker does.
 
-`serve` from `earshot/relay/node` starts the same Node server from your own code. Closing that server tells its live callers it is going (1001) and lets go of their upstreams at once. A WebSocket on a path of your own stays yours: add your `upgrade` listener to the server it returns, and have it look at the path before it takes the upgrade, since with live speech on both listeners hear every upgrade (`ws` with `noServer` and `handleUpgrade` for your path; its `{ server, path }` form answers 400 on every other path, the relay's included). With no live speech set, the server takes no WebSocket at all. It can be closed and set listening again.
+`serve` from `earshot/relay/node` starts the same Node server from your own code. Closing that server tells its live callers it is going (1001) and lets go of their upstreams at once. A caller who does not answer a goodbye is let go of a second later. A WebSocket on a path of your own stays yours: add your `upgrade` listener to the server it returns, and have it look at the path before it takes the upgrade, since with live speech on both listeners hear every upgrade (`ws` with `noServer` and `handleUpgrade` for your path; its `{ server, path }` form answers 400 on every other path, the relay's included). With no live speech set, the server takes no WebSocket at all. It can be closed and set listening again.
 
 For live speech the relay needs three more settings. It can also run with these alone, and then it forwards none of the three calls.
 

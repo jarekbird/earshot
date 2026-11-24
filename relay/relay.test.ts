@@ -347,10 +347,33 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
     expect(urls).toEqual(['/backend/api/v1/audio/transcriptions'])
   })
 
-  it.each(['//upstream.example', 'backend', '', '\\\\upstream.example'])(
-    'is a path of the host and nothing that names another: %j is refused',
+  it.each(['//upstream.example', '/\\upstream.example', '\\\\upstream.example', '/\t/upstream.example', 'back end', ''])(
+    'is refused when it could name another host, or is nothing: %j',
     upstream => {
       expect(() => relay({ key: 'sk-developer', upstream, fetch: async () => new Response('{}') })).toThrow('needs the address')
+    },
+  )
+
+  it.each(['backend', '/backend', './backend/v1', 'backend?route='])(
+    'is taken when it is a name on the host itself, %j, and resolves to that host and no other',
+    async upstream => {
+      const urls: string[] = []
+      const handle = relay({
+        key: 'sk-developer',
+        upstream,
+        fetch: async url => {
+          urls.push(String(url))
+          return new Response('{}')
+        },
+      })
+      await handle(
+        new Request('https://relay.example/api/v1/audio/transcriptions', {
+          method: 'POST',
+          body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
+        }),
+      )
+      expect(urls).toEqual([`${upstream}/api/v1/audio/transcriptions`])
+      expect(new URL(urls[0], 'https://host.example/app/').origin).toBe('https://host.example')
     },
   )
 

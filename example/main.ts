@@ -46,7 +46,6 @@ const flags = new URLSearchParams(location.hash.slice(1))
 const scripted = flags.get('say')?.split('|')
 const secret = document.getElementById('secret') as HTMLInputElement
 const STALE_MS = 3_000
-const NEWEST = 4
 const speech = () => {
   if (flags.has('live')) return scriptedLive(flags.get('live')!.split('|'))
   return EARSHOT_RELAY && secret.value ? fluxLive({ host: EARSHOT_RELAY, secret: secret.value, staleMs: STALE_MS }) : undefined
@@ -110,10 +109,7 @@ const WHO: Record<Speaker, string> = { self: 'You', other: 'They', unknown: 'Som
 const WORDS: Record<LiveState, string> = { on: '', down: '\nNo words for now', refused: '\nWords are off' }
 const listened = () =>
   glasses.micOpen
-    ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}\nBreaks: ${breaks}${WORDS[words]}${said
-        .slice(-NEWEST)
-        .map(line => `\n${line}`)
-        .join('')}`
+    ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}\nBreaks: ${breaks}${WORDS[words]}${said.map(line => `\n${line}`).join('')}`
     : 'Not hearing'
 
 const listen = action({
@@ -123,7 +119,7 @@ const listen = action({
   run: () =>
     router.open({
       id: 'listen',
-      view: () => text({ title: 'Listening', body: listened() }),
+      view: () => text({ title: 'Listening', body: listened(), end: true }),
       enter: life => {
         heard.self = heard.other = heard.unknown = 0
         breaks = -1

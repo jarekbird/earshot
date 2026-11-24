@@ -17,9 +17,16 @@ export interface FluxOptions {
   host: string
   secret?: string
   staleMs?: number
-  open?: (url: string) => FluxSocket
-  now?: () => number
 }
+
+export interface FluxWiring {
+  open: (url: string) => FluxSocket
+  now: () => number
+}
+
+const BROWSER: FluxWiring = { open: address => new WebSocket(address) as unknown as FluxSocket, now: Date.now }
+
+export const fluxLive = (options: FluxOptions): LiveSpeech => fluxOver(options, BROWSER)
 
 export const FLUX = '@cf/deepgram/flux'
 export const LIVE_PATH = '/api/v1/live'
@@ -77,10 +84,8 @@ function lineTo(host: string): string {
   return relay.href
 }
 
-export function fluxLive(options: FluxOptions): LiveSpeech {
+export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveSpeech {
   const url = lineTo(options.host)
-  const open = options.open ?? (address => new WebSocket(address) as unknown as FluxSocket)
-  const now = options.now ?? Date.now
   const staleMs = options.staleMs ?? Infinity
   const hello = JSON.stringify({
     model: FLUX,
@@ -238,7 +243,12 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
       }
 
       function connect(): void {
-        const socket = open(url)
+        let socket: FluxSocket
+        try {
+          socket = open(url)
+        } catch {
+          return lost(0)
+        }
         const mine = { socket, life: new Lifetime(), connected: false }
         line = mine
         socket.binaryType = 'arraybuffer'
