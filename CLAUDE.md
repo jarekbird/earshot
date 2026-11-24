@@ -35,6 +35,9 @@ Checks cite these IDs. Changing one needs Jarek's OK.
 
 ## Process
 
+This is the maintainer's own process. A contribution from outside follows `CONTRIBUTING.md`: the rules above bind it,
+and this section and the skills are not its to run.
+
 Follow skill `develop` for every feature and fix; it reviews with skill `review-loop` and ends with skill `release`.
 Write each test first and see it fail. `npm run check` before every commit.
 Nothing reaches `main` but through a pull request with `check` and `sim` green, and no agent merges on its own. When
