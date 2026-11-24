@@ -801,6 +801,22 @@ describe('live speech from Flux, through the relay', () => {
     expect(states).toEqual([])
   })
 
+  it.each([1.5, -1, 2 ** 53, 1e300])(
+    'takes no turn numbered %d, which is no count of turns, and still tells the turn that follows it',
+    index => {
+      const { lines, turns, hear } = listening()
+      hear(sound(100))
+      lines[0].connects()
+      lines[0].says(info(0, 'one', 'EndOfTurn'))
+      lines[0].says(info(index, 'never', 'EndOfTurn'))
+      lines[0].says(info(1, 'two', 'EndOfTurn'))
+      expect(turns.map(turn => [turn.id, turn.words])).toEqual([
+        [0, 'one'],
+        [1, 'two'],
+      ])
+    },
+  )
+
   it.each([['not json'], [{ type: 'Other' }], [{ type: 'TurnInfo', turn_index: 'x', transcript: 'a' }], [info(0, '   ')], [null], [[1]]])(
     'tells nothing for a message that is not a turn with words: %j',
     message => {

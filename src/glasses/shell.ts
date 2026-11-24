@@ -209,10 +209,11 @@ export class Shell {
     this.#shown()
     const seen = this.#asked[0]
     const onGlasses = seen && seen.frame <= this.#glasses.shown && seen.screen === drawn.screen ? seen.page : drawn.page
-    const lines = up ? -onGlasses[by].up : onGlasses[by].down
+    const from = place.away ? drawn.page : onGlasses
+    const lines = up ? -from[by].up : from[by].down
     if (drawn.view.kind !== 'text' || !drawn.view.end) place.top += lines
-    else if (!up && onGlasses.atEnd) Object.assign(place, { top: 0, away: false })
-    else Object.assign(place, { top: onGlasses.at + lines, away: true })
+    else if (!up && from.atEnd) Object.assign(place, { top: 0, away: false })
+    else Object.assign(place, { top: from.at + lines, away: true })
     this.redraw()
   }
 

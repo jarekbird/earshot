@@ -103,12 +103,12 @@ const counter = action({
 const heard: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
 const seconds = (bytes: number) => `${Math.floor(bytes / (SAMPLE_RATE * 2))} s`
 let breaks = 0
-let said: string[] = []
+const said = new Map<number, string>()
 let words: LiveState = 'on'
 const WHO: Record<Speaker, string> = { self: 'You', other: 'They', unknown: 'Someone' }
 const WORDS: Record<LiveState, string> = { on: '', down: '\nNo words for now', refused: '\nWords are off' }
 const listened = () =>
-  `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}\nBreaks: ${breaks}${said.map(line => `\n${line}`).join('')}${glasses.micOpen ? WORDS[words] : '\nNot hearing'}`
+  `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}\nBreaks: ${breaks}${[...said.values()].map(line => `\n${line}`).join('')}${glasses.micOpen ? WORDS[words] : '\nNot hearing'}`
 
 const listen = action({
   id: 'listen',
@@ -121,13 +121,13 @@ const listen = action({
       enter: life => {
         heard.self = heard.other = heard.unknown = 0
         breaks = -1
-        said = []
+        said.clear()
         words = 'on'
         let shown = listened()
         const say = speech()?.start(
           life,
           turn => {
-            said[turn.id] = `${WHO[turn.speaker]}: ${turn.words}${turn.final ? (turn.cut ? ' (cut)' : '') : ' ...'}`
+            said.set(turn.id, `${WHO[turn.speaker]}: ${turn.words}${turn.final ? (turn.cut ? ' (cut)' : '') : ' ...'}`)
             show()
           },
           state => {
@@ -149,7 +149,7 @@ const listen = action({
           }),
         )
         life.own(glasses.onMic(show))
-        life.own(() => void (said = []))
+        life.own(() => said.clear())
       },
     }),
 })

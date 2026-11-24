@@ -205,6 +205,50 @@ describe('a text that stays at its end, while more of it is on its way to the gl
   })
 })
 
+describe('a text that stays at its end, swiped twice before the glasses have drawn the first swipe', () => {
+  const held = (fake: ReturnType<typeof world>['fake']) => {
+    let release = () => {}
+    const waiting = new Promise<void>(go => (release = go))
+    const real = fake.bridge.textContainerUpgrade
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      await waiting
+      return real(upgrade)
+    }
+    return () => release()
+  }
+
+  it('counts the second swipe on from the first, so neither is lost', async () => {
+    const { fake, router } = world()
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 22')
+    const release = held(fake)
+    fake.up()
+    fake.up()
+    release()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 18')
+  })
+
+  it('counts the first from the page the wearer saw and the second on from there, while more text is on its way too', async () => {
+    const { fake, router, shell } = world()
+    const log = Array.from({ length: 12 }, (_, at) => `Line ${at + 1}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 4')
+    const release = held(fake)
+    for (let at = 13; at <= 24; at++) log.push(`Line ${at}`)
+    shell.redraw()
+    await settle(0)
+    fake.up()
+    fake.up()
+    release()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 1')
+  })
+})
+
 describe('a text that stays at its end, swiped down while more of it is on its way', () => {
   it('goes on following the end: the wearer was at the end of what they could see', async () => {
     const { fake, router, shell } = world()
