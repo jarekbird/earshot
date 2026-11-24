@@ -120,6 +120,20 @@ describe('scripted live speech, the offline stand-in', () => {
     expect(turns).toEqual(['one self', 'one self cut', 'three self', 'three four unknown'])
   })
 
+  it('never tells a listener of a turn while it is still telling it of another, as the transport for real speech never does', () => {
+    const life = new Lifetime()
+    const turns: string[] = []
+    const hear = scriptedLive(['start', 'stop']).start(life, turn => {
+      turns.push(turn.words)
+      if (turn.words === 'start') {
+        hear(sound(300))
+        life.end()
+      }
+    })
+    hear(sound(300))
+    expect(turns).toEqual(['start'])
+  })
+
   it('takes no more sound in once its last line is said', () => {
     const { turns, hear } = listening(['yes'])
     hear(sound(450))

@@ -149,7 +149,7 @@ describe('the example app in the real Even Hub simulator', () => {
   })
 
   it.runIf(process.platform === 'linux')('shows live speech turn by turn while a screen listens', async () => {
-    const sim = await start('&live=hello%20there|how%20are%20you', true)
+    const sim = await start('&pace=200&live=hello%20there|how%20are%20you', true)
     await sim.pick('Listen')
     await sim.shows('Listening')
     await sim.logged(/Someone: hello \.\.\./, 30_000)
