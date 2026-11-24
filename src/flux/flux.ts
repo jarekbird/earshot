@@ -5,6 +5,7 @@ import { serve } from '../serve.js'
 
 export interface FluxSocket {
   binaryType: string
+  readonly readyState: number
   readonly bufferedAmount: number
   onopen: (() => void) | null
   onmessage: ((event: { data: unknown }) => void) | null
@@ -43,6 +44,7 @@ const RETRY_MAX_MS = 8_000
 const FOR_GOOD = new Set<number>(Object.values(REFUSALS))
 const THIS_DEVICE = new Set(['localhost', '127.0.0.1', '[::1]'])
 const HEARD = 'live speech'
+const OPEN = 1
 
 export const retryDelay = (failures: number) => Math.min(RETRY_MAX_MS, RETRY_FIRST_MS * 2 ** (failures - 1))
 
@@ -211,7 +213,7 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
 
       const send = ({ pcm, speaker, at: heldAt }: Piece) => {
         for (let at = 0; at < pcm.length; at += PIECE_BYTES) {
-          if (!line) return hold({ pcm: pcm.subarray(at), speaker, at: heldAt })
+          if (!line || line.socket.readyState !== OPEN) return hold({ pcm: pcm.subarray(at), speaker, at: heldAt })
           if (line.socket.bufferedAmount > STALLED_BYTES) {
             lost(0)
             return hold({ pcm: pcm.subarray(at), speaker, at: heldAt })

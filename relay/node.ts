@@ -93,6 +93,7 @@ export function serve({ port = PORT, hostname, ...options }: ServeOptions): Prom
       const body = await response.text()
       socket.end(
         `HTTP/1.1 ${response.status} ${STATUS_CODES[response.status]}\r\nconnection: close\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+        () => socket.destroy(),
       )
     } catch {
       socket.destroy()

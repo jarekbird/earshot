@@ -352,7 +352,8 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
     '/\\upstream.example',
     '\\\\upstream.example',
     '/\t/upstream.example',
-    'back end',
+    ' //upstream.example',
+    'back\nend',
     'http://',
     'https:',
     'HTTP://',
@@ -360,7 +361,7 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
     expect(() => relay({ key: 'sk-developer', upstream, fetch: async () => new Response('{}') })).toThrow('needs the address')
   })
 
-  it.each(['backend', '/backend', './backend/v1', 'backend?route='])(
+  it.each(['backend', '/backend', './backend/v1', 'backend?route=', '/local models', 'back end'])(
     'is taken when it is a name on the host itself, %j, and resolves to that host and no other',
     async upstream => {
       const urls: string[] = []
@@ -455,8 +456,23 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
     expect(paths).toEqual(['/api/v1/audio/transcriptions'])
   })
 
-  it('needs a key when the relay fetches its upstream itself', () => {
-    expect(() => relay({ key: '', upstream: 'https://upstream.example' })).toThrow('need the key')
+  it('needs a key to be given when the relay fetches its upstream itself, though the key may be empty, as it always could', async () => {
+    expect(() => relay({ upstream: 'https://upstream.example' })).toThrow('need the key')
+    const keys: Array<string | null> = []
+    const real = globalThis.fetch
+    onTestFinished(() => void (globalThis.fetch = real))
+    globalThis.fetch = async (_url, init) => {
+      keys.push(new Headers(init?.headers).get('authorization'))
+      return new Response('{}')
+    }
+    const handle = relay({ key: '', upstream: 'http://127.0.0.1:8080' })
+    await handle(
+      new Request('https://relay.example/api/v1/audio/transcriptions', {
+        method: 'POST',
+        body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
+      }),
+    )
+    expect(keys).toEqual(['Bearer'])
   })
 
   it('must be a whole address when the relay fetches it itself', () => {
