@@ -10,7 +10,7 @@ import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
 import type { Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
-import { layoutList, layoutText, type Stride, type TextState } from './layout.js'
+import { layoutList, layoutText, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
 import { HOLD, type Held } from './mic.js'
 
@@ -108,14 +108,20 @@ interface Drawn {
   targets: readonly TargetInfo[]
   folded: readonly Action[]
   scrolls: boolean
-  page: Page
 }
 
-interface Page {
-  at: number
-  atEnd: boolean
-  swipe: Stride
-  screenful: Stride
+type Words = Extract<View, { kind: 'text' }>
+
+interface Read {
+  view: Words
+  state: TextState
+}
+
+interface Asked {
+  frame: number
+  screen: Screen
+  drew: Read | null
+  swipedTo: Read | null
 }
 
 export class Shell {
@@ -138,7 +144,7 @@ export class Shell {
   #turn = 0
   #said = false
   #deciding: Lifetime | null = null
-  #asked: Array<{ frame: number; screen: Screen; page: Page; scrolled: boolean }> = []
+  #asked: Asked[] = []
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -167,10 +173,10 @@ export class Shell {
   }
 
   redraw(): void {
-    this.#draw(false)
+    this.#draw()
   }
 
-  #draw(scrolled: boolean): void {
+  #draw(swipedTo: Read | null = null): void {
     if (this.#life.ended) return
     const screen = this.#router.current
     const actions = this.#router.actions()
@@ -180,7 +186,7 @@ export class Shell {
     let boxes: Box[]
     let pictures: Picture[] = []
     let scrolls = false
-    let page: Page = { at: 0, atEnd: false, swipe: { up: SCROLL_LINES, down: SCROLL_LINES }, screenful: { up: SCREENFUL, down: SCREENFUL } }
+    let drew: Read | null = null
     let targets: readonly TargetInfo[] = []
     if (view.kind === 'list') {
       targets = view.action.targets() ?? []
@@ -191,7 +197,7 @@ export class Shell {
       const laid = layoutText(view, place)
       Object.assign(place, laid.state)
       scrolls = laid.scrolls
-      page = { at: laid.at, atEnd: laid.atEnd, swipe: laid.stride(SCROLL_LINES), screenful: laid.stride(SCREENFUL) }
+      drew = { view, state: { ...laid.state } }
       boxes = laid.boxes
     } else {
       boxes = view.boxes
@@ -205,29 +211,29 @@ export class Shell {
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
     this.#shown()
     const frame = this.#glasses.draw({ boxes, pictures, menu })
-    this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls, page }
-    this.#asked.push({ frame, screen, page, scrolled })
+    this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
+    this.#asked.push({ frame, screen, drew, swipedTo })
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
     this.#shown()
-    const seen = this.#asked[0]
-    const onGlasses = seen && seen.frame <= this.#glasses.shown && seen.screen === drawn.screen ? seen.page : drawn.page
-    const from = this.#scrolledTo(drawn.screen) ?? onGlasses
-    const lines = up ? -from[by].up : from[by].down
-    if (drawn.view.kind !== 'text' || !drawn.view.end) place.top += lines
-    else if (!up && from.atEnd) Object.assign(place, { top: 0, away: false })
-    else Object.assign(place, { top: from.at + lines, away: true })
-    this.#draw(true)
+    const read = this.#read(drawn.screen)
+    if (!read) return
+    const { view, state } = read
+    const from = layoutText(view, { ...state })
+    const stride = from.stride(by === 'swipe' ? SCROLL_LINES : SCREENFUL)
+    const top = from.at + (up ? -stride.up : stride.down)
+    const to = layoutText(view, view.end && !up && from.atEnd ? { top: 0, away: false } : { top, away: true }).state
+    Object.assign(place, to)
+    this.#draw({ view, state: to })
   }
 
-  #scrolledTo(screen: Screen): Page | undefined {
-    for (let at = this.#asked.length - 1; at >= 0; at--) {
-      const asked = this.#asked[at]
-      if (asked.screen !== screen || asked.frame <= this.#glasses.shown) return undefined
-      if (asked.scrolled) return asked.page
-    }
-    return undefined
+  #read(screen: Screen): Read | null {
+    const shown = this.#glasses.shown
+    const mine = this.#asked.filter(asked => asked.screen === screen && asked.drew)
+    const swiped = mine.findLast(asked => asked.swipedTo && asked.frame > shown)
+    const seen = mine[0]?.frame <= shown ? mine[0] : mine.at(-1)
+    return swiped?.swipedTo ?? seen?.drew ?? null
   }
 
   #shown(): Screen | undefined {

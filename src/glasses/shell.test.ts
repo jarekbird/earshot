@@ -205,18 +205,89 @@ describe('a text that stays at its end, while more of it is on its way to the gl
   })
 })
 
-describe('a text that stays at its end, swiped twice before the glasses have drawn the first swipe', () => {
-  const held = (fake: ReturnType<typeof world>['fake']) => {
-    let release = () => {}
-    const waiting = new Promise<void>(go => (release = go))
-    const real = fake.bridge.textContainerUpgrade
-    fake.bridge.textContainerUpgrade = async upgrade => {
-      await waiting
-      return real(upgrade)
-    }
-    return () => release()
+const held = (fake: ReturnType<typeof world>['fake']) => {
+  let release = () => {}
+  const waiting = new Promise<void>(go => (release = go))
+  const real = fake.bridge.textContainerUpgrade
+  fake.bridge.textContainerUpgrade = async upgrade => {
+    await waiting
+    return real(upgrade)
+  }
+  return () => release()
+}
+
+function random(seed: number): () => number {
+  let state = seed
+  return () => {
+    state = (state + 0x6d2b79f5) | 0
+    let mixed = Math.imul(state ^ (state >>> 15), 1 | state)
+    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4_294_967_296
+  }
+}
+
+describe('a text that stays at its end, swiped any way while the glasses are behind and more text comes', () => {
+  type Step = 'up' | 'down' | 'elsewhere' | 'drawn' | { more: string[] }
+  const SEEDS = Array.from({ length: 300 }, (_, seed) => seed + 1)
+  const isSwipe = (step: Step) => step === 'up' || step === 'down'
+
+  function steps(seed: number): Step[] {
+    const next = random(seed)
+    let line = 30
+    return Array.from({ length: 1 + Math.floor(next() * 9) }, (): Step => {
+      const pick = next()
+      if (pick < 0.3) return 'up'
+      if (pick < 0.6) return 'down'
+      if (pick < 0.68) return 'elsewhere'
+      if (pick < 0.78) return 'drawn'
+      return {
+        more: Array.from({ length: 1 + Math.floor(next() * 12) }, () => `Line ${++line}${next() < 0.2 ? ' ' + 'í'.repeat(110) : ''}`),
+      }
+    })
   }
 
+  function swipesFirst(taken: Step[]): Step[] {
+    const windows: Step[][] = [[]]
+    for (const step of taken) step === 'drawn' ? windows.push([]) : windows.at(-1)?.push(step)
+    return windows.flatMap(window => [...window.filter(isSwipe), ...window.filter(step => !isSwipe(step))])
+  }
+
+  async function shownAfter(taken: Step[], behind: boolean): Promise<string[]> {
+    const { fake, router, shell } = world()
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    let release = behind ? held(fake) : () => {}
+    for (const step of taken) {
+      if (step === 'up' || step === 'down') fake[step]()
+      else if (step === 'elsewhere') {
+        router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })
+        router.back()
+      } else if (step === 'drawn') {
+        release()
+        await settle()
+        release = behind ? held(fake) : () => {}
+      } else {
+        log.push(...step.more)
+        shell.redraw()
+      }
+      if (!behind) await settle()
+    }
+    release()
+    await settle()
+    return fake.lines()
+  }
+
+  it.each(SEEDS)(
+    'lands where the same swipes land when each is drawn before the next, with what else happened meanwhile after them (seed %i)',
+    async seed => {
+      const taken = steps(seed)
+      expect(await shownAfter(taken, true)).toEqual(await shownAfter(swipesFirst(taken), false))
+    },
+  )
+})
+
+describe('a text that stays at its end, swiped twice before the glasses have drawn the first swipe', () => {
   it('counts the second swipe on from the first, so neither is lost', async () => {
     const { fake, router } = world()
     const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
@@ -277,6 +348,38 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     fake.down()
     for (let at = 31; at <= 50; at++) log.push(`Line ${at}`)
     shell.redraw()
+    fake.up()
+    release()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 20')
+  })
+
+  it('keeps a swipe that is not yet drawn when another screen was opened and left before the glasses drew anything', async () => {
+    const { fake, router } = world()
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 22')
+    const release = held(fake)
+    fake.up()
+    router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })
+    router.back()
+    fake.up()
+    release()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 18')
+  })
+
+  it('counts a swipe up from the page the wearer saw, when a swipe down at the end only went on following it', async () => {
+    const { fake, router, shell } = world()
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 22')
+    const release = held(fake)
+    for (let at = 31; at <= 50; at++) log.push(`Line ${at}`)
+    shell.redraw()
+    fake.down()
     fake.up()
     release()
     await settle()
