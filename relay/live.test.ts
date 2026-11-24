@@ -4,12 +4,12 @@ import { connect, type AddressInfo, type Socket } from 'node:net'
 import { Duplex } from 'node:stream'
 import { join } from 'node:path'
 import { build } from 'esbuild'
-import { Miniflare } from 'miniflare'
 import { beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { WebSocket as Caller, WebSocketServer } from 'ws'
 import { fluxLive, FLUX, LIVE_PATH as APP_PATH, REFUSALS } from '../src/flux/flux.js'
 import { Lifetime } from '../src/lifetime.js'
 import type { LiveState, Turn } from '../src/live.js'
+import { Miniflare } from '../workerd/runtime.js'
 import { serve, settings } from './node.js'
 import { CLOSES, GOODBYE_MS, HELLO_MS, LIVE_PATH, MAX_FRAME, MAX_QUEUED, MAX_SECRET, MIN_SECRET } from './limits.js'
 import { relay, relayOptions } from './relay.js'
@@ -161,8 +161,8 @@ async function both<T>(setup: Setup, run: (host: Host) => Promise<T>): Promise<T
   return node
 }
 
-function call(at: string) {
-  const line = new Caller(`${at.replace(/^http/, 'ws')}${LIVE_PATH}`)
+function call(at: string, protocols: string[] = []) {
+  const line = new Caller(`${at.replace(/^http/, 'ws')}${LIVE_PATH}`, protocols)
   const got: string[] = []
   line.on('message', (data: Buffer, binary: boolean) => got.push(binary ? 'binary' : String(data)))
   line.on('error', () => {})
@@ -254,6 +254,15 @@ describe('E13: live speech through the relay, on the Node server and on the Work
       own: CLOSES.model,
       urls: ['/v1/account/gateway/workers-ai?model=b%2Ftwo&encoding=linear16&sample_rate=16000&mip_opt_out=true'],
     })
+  })
+
+  it('both choose no subprotocol, so a caller that asks for one is answered alike by the two', async () => {
+    const answer = await both({}, async ({ at, up }) => {
+      const { line, ended } = call(at, ['earshot-test'])
+      const failed = new Promise<string>(told => line.once('error', error => told(error.message)))
+      return { failed: await failed, code: await ended, chosen: line.protocol, reached: up.seen.asked }
+    })
+    expect(answer).toEqual({ failed: 'Server sent no subprotocol', code: 1006, chosen: '', reached: 0 })
   })
 
   it('both hang up on a caller who does not greet in time, and keep the one who did', async () => {

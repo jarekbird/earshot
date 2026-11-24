@@ -194,6 +194,20 @@ it("E4: a pull request runs check and the simulator suite with no network but th
   expect(offline).toContain('"CI=$ci"')
 })
 
+it("an app that installs Earshot installs no tool that runs on fewer machines than Earshot's own: the Worker's runtime is apart", () => {
+  const { dependencies, devDependencies, peerDependencies } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const installed = Object.keys({ ...dependencies, ...devDependencies, ...peerDependencies })
+  expect(
+    installed.filter(name => /^(miniflare|workerd|wrangler|@cloudflare\/)/.test(name)),
+    'npm installs every one of these to build Earshot for an app that takes it from Git. Put the tool in workerd/package.json.',
+  ).toEqual([])
+  const apart = JSON.parse(readFileSync(join(root, 'workerd/package.json'), 'utf8'))
+  expect(Object.keys(apart.devDependencies)).toEqual(['miniflare'])
+  expect(readFileSync(join(root, '.github/workflows/check.yml'), 'utf8')).toMatch(
+    /^ {6}- run: npm ci --prefix workerd\n {6}- run: \.github\/offline\.sh npm run check$/m,
+  )
+})
+
 it.runIf(process.env.EARSHOT_OFFLINE)("E4: in CI the tests see no network but the machine's own", () => {
   const outside = Object.values(networkInterfaces())
     .flatMap(addresses => addresses ?? [])

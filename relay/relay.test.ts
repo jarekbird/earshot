@@ -401,6 +401,20 @@ describe('the upstream of the calls, for a host that brings its own fetch', () =
     expect(() => relay({ key: 'sk-developer', upstream: 'http://128.0.0.1' })).toThrow('https')
   })
 
+  it.each(['http://[::ffff:127.0.0.1]:8787', 'http://[::ffff:7f01:203]:8787', 'http://[0:0:0:0:0:ffff:127.9.9.9]'])(
+    'takes plain http to %s, which is this machine written as IPv6 writes an IPv4 address',
+    upstream => {
+      expect(() => relay({ key: 'sk-developer', upstream })).not.toThrow()
+    },
+  )
+
+  it.each(['http://[::ffff:128.0.0.1]', 'http://[::ffff:126.255.0.1]', 'http://[::fffe:7f00:1]', 'http://[2001:db8::7f00:1]'])(
+    'does not take plain http to %s, which is another machine',
+    upstream => {
+      expect(() => relay({ key: 'sk-developer', upstream })).toThrow('https')
+    },
+  )
+
   it('must be a whole address when the relay fetches it itself', () => {
     expect(() => relay({ key: 'sk-developer', upstream: '/backend' })).toThrow('needs the address')
   })

@@ -6,6 +6,7 @@ describe("the relay's address, as the example's build takes it", () => {
     ['https://relay.example', 'https://relay.example'],
     ['https://relay.example/base/', 'https://relay.example/base'],
     ['http://localhost:8787/', 'http://localhost:8787'],
+    ['http://[::ffff:127.0.0.1]:8787', 'http://[::ffff:7f00:1]:8787'],
     ['', ''],
     [undefined, ''],
   ])('takes %j as %j', (given, taken) => {
