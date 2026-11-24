@@ -218,7 +218,7 @@ const hear = speech.start(life, showTurn, state => showWhetherWordsCome(state))
 - `host` is your relay, the same one as for a hold, named with `https` and by its address alone: no query, no fragment, no name or password. The line is opened where the checked address says. Live speech reaches it over a WebSocket, so list it in your `app.json` whitelist a second time, as `wss://…`. `secret` is the relay's secret (below). It is not a key to put in your build or in an address, where anyone can read it: have the user type it once, on the phone.
 - The third argument is told `down` when the line to the relay is lost, `on` when it is back and `refused` when the relay will not have this app: a wrong secret, or a model you did not list. Nothing is told while all is well.
 - It opens the line at the first sound and closes it when no sound has come for ten seconds. After a drop it tries again, after half a second and then longer, up to eight. It keeps the last ten seconds of sound it could not send, and sends them first, however long the line was away. An app for which late words are worse than none sets `staleMs`: sound held longer than that is not sent.
-- A break in the sound (`sound.gap`: a hold took the microphone, or the phone suspended the app) ends the turn that was growing as `cut`, and what follows goes on a new line, so Flux cannot join words across the break. Sound still held from before the break, because the line was away, is let go. `scriptedLive` cuts there too.
+- A break in the sound (`sound.gap`: a hold took the microphone, or the phone suspended the app) ends the turn that was growing as `cut`, and what follows goes on a new line, so Flux cannot join words across the break. The transport learns of a break from the first sound after it: sound it still holds then from before the break, because the line was away, is let go, and sound that went out during the break went out on the line the break closes. `scriptedLive` cuts there too.
 - While the line is up, sound goes out as it comes, whatever its length. The ten seconds are only for sound that cannot be sent yet.
 - Your listener is told of a turn or a change only after the transport has settled it, so it may feed sound or end the lifetime from there. The turn it is handed is its own to keep or change.
 - Sound the transport holds is a copy, a Node `Buffer` included: reuse your buffer as you like. A piece with no sound in it opens nothing and keeps nothing awake.
@@ -316,7 +316,7 @@ For live speech the relay needs three more settings. It can also run with these 
 | `EARSHOT_RELAY_SECRET`        | `SECRET`        | What an app must say before a line opens: 16 to 1,024 characters as JSON writes them, of your own making |
 | `EARSHOT_RELAY_LIVE_MODELS`   | `LIVE_MODELS`   | A comma-separated list, when your app uses another model than `@cf/deepgram/flux`                        |
 
-With no upstream for it the relay has no live path. With one, no relay is made without the key and the secret, whichever way it is started. An upstream is named with `https` (`wss` for live speech), so that no key travels in the clear; one on the same machine may be plain. Turn the gateway's logs off: they are on for a new gateway, and they would keep what was said.
+With no upstream for it the relay has no live path. With one, no relay is made without the key and the secret, whichever way it is started. An upstream is named with `https` (`wss` for live speech), so that no key travels in the clear; one on the same machine may be plain, named `localhost`, `[::1]` or an address in 127 (`[::ffff:127.0.0.1]` too) and no other way. Turn the gateway's logs off: they are on for a new gateway, and they would keep what was said.
 
 What the relay does:
 
@@ -422,10 +422,13 @@ const forTests = createStore([memoryPlace()])
 
 ```sh
 npm install
+npm ci --prefix workerd   # Cloudflare's runtime, for the tests of the relay's Worker host
 npm run check
 npx vitest run --config vitest.sim.config.ts -t "<test name>"   # one test against the real simulator (Linux, with Xvfb)
 npm run example:pack   # build, check and pack the example app in example/
 ```
+
+The Worker's runtime is installed apart, in `workerd/`, because it runs on fewer machines than the rest: an app that installs Earshot from Git builds it with the tools in `package.json`, and must never need this one. `npm run check` says so when it is missing.
 
 A change goes through a pull request. Run `npm run check` yourself before every commit; the whole simulator suite (`npm run check:sim`, the job `sim`) runs on the pull request, not on your machine. No test may call an outside service (E4): a guard refuses the usual ways on your machine, and CI runs the tests with no network but its own. The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
 

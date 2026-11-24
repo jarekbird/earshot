@@ -1,0 +1,9 @@
+{
+  "name": "earshot-workerd",
+  "private": true,
+  "description": "Cloudflare's runtime, for the tests that run the relay's Worker host for real. It is apart from the rest so that an app installing Earshot never installs it.",
+  "type": "module",
+  "devDependencies": {
+    "miniflare": "4.20260730.0"
+  }
+}

@@ -57,7 +57,7 @@
     "check:sim": "vitest run --config vitest.sim.config.ts",
     "example:pack": "npm run build && node example/build.mjs && node dist/check/cli.js example/build/app.json example/dist && evenhub pack example/build/app.json example/dist -o example/build/earshot-example.ehpk",
     "format": "prettier --write .",
-    "check": "prettier --check . && tsc --noEmit && vitest run && npm run build"
+    "check": "node workerd/ready.mjs && prettier --check . && tsc --noEmit && vitest run && npm run build"
   },
   "dependencies": {
     "@evenrealities/pretext": "0.1.4",
@@ -74,7 +74,6 @@
     "@types/node": "^24.19.2",
     "@types/ws": "8.18.2",
     "esbuild": "0.28.2",
-    "miniflare": "4.20260730.0",
     "prettier": "^3.10.1",
     "typescript": "^5.7.0",
     "vitest": "^3.2.7"

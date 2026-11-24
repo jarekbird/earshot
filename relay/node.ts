@@ -52,7 +52,12 @@ interface Upgrade {
 
 export function serve({ port = PORT, hostname, ...options }: ServeOptions): Promise<Server> {
   // Fact: ws waits thirty seconds for a peer to answer a close unless told otherwise; its types do not know the setting yet.
-  const taking: ServerOptions & { closeTimeout: number } = { noServer: true, maxPayload: MAX_FRAME, closeTimeout: GOODBYE_MS }
+  const taking: ServerOptions & { closeTimeout: number } = {
+    noServer: true,
+    maxPayload: MAX_FRAME,
+    closeTimeout: GOODBYE_MS,
+    handleProtocols: () => false,
+  }
   const lines = new WebSocketServer(taking)
   const upgrades = new WeakMap<Request, Upgrade>()
   let closing = new AbortController()

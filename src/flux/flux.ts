@@ -42,7 +42,9 @@ export const CONNECT_MS = 10_000
 const RETRY_FIRST_MS = 500
 const RETRY_MAX_MS = 8_000
 const FOR_GOOD = new Set<number>(Object.values(REFUSALS))
-const onThisDevice = (hostname: string) => hostname === 'localhost' || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname)
+// Fact: a URL writes an IPv4 address inside IPv6 in hex, so 127.0.0.1 there reads [::ffff:7f00:1].
+const LOOPBACK = /^(?:127(?:\.\d{1,3}){3}|\[::ffff:7f[\da-f]{2}:[\da-f]{1,4}\])$/
+const onThisDevice = (hostname: string) => hostname === 'localhost' || hostname === '[::1]' || LOOPBACK.test(hostname)
 const HEARD = 'live speech'
 const OPEN = 1
 
@@ -282,6 +284,7 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
           settled(() => {
             expire()
             if (heldBytes > 0) return rest()
+            if (line && !line.connected) return lost(0)
             leave(1000)
           }),
           QUIET_MS,

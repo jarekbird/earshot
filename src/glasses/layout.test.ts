@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TargetInfo } from '../action.js'
+import { text } from '../view.js'
 import { layoutList, layoutText, LIST_DIM } from './layout.js'
 import { textWidth } from './text.js'
 
@@ -86,6 +87,15 @@ describe('layoutText', () => {
     const { boxes } = layoutText({ title: 'Ana', body }, { top: 4 })
     expect(by(boxes, 'body').text.split('\n')).toEqual(Array.from({ length: 9 }, (_, n) => `Line ${n + 4}`))
     expect(by(layoutText({ body }, { top: 0 }).boxes, 'body').text.split('\n').length).toBe(10)
+  })
+
+  it('follows the end only for end: true, so an app that already kept something of its own under that name is shown as before', () => {
+    const body = Array.from({ length: 30 }, (_, n) => `Line ${n + 1}`).join('\n')
+    const theirs = text({ title: 'Ana', body, end: new Date(0) as unknown as boolean })
+    expect(theirs).toEqual(text({ title: 'Ana', body }))
+    const { boxes, state } = layoutText(theirs as { body: string }, { top: 0 })
+    expect(by(boxes, 'body').text.split('\n')[0]).toBe('Line 1')
+    expect(state).toEqual({ top: 0 })
   })
 
   it('asked to stay at its end, shows the last lines, and goes on showing the last as more come', () => {

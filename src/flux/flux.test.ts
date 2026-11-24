@@ -105,16 +105,21 @@ describe('the relay of live speech', () => {
     'https://relay.example/#',
     'https://someone@relay.example',
     'ws://localhost:8787',
+    'http://[::ffff:128.0.0.1]:8787',
   ])('is refused when named %s: the secret and the sound would be readable', host => {
     expect(() => fluxLive({ host, secret: PHRASE })).toThrow(/https|address alone/)
   })
 
-  it.each(['https://relay.example', 'http://127.0.0.1:8787', 'http://127.0.0.2:8787', 'http://localhost:8787', 'http://[::1]:8787'])(
-    'may be %s',
-    host => {
-      expect(() => fluxLive({ host, secret: PHRASE })).not.toThrow()
-    },
-  )
+  it.each([
+    'https://relay.example',
+    'http://127.0.0.1:8787',
+    'http://127.0.0.2:8787',
+    'http://localhost:8787',
+    'http://[::1]:8787',
+    'http://[::ffff:127.0.0.1]:8787',
+  ])('may be %s', host => {
+    expect(() => fluxLive({ host, secret: PHRASE })).not.toThrow()
+  })
 })
 
 describe('a relay address that cannot be read', () => {
@@ -660,6 +665,22 @@ describe('live speech from Flux, through the relay', () => {
     expect(states).toEqual(['down'])
     vi.advanceTimersByTime(retryDelay(1))
     expect(lines).toHaveLength(2)
+  })
+
+  it('says the line is down when it has not connected by the time the sound it held has gone stale and quiet has come', () => {
+    let at = 0
+    const { lines, states, hear } = listening({ staleMs: 3_000, now: () => at })
+    hear(sound(100))
+    lines[0].opens()
+    at = QUIET_MS
+    vi.advanceTimersByTime(QUIET_MS)
+    expect(lines[0].closedWith).toBeDefined()
+    expect(states).toEqual(['down'])
+    vi.advanceTimersByTime(60_000)
+    expect(lines).toHaveLength(1)
+    hear(sound(100))
+    lines[1].connects()
+    expect(states).toEqual(['down', 'on'])
   })
 
   it('closes the line when no sound has come for a while, ending the open turn, and opens one at the next sound', () => {

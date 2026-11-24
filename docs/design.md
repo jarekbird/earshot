@@ -450,8 +450,9 @@ The line, as states:
   cannot be told because the clock went back. A transcript wants the late
   words; a command does not. The example's Listen screen sets three seconds.
 - A break in the sound ends the turn that was growing, as cut, and what follows goes on a new line: on one line Flux
-  would join the words on either side of a hold. Sound still held from before the break is let go, so no line ever
-  carries both sides. The stand-in cuts at a break too, so an app tested on it sees what it will get.
+  would join the words on either side of a hold. The transport learns of a break from the first sound after it.
+  Sound it still holds then, from before the break, is let go; sound that went out during the break, because the
+  line came up meanwhile, went out on a line that the break now closes. So no line ever carries both sides. The stand-in cuts at a break too, so an app tested on it sees what it will get.
 - **What the transport holds and hands over is its own.** Held sound is a copy of exactly what is held, so an app
   may reuse its buffer. A turn handed to the listener is a copy too. Sound that was held gets the whole quiet time
   from the moment it goes out, so its words are still heard.
@@ -484,9 +485,9 @@ The line, as states:
   few settings the relay lists. The relay checks them, opens the upstream with the developer's key, and from then on
   passes sound up and text down. Nothing else the caller says is passed on.
 - It closes with a code of its own: 4400 for no proper greeting in three seconds, 4401 for a wrong secret, 4403 for
-  a model nobody listed, 4502 when the upstream does not open in five seconds or goes, and 1009 for any message over
-  64 kilobytes, sound or text, counted in bytes on both hosts. The first three are for good; the transport tries
-  again after any other.
+  a model nobody listed, 4502 when the upstream does not open in five seconds or goes, and 1009 for a message of the
+  caller's over 64 kilobytes, sound or text, counted in bytes on both hosts (one of the upstream's that size ends
+  the line with 4502). The first three are for good; the transport tries again after any other.
 - **The sound stays out of training.** The relay adds Deepgram's `mip_opt_out` to every line itself, so no caller
   can leave it out or turn it off.
 - **The secret is required.** Live speech is billed by the minute and the provider offers no limit to set, so no
@@ -507,7 +508,7 @@ The line, as states:
   is left to the app's own listener, when it has one; with no live speech set the server listens for no upgrade at
   all. The upstream of the three calls is used spelled as the developer spelled it, a query of its own
   included, as it always was. It is always a whole address, written with its scheme and two slashes, and with
-  `https` (`wss` for live speech), or plain `http` (`ws`) on the same machine (`localhost`, `[::1]`, anything in 127)
+  `https` (`wss` for live speech), or plain `http` (`ws`) on the same machine (`localhost`, `[::1]`, anything in 127, also as IPv6 writes it: `[::ffff:127.0.0.1]`; no other spelling)
   and no other scheme, so the address that was checked is the one that is used on either host. A host that brings
   its own `fetch` names a whole address too. For some rounds of review it could name a path on itself, as it could
   before this change; every way of checking such a name left one that came to mean another host, so it was removed
@@ -520,6 +521,8 @@ The line, as states:
   for the caller's answer and then drops the socket; unanswered, `ws` would hold it for thirty.
 - **A host hands the relay its sockets when it makes it**, so what `relay` gives back still takes one request and
   fits wherever it fitted before.
+- **Neither host chooses a subprotocol.** A Worker's answer names none, so the Node server names none either,
+  where `ws` would have named the first one a caller offered. A caller that insists on one is turned away by both.
 - **It holds little.** A message of the upstream's over 64 kilobytes, text or sound, ends the line (4502) on both
   hosts. On Node the
   relay stops passing to a side that has stopped taking once a mebibyte is queued for it (1013). A Worker's
@@ -530,7 +533,9 @@ The line, as states:
 - **Each host takes and opens a WebSocket in its own way** (E13, as Jarek agreed on 2026-11-23), because no web
   standard covers either: a Worker takes one with `WebSocketPair` and opens one with its own headers through
   `fetch`; Node does both with the `ws` package. Each is a few lines beside `relay`, and every case of the live path
-  runs against both hosts for real, the Worker in Cloudflare's own runtime on the test machine.
+  runs against both hosts for real, the Worker in Cloudflare's own runtime on the test machine. The tool that runs it
+  is installed apart, from `workerd/package.json`: npm installs every tool in the root `package.json` to build
+  Earshot for an app that takes it from Git, and this one runs on fewer machines than the rest (a test holds that).
 - **A relay can be for live speech alone.** With no upstream for the three calls it forwards none of them.
 - What those runs and the gateway showed, which the docs did not say:
   - The gateway does not answer with a subprotocol when the token is sent as one, the way its docs give for

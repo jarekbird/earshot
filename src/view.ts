@@ -16,6 +16,10 @@ export type View =
 
 export const list = (spec: { title?: string; action: Action; empty?: string }): View => ({ kind: 'list', ...spec })
 
-export const text = (spec: { title?: string; body: string; end?: boolean }): View => ({ kind: 'text', ...spec })
+export const text = ({ end, ...spec }: { title?: string; body: string; end?: boolean }): View => ({
+  kind: 'text',
+  ...spec,
+  ...(end === true ? { end } : {}),
+})
 
 export const boxes = (items: Box[], more: { on?: Gestures; pictures?: Picture[] } = {}): View => ({ kind: 'boxes', boxes: items, ...more })
