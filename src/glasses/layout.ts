@@ -64,18 +64,20 @@ export function layoutText(
 ): { boxes: Box[]; state: TextState; scrolls: boolean } {
   const { rows, y, h, titleBox } = areas(view.title)
   const lines = wrapText(cleanText(view.body), SCREEN_WIDTH)
-  const last = Math.max(0, lines.length - rows)
+  const fits = (from: number, to: number) => BYTES.encode(lines.slice(from, to).join('\n')).length <= MAX_TEXT_BYTES
+  let last = Math.max(0, lines.length - rows)
+  while (view.end && last < lines.length - 1 && !fits(last, lines.length)) last++
   const following = view.end === true && !state.away
   const top = clamp(following ? last + state.top : state.top, 0, last)
-  let shown = lines.slice(top, top + rows)
-  while (view.end && shown.length > 1 && BYTES.encode(shown.join('\n')).length > MAX_TEXT_BYTES) shown = shown.slice(1)
-  const more = `${top > 0 ? '▲' : ''}${top + rows < lines.length ? '▼' : ''}`
+  let end = Math.min(lines.length, top + rows)
+  while (view.end && end > top + 1 && !fits(top, end)) end--
+  const more = `${top > 0 ? '▲' : ''}${end < lines.length ? '▼' : ''}`
   return {
     state: view.end ? (top >= last ? { top: 0, away: false } : { top, away: true }) : { top },
-    scrolls: lines.length > rows,
+    scrolls: last > 0,
     boxes: [
       ...titleBox(more ? `  ${more}` : ''),
-      { id: 'body', x: 0, y, w: SCREEN_WIDTH, h, text: shown.join('\n'), brightness: MAX_BRIGHTNESS },
+      { id: 'body', x: 0, y, w: SCREEN_WIDTH, h, text: lines.slice(top, end).join('\n'), brightness: MAX_BRIGHTNESS },
     ],
   }
 }

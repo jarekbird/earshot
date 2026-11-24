@@ -121,6 +121,22 @@ describe('layoutText', () => {
     expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(999)
   })
 
+  it('asked to stay at its end, lets the wearer swipe up to a first line that the byte limit kept off the last page', () => {
+    const dense = ['a' + 'i'.repeat(111), ...Array.from({ length: 8 }, () => 'i'.repeat(115))].join('\n')
+    const atEnd = layoutText({ title: 'Transcript', body: dense, end: true }, { top: 0 })
+    expect(by(atEnd.boxes, 'body').text.split('\n')).toHaveLength(8)
+    expect(by(atEnd.boxes, 'body').text.startsWith('a')).toBe(false)
+    expect(atEnd.scrolls).toBe(true)
+    expect(by(atEnd.boxes, 'title').text).toContain('▲')
+    const up = layoutText({ title: 'Transcript', body: dense, end: true }, { ...atEnd.state, top: atEnd.state.top - 2 })
+    const shown = by(up.boxes, 'body').text
+    expect(shown.startsWith('a')).toBe(true)
+    expect(new TextEncoder().encode(shown).length).toBeLessThanOrEqual(999)
+    expect(by(up.boxes, 'title').text).toContain('▼')
+    const down = layoutText({ title: 'Transcript', body: dense, end: true }, { ...up.state, top: up.state.top + 2 })
+    expect(down.state).toEqual({ top: 0, away: false })
+  })
+
   it('asked to stay at its end, shows a short text from its first line', () => {
     expect(by(layoutText({ body: 'one\ntwo', end: true }, { top: 0 }).boxes, 'body').text).toBe('one\ntwo')
   })

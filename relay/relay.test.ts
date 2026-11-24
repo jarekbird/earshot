@@ -403,6 +403,29 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
     },
   )
 
+  it('may come with no key, as it always could: a host with its own fetch may sign its calls itself', async () => {
+    const keys: Array<string | null> = []
+    const handle = relay({
+      key: '',
+      upstream: '',
+      fetch: async (_url, init) => {
+        keys.push(new Headers(init?.headers).get('authorization'))
+        return new Response('{}')
+      },
+    })
+    const answer = await handle(
+      new Request('https://relay.example/api/v1/audio/transcriptions', {
+        method: 'POST',
+        body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
+      }),
+    )
+    expect([answer.status, keys.length]).toEqual([200, 1])
+  })
+
+  it('needs a key when the relay fetches its upstream itself', () => {
+    expect(() => relay({ key: '', upstream: 'https://upstream.example' })).toThrow('need the key')
+  })
+
   it('must be a whole address when the relay fetches it itself', () => {
     expect(() => relay({ key: 'sk-developer', upstream: '/backend' })).toThrow('needs the address')
   })
