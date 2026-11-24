@@ -44,5 +44,6 @@ export default {
         liveModels: env.LIVE_MODELS,
         secret: env.SECRET,
       }),
-    )(request, sockets),
+      sockets,
+    )(request),
 }

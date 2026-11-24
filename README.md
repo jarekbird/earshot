@@ -203,7 +203,7 @@ enter: life => {
 - A `LiveSpeech` takes sound and gives turns. `start(life, heard)` returns the function to hand each `sound` to, and stops with the lifetime.
 - A turn is `{ id, words, final, cut, speaker }`. It is told again as it grows, with the same `id`, and once more with `final: true`. `cut` is true on a final turn that ended because the sound or the line stopped, not because the speaker did: its words may be half a sentence. `speaker` is who spoke most of it: `self`, `other` or `unknown`.
 - Once the lifetime has ended nothing more is told, not even a last final turn: keep what you were told.
-- `scriptedLive(lines)` is the stand-in for tests and demos: it calls no service. Each `start` says the lines from the first, a word at a time as sound comes in, one word for each 300 ms of it. It ends a turn at a break in the sound, counts nothing from before the break towards the next word, and names as speaker whoever spoke most of the turn's sound, as the real transport does.
+- `scriptedLive(lines)` is the stand-in for tests and demos: it calls no service. Each `start` says the lines from the first, a word at a time as sound comes in, one word for each 300 ms of it. It ends a turn at a break in the sound, counts nothing from before the break towards the next word, names as speaker whoever spoke most of the turn's sound, and tells your listener only after it has taken the sound in, all as the real transport does. Once its last line is said it takes no more sound.
 
 For real words, `fluxLive` sends the sound through your relay (below) to Deepgram's Flux, a model that hears where a turn ends:
 
@@ -220,7 +220,7 @@ const hear = speech.start(life, showTurn, state => showWhetherWordsCome(state))
 - A break in the sound (`sound.gap`: a hold took the microphone, or the phone suspended the app) ends the turn that was growing as `cut`, and what follows goes on a new line, so Flux cannot join words across the break. Sound still held from before the break, because the line was away, is let go. `scriptedLive` cuts there too.
 - While the line is up, sound goes out as it comes, whatever its length. The ten seconds are only for sound that cannot be sent yet.
 - Your listener is told of a turn or a change only after the transport has settled it, so it may feed sound or end the lifetime from there. The turn it is handed is its own to keep or change.
-- Sound the transport holds is a copy: reuse your buffer as you like.
+- Sound the transport holds is a copy, a Node `Buffer` included: reuse your buffer as you like.
 - A turn that was still growing when the line dropped, or when the sound stopped, is told once more as final and `cut`, with the words it had. Turns are numbered on across lines.
 - `speaker` is whoever the glasses said was speaking for most of the stretch of sound the turn was made from.
 
@@ -293,13 +293,14 @@ export default {
         liveModels: env.LIVE_MODELS,
         secret: env.SECRET,
       }),
-    )(request, sockets),
+      sockets,
+    )(request),
 }
 ```
 
-`relayOptions` names every setting a host passes, set or not, so a host cannot leave one out. `Env` is those settings as your Worker has them, and `sockets` is how a Worker takes and opens a WebSocket, for live speech: copy both from `example/worker.ts`, which is this Worker. `MODELS` is the same comma-separated list as `EARSHOT_RELAY_MODELS`. The two are one server: what the Node server does the Worker does.
+`relayOptions` names every setting a host passes, set or not, so a host cannot leave one out. `Env` is those settings as your Worker has them, and `sockets` is how a Worker takes and opens a WebSocket, for live speech: copy both from `example/worker.ts`, which is this Worker. A relay without live speech needs no `sockets`, and what `relay` gives back takes one request, as it always did. `MODELS` is the same comma-separated list as `EARSHOT_RELAY_MODELS`. The two are one server: what the Node server does the Worker does.
 
-`serve` from `earshot/relay/node` starts the same Node server from your own code. Closing that server tells its live callers it is going (1001) and lets go of their upstreams at once. A WebSocket on a path of your own stays yours: add your `upgrade` listener to the server it returns.
+`serve` from `earshot/relay/node` starts the same Node server from your own code. Closing that server tells its live callers it is going (1001) and lets go of their upstreams at once. A WebSocket on a path of your own stays yours: add your `upgrade` listener to the server it returns. With no live speech set, the server takes no WebSocket at all. It can be closed and set listening again.
 
 For live speech the relay needs three more settings. It can also run with these alone, and then it forwards none of the three calls.
 

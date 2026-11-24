@@ -34,7 +34,16 @@ interface Setup {
 }
 
 async function gateway({ script, slowMs = 0, silent = false, door = false, deaf = false, long }: Setup = {}) {
-  const seen = { urls: [] as string[], sound: 0, text: [] as string[], closed: 0, refused: 0, asked: 0, abandoned: 0 }
+  const seen = {
+    urls: [] as string[],
+    sound: 0,
+    text: [] as string[],
+    closed: 0,
+    codes: [] as number[],
+    refused: 0,
+    asked: 0,
+    abandoned: 0,
+  }
   const callers = new Set<Caller>()
   const server = new WebSocketServer({
     port: 0,
@@ -72,7 +81,10 @@ async function gateway({ script, slowMs = 0, silent = false, door = false, deaf 
         return caller.send(JSON.stringify({ type: 'TurnInfo', event: 'Update', turn_index: 0, transcript: `heard ${seen.sound}` }))
       if (first) for (const message of script.slice(1)) caller.send(message)
     })
-    caller.on('close', () => seen.closed++)
+    caller.on('close', code => {
+      seen.closed++
+      seen.codes.push(code)
+    })
   })
   const stop = () => {
     for (const caller of callers) caller.terminate()
@@ -383,6 +395,39 @@ describe('E13: live speech through the relay, on the Node server and on the Work
     expect(await ended).toBe(CLOSES.going)
     await vi.waitFor(() => expect(up.seen.closed).toBe(1), WAIT)
     await closed
+  })
+
+  it('the Node server, when it is closed, drops an open upstream outright, with no goodbye queued behind its sound', async () => {
+    const up = await gateway()
+    const server = await serve({ live: { upstream: up.at, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
+    const { got, say } = call(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
+    await say(greeting())
+    await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
+    server.close()
+    await vi.waitFor(() => expect(up.seen.codes).toEqual([1006]), { timeout: 2_000, interval: 10 })
+  })
+
+  it('the Node server takes live callers again after it was closed and set listening again', async () => {
+    const up = await gateway()
+    const server = await serve({ live: { upstream: up.at, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
+    await new Promise<void>(closed => server.close(() => closed()))
+    await new Promise<void>(listening => server.listen(0, '127.0.0.1', listening))
+    onTestFinished(() => void server.close())
+    const { got, say } = call(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
+    await say(greeting())
+    await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
+  })
+
+  it('the Node server with no live speech leaves a WebSocket on that very path to the app', async () => {
+    const server = await serve({ key: DEVELOPER, upstream: 'http://127.0.0.1:9', port: 0, hostname: '127.0.0.1' })
+    onTestFinished(() => void server.close())
+    const own = new WebSocketServer({ noServer: true })
+    server.on('upgrade', (incoming, socket, head) => own.handleUpgrade(incoming, socket, head, line => line.send('the app has it')))
+    const mine = new Caller(`ws://127.0.0.1:${(server.address() as AddressInfo).port}${LIVE_PATH}`)
+    onTestFinished(() => mine.terminate())
+    const said = await new Promise<string>(heard => mine.on('message', data => heard(String(data))))
+    expect(said).toBe('the app has it')
+    expect(mine.readyState).toBe(Caller.OPEN)
   })
 
   it('the Node server, when it is closed, lets go of an upstream whose caller does not answer the goodbye', async () => {

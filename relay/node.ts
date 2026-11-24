@@ -1,5 +1,5 @@
 import { createServer, STATUS_CODES, type IncomingMessage, type Server } from 'node:http'
-import { Readable } from 'node:stream'
+import { Readable, type Duplex } from 'node:stream'
 import { WebSocket as Upstream, WebSocketServer } from 'ws'
 import { LIVE_PATH, MAX_FRAME, relay, relayOptions, type Line, type RelayOptions, type Sockets } from './relay.js'
 
@@ -33,16 +33,39 @@ const dial: Sockets['dial'] = (url, headers, stop, opened) =>
     line.once('close', () => failed(new Error('The upstream closed.')))
     // Fact: ws hands on what came with the opening before a promise made at the opening is read, so the line is handed on here.
     line.once('open', () => {
-      stop.removeEventListener('abort', drop)
       opened(line as Line)
       done()
     })
     if (stop.aborted) drop()
   })
 
+interface Upgrade {
+  incoming: IncomingMessage
+  socket: Duplex
+  head: Buffer
+  taken: boolean
+}
+
 export function serve({ port = PORT, hostname, ...options }: ServeOptions): Promise<Server> {
-  const handle = relay(options)
   const lines = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME })
+  const upgrades = new WeakMap<Request, Upgrade>()
+  let closing = new AbortController()
+  const handle = relay(options, {
+    dial,
+    accept: request =>
+      new Promise((done, failed) => {
+        const upgrade = upgrades.get(request)
+        if (!upgrade) return failed(new Error('Not an upgrade this server was given.'))
+        upgrade.taken = true
+        lines.handleUpgrade(upgrade.incoming, upgrade.socket, upgrade.head, line => {
+          line.on('error', UNHEARD)
+          done({ line: line as Line, response: new Response(null) })
+        })
+      }),
+    get closing() {
+      return closing.signal
+    },
+  })
   const server = createServer(async (incoming, outgoing) => {
     try {
       const response = await handle(requestOf(incoming))
@@ -52,23 +75,15 @@ export function serve({ port = PORT, hostname, ...options }: ServeOptions): Prom
       outgoing.writeHead(500).end()
     }
   })
-  const closing = new AbortController()
-  server.on('upgrade', async (incoming, socket, head) => {
+  const upgraded = async (incoming: IncomingMessage, socket: Duplex, head: Buffer) => {
     const others = server.listenerCount('upgrade') > 1
     if (others && (incoming.url ?? '').split('?')[0] !== LIVE_PATH) return
-    let taken = false
-    const accept: Sockets['accept'] = () => {
-      taken = true
-      return new Promise(done =>
-        lines.handleUpgrade(incoming, socket, head, line => {
-          line.on('error', UNHEARD)
-          done({ line: line as Line, response: new Response(null) })
-        }),
-      )
-    }
+    const request = requestOf(incoming)
+    const upgrade = { incoming, socket, head, taken: false }
+    upgrades.set(request, upgrade)
     try {
-      const response = await handle(requestOf(incoming), { accept, dial, closing: closing.signal })
-      if (taken) return
+      const response = await handle(request)
+      if (upgrade.taken) return
       const body = await response.text()
       socket.end(
         `HTTP/1.1 ${response.status} ${STATUS_CODES[response.status]}\r\nconnection: close\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
@@ -76,7 +91,9 @@ export function serve({ port = PORT, hostname, ...options }: ServeOptions): Prom
     } catch {
       socket.destroy()
     }
-  })
+  }
+  if (options.live) server.on('upgrade', upgraded)
+  server.on('listening', () => void (closing = new AbortController()))
   const stop = server.close.bind(server)
   server.close = done => {
     closing.abort()

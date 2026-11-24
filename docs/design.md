@@ -407,8 +407,9 @@ words as they come.
 - `scriptedLive` is the offline stand-in (E4), driven by the amount of sound alone, so a test needs no clock. Each
   start plays the lines from the first, so two listeners on one script do not take each other's lines. Where the
   real transport draws a line, the stand-in draws the same one: a break ends the turn and nothing from before it
-  counts towards the next word, and the speaker is whoever spoke most of the turn's sound. The example's Listen
-  screen shows its turns, a growing one with three dots after it.
+  counts towards the next word, the speaker is whoever spoke most of the turn's sound, and the listener is told
+  after the sound is taken in. Once its last line is said it takes no more sound. The example's Listen screen shows
+  its turns, a growing one with three dots after it.
 - `fluxLive` (`src/flux`, the second folder that may open a connection, E2) is the transport: sound to the
   developer's relay over one WebSocket, and Deepgram Flux's turns back. Flux decides where a turn ends, so Earshot
   cuts nothing by pauses. The relay is named with `https`, or is on the same device: the line carries the secret.
@@ -470,9 +471,13 @@ The line, as states:
 - **What the relay starts ends with the caller.** When the caller leaves, the relay tells the host to stop reaching
   for the upstream, and closes it if it opened all the same. A host that is closing says so (`Sockets.closing`); the
   relay then tells each caller it is going (1001) and lets go of the upstream at once, without waiting for the
-  caller to answer. The Node server does this when it is closed.
-- **The Node server takes only its own WebSocket path.** An upgrade on any other path is left to the app's own
-  listener, when it has one. The upstream of the three calls may carry a query of its own, as it always could.
+  caller to answer. The Node server does this when it is closed, and drops an upstream outright, open or not, so no
+  goodbye waits behind queued sound. Set listening again, it takes live callers again.
+- **The Node server takes only its own WebSocket path, and none without live speech.** An upgrade on any other path
+  is left to the app's own listener, when it has one; with no live speech set the server listens for no upgrade at
+  all. The upstream of the three calls may carry a query of its own, as it always could.
+- **A host hands the relay its sockets when it makes it**, so what `relay` gives back still takes one request and
+  fits wherever it fitted before.
 - **It holds little.** A message of the upstream's over 64 kilobytes, text or sound, ends the line (4502) on both
   hosts. On Node the
   relay stops passing to a side that has stopped taking once a mebibyte is queued for it (1013). A Worker's
@@ -539,4 +544,3 @@ stack. A hold ends at release; after the phrase, a pause in speech or a longest 
 - For the wake word, before it is built: whether a detector runs in the Even app's web view, and whether the phrase
   also wakes Even's own assistant.
 - How long a pause ends a command started by the wake word, and the longest command.
-- Streaming speech-to-text, so words show while the user talks. It needs a second service and probably a back end.

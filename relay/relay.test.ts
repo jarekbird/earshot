@@ -323,8 +323,8 @@ describe('reaching the upstream of live speech', () => {
         })
       },
     }
-    const handle = relay({ live: { upstream: 'wss://speech.example/v1', key: 'live-developer', secret: PHRASE } })
-    await handle(new Request(`https://relay.example${LIVE_PATH}`, { headers: { upgrade: 'websocket' } }), sockets)
+    const handle = relay({ live: { upstream: 'wss://speech.example/v1', key: 'live-developer', secret: PHRASE } }, sockets)
+    await handle(new Request(`https://relay.example${LIVE_PATH}`, { headers: { upgrade: 'websocket' } }))
     caller.says(JSON.stringify({ model: '@cf/deepgram/flux', secret: PHRASE }))
     return { caller, up, opens: () => opens(), stopped: () => stop?.aborted }
   }
@@ -367,12 +367,20 @@ describe('reaching the upstream of live speech', () => {
       }
     }
     const host = new Host()
-    const handle = relay({ live: { upstream: 'wss://speech.example/v1', key: 'live-developer', secret: PHRASE } })
-    await handle(new Request(`https://relay.example${LIVE_PATH}`, { headers: { upgrade: 'websocket' } }), host)
+    const handle = relay({ live: { upstream: 'wss://speech.example/v1', key: 'live-developer', secret: PHRASE } }, host)
+    await handle(new Request(`https://relay.example${LIVE_PATH}`, { headers: { upgrade: 'websocket' } }))
     caller.says(JSON.stringify({ model: '@cf/deepgram/flux', secret: PHRASE }))
     await Promise.resolve()
     expect(host.asked).toHaveLength(1)
     expect(caller.closedWith).toBeUndefined()
     caller.goes()
+  })
+
+  it('keeps the shape a host already gives it: one request in, one answer out', () => {
+    const fetch: (request: Request, env: { APP_MODE: string }) => Promise<Response> = relay({
+      key: 'sk-developer',
+      upstream: 'https://upstream.example',
+    })
+    expect(fetch).toHaveLength(1)
   })
 })
