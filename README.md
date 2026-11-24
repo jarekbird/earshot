@@ -521,4 +521,5 @@ await sim.stop()
 - Input reaches the app only when its page has a container that captures events.
 - `Simulator.start({ url, mic: true })` gives the simulator a microphone that hears a steady tone, on Linux, and `await sim.hold(1200)` holds the touchpad that long. With `transcribe: scriptedSpeech(['open voice', 'go back'])` in your app, which hears one line a recording and calls no service, that tests a voice command end to end.
 - `new Glasses(life, bridge, { trace: true })` writes what the glasses show to the console. Then `await sim.shows('Threads')` waits for it, `sim.shown()` gives the lines, `sim.menu()` the items of Even's menu, and `await sim.pick('Refresh')` picks one.
+- The driver is tried on Linux with the real simulator, and on macOS with a stand-in for it. It does not run on Windows yet.
 - The simulator is not the glasses: check fonts, scrolling and timing on the device.
