@@ -20,7 +20,7 @@ export interface FluxOptions {
   staleMs?: number
 }
 
-export interface FluxWiring {
+interface FluxWiring {
   open: (url: string) => FluxSocket
   now: () => number
 }

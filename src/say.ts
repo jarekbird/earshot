@@ -1,4 +1,4 @@
-export interface Failure {
+interface Failure {
   status?: number
   cause?: unknown
 }

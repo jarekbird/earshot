@@ -3,7 +3,7 @@ import type { Box, Brightness } from './frame.js'
 import { LINE_HEIGHT, MAX_BRIGHTNESS, MAX_TEXT_BYTES, SCREEN_HEIGHT, SCREEN_WIDTH } from './limits.js'
 import { cleanText, fitText, oneLine, textWidth, wrapText } from './text.js'
 
-export interface ListState {
+interface ListState {
   cursor: number
   top: number
 }
