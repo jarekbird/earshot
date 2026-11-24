@@ -137,6 +137,42 @@ describe('layoutText', () => {
     expect(down.state).toEqual({ top: 0, away: false })
   })
 
+  it.each([
+    ['a swipe', 2],
+    ['a screenful', 8],
+  ])(
+    'asked to stay at its end, leaves no line unread between pages when moved by %s, up or down, however few lines a page holds',
+    (_name, wanted) => {
+      const dense = Array.from({ length: 20 }, (_, at) => `${String(at).padStart(2, '0')}${'í'.repeat(110)}`).join('\n')
+      const view = { title: 'Log', body: dense, end: true }
+      const numbers = (boxes: ReturnType<typeof layoutText>['boxes']) =>
+        by(boxes, 'body')
+          .text.split('\n')
+          .map(line => Number(line.slice(0, 2)))
+      let laid = layoutText(view, { top: 0 })
+      const up = [numbers(laid.boxes)]
+      for (let moves = 0; moves < 40 && up.at(-1)![0] > 0; moves++) {
+        laid = layoutText(view, { ...laid.state, top: laid.state.top - laid.stride(wanted).up })
+        up.push(numbers(laid.boxes))
+      }
+      expect(up.at(-1)![0]).toBe(0)
+      for (let page = 1; page < up.length; page++) expect(up[page].at(-1)! + 1).toBeGreaterThanOrEqual(up[page - 1][0])
+      const down = [numbers(laid.boxes)]
+      for (let moves = 0; moves < 40 && down.at(-1)!.at(-1)! < 19; moves++) {
+        laid = layoutText(view, { ...laid.state, top: laid.state.top + laid.stride(wanted).down })
+        down.push(numbers(laid.boxes))
+      }
+      expect(down.at(-1)!.at(-1)).toBe(19)
+      for (let page = 1; page < down.length; page++) expect(down[page][0]).toBeLessThanOrEqual(down[page - 1].at(-1)! + 1)
+      expect(new Set([...up, ...down].flat()).size).toBe(20)
+    },
+  )
+
+  it('moves an ordinary text by the swipe or the screenful it always did', () => {
+    expect(layoutText({ title: 'Ana', body }, { top: 4 }).stride(2)).toEqual({ up: 2, down: 2 })
+    expect(layoutText({ title: 'Ana', body }, { top: 4 }).stride(8)).toEqual({ up: 8, down: 8 })
+  })
+
   it('asked to stay at its end, shows a short text from its first line', () => {
     expect(by(layoutText({ body: 'one\ntwo', end: true }, { top: 0 }).boxes, 'body').text).toBe('one\ntwo')
   })

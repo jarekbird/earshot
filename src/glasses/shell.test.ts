@@ -132,6 +132,55 @@ describe('a text that stays at its end', () => {
   })
 })
 
+describe('a text that stays at its end, with pages the byte limit keeps short', () => {
+  it('shows every line to a wearer who swipes up to the top and back down', async () => {
+    const { fake, router } = world()
+    const dense = Array.from({ length: 12 }, (_, at) => `${String(at).padStart(2, '0')}${'í'.repeat(110)}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: dense.join('\n'), end: true }) })
+    await settle()
+    const seen = new Set<string>()
+    const look = () => fake.lines().forEach(line => /^\d\d/.test(line) && seen.add(line.slice(0, 2)))
+    look()
+    for (let swipes = 0; swipes < 12; swipes++) {
+      fake.up()
+      await settle()
+      look()
+    }
+    expect([...seen].sort()).toEqual(dense.map(line => line.slice(0, 2)))
+    for (let swipes = 0; swipes < 12; swipes++) {
+      fake.down()
+      await settle()
+    }
+    expect(fake.lines().at(-1)?.slice(0, 2)).toBe('11')
+  })
+})
+
+describe('a text that stays at its end, with a page that holds one line', () => {
+  it('moves one line at a swipe, so the wearer reads each of them, up and down', async () => {
+    const { fake, router } = world()
+    const heavy = Array.from({ length: 5 }, (_, at) => `${'🧪'.repeat(130)}${at}`)
+    router.open({ id: 'log', view: () => text({ body: heavy.join('\n'), end: true }) })
+    await settle()
+    const shown = () =>
+      fake
+        .lines()
+        .map(line => line.at(-1))
+        .join('')
+    const read = [shown()]
+    for (let swipes = 0; swipes < 4; swipes++) {
+      fake.up()
+      await settle()
+      read.push(shown())
+    }
+    for (let swipes = 0; swipes < 4; swipes++) {
+      fake.down()
+      await settle()
+      read.push(shown())
+    }
+    expect(read).toEqual(['4', '3', '2', '1', '0', '1', '2', '3', '4'])
+  })
+})
+
 describe('a list', () => {
   it('moves the cursor with a swipe, in place, and stops at each end', async () => {
     const { fake, cursor } = world()
