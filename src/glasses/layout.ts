@@ -66,7 +66,7 @@ export interface Stride {
 export function layoutText(
   view: { title?: string; body: string; end?: boolean },
   state: TextState,
-): { boxes: Box[]; state: TextState; scrolls: boolean; at: number; stride: (wanted: number) => Stride } {
+): { boxes: Box[]; state: TextState; scrolls: boolean; at: number; atEnd: boolean; stride: (wanted: number) => Stride } {
   const { rows, y, h, titleBox } = areas(view.title)
   const lines = wrapText(cleanText(view.body), SCREEN_WIDTH)
   const fits = (from: number, to: number) => BYTES.encode(lines.slice(from, to).join('\n')).length <= MAX_TEXT_BYTES
@@ -85,6 +85,7 @@ export function layoutText(
     state: view.end ? (top >= last ? { top: 0, away: false } : { top, away: true }) : { top },
     scrolls: last > 0,
     at: top,
+    atEnd: top >= last,
     stride: wanted => {
       if (!view.end) return { up: wanted, down: wanted }
       let up = Math.max(1, Math.min(wanted, top))

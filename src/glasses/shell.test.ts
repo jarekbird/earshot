@@ -205,6 +205,33 @@ describe('a text that stays at its end, while more of it is on its way to the gl
   })
 })
 
+describe('a text that stays at its end, swiped down while more of it is on its way', () => {
+  it('goes on following the end: the wearer was at the end of what they could see', async () => {
+    const { fake, router, shell } = world()
+    const log = Array.from({ length: 12 }, (_, at) => `Line ${at + 1}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    let release = () => {}
+    const waiting = new Promise<void>(go => (release = go))
+    const real = fake.bridge.textContainerUpgrade
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      await waiting
+      return real(upgrade)
+    }
+    for (let at = 13; at <= 24; at++) log.push(`Line ${at}`)
+    shell.redraw()
+    await settle(0)
+    fake.down()
+    release()
+    await settle()
+    expect(fake.lines().at(-1)).toBe('Line 24')
+    log.push('Line 25')
+    shell.redraw()
+    await settle()
+    expect(fake.lines().at(-1)).toBe('Line 25')
+  })
+})
+
 describe('a list', () => {
   it('moves the cursor with a swipe, in place, and stops at each end', async () => {
     const { fake, cursor } = world()

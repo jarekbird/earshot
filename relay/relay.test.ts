@@ -361,9 +361,30 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
     expect(() => relay({ key: 'sk-developer', upstream, fetch: async () => new Response('{}') })).toThrow('needs the address')
   })
 
-  it.each(['backend', '/backend', './backend/v1', 'backend?route=', '/local models', 'back end', ' /backend'])(
-    'is taken when it is a name on the host itself, %j, and resolves to that host and no other',
-    async upstream => {
+  const ROUTES = [
+    ['/api/v1/audio/transcriptions', DEFAULT_MODELS[0]],
+    ['/api/alpha/decisions', DEFAULT_MODELS[1]],
+    ['/api/v1/chat/completions', DEFAULT_MODELS[2]],
+  ]
+  const NAMES = [
+    'backend',
+    '/backend',
+    './backend/v1',
+    'backend?route=',
+    '/local models',
+    'back end',
+    ' /backend',
+    '/\t',
+    '/ ',
+    ' ',
+    '\t/backend\n',
+    '/.',
+    '/a/',
+  ]
+
+  it.each(NAMES.flatMap(upstream => ROUTES.map(([route, model]) => ({ upstream, route, model }))))(
+    'takes the name $upstream on the host itself, and its call to $route goes to that host and no other',
+    async ({ upstream, route, model }) => {
       const urls: string[] = []
       const handle = relay({
         key: 'sk-developer',
@@ -373,16 +394,38 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
           return new Response('{}')
         },
       })
-      await handle(
-        new Request('https://relay.example/api/v1/audio/transcriptions', {
-          method: 'POST',
-          body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
-        }),
-      )
-      expect(urls).toEqual([`${upstream}/api/v1/audio/transcriptions`])
-      expect(new URL(urls[0], 'https://host.example/app/').origin).toBe('https://host.example')
+      await handle(new Request(`https://relay.example${route}`, { method: 'POST', body: JSON.stringify({ model }) }))
+      expect(urls).toHaveLength(1)
+      expect(urls[0].endsWith(route)).toBe(true)
+      for (const base of ['https://host.example/app/', 'https://host.example', 'http://127.0.0.1:8787/x/y'])
+        expect(new URL(urls[0], base).origin).toBe(new URL(base).origin)
     },
   )
+
+  it('passes on a name on the host as a URL reads it, without the spaces at its ends', async () => {
+    const urls: string[] = []
+    const handle = relay({
+      key: 'sk-developer',
+      upstream: ' /backend/ ',
+      fetch: async url => {
+        urls.push(String(url))
+        return new Response('{}')
+      },
+    })
+    await handle(
+      new Request('https://relay.example/api/v1/audio/transcriptions', {
+        method: 'POST',
+        body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
+      }),
+    )
+    expect(urls).toEqual(['/backend/api/v1/audio/transcriptions'])
+  })
+
+  it('takes plain http to any address of this machine, as the whole of 127 is', () => {
+    expect(() => relay({ key: 'sk-developer', upstream: 'http://127.0.0.2:8787' })).not.toThrow()
+    expect(() => relay({ key: 'sk-developer', upstream: 'http://127.example.com' })).toThrow('https')
+    expect(() => relay({ key: 'sk-developer', upstream: 'http://128.0.0.1' })).toThrow('https')
+  })
 
   it("may be nothing at all, as it always could: the host's fetch is handed the path alone", async () => {
     const urls: string[] = []

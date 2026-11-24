@@ -79,7 +79,7 @@ const FIELDS = new Map([
 const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_timeout_ms', 'eager_eot_threshold']
 const KEPT_OUT_OF_TRAINING = ['mip_opt_out', 'true']
 const BYTES = new TextEncoder()
-const THIS_MACHINE = new Set(['localhost', '127.0.0.1', '[::1]'])
+const onThisMachine = (hostname: string) => hostname === 'localhost' || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname)
 // Fact: a URL is read with the spaces and control signs at its two ends taken off.
 const EDGES = /^[\u0000-\u0020]+|[\u0000-\u0020]+$/g
 const STAYS_ON_ITS_HOST = /^(?!\/\/)(?![a-z][a-z0-9+.-]*:)[^\\\u0000-\u001f\u007f]+$/i
@@ -133,12 +133,12 @@ function sealed(address: string | undefined, scheme: 'https' | 'wss', what: stri
   try {
     url = new URL(address ?? '')
   } catch {
-    if (own && address !== undefined && (address === '' || STAYS_ON_ITS_HOST.test(address.replace(EDGES, ''))))
-      return address.replace(/\/+$/, '')
+    const name = (address ?? '').replace(EDGES, '')
+    if (own && address !== undefined && (name === '' || STAYS_ON_ITS_HOST.test(name))) return name.replace(/\/+$/, '')
     throw new Error(`${what} needs the address of its upstream.`)
   }
   if (!WHOLE.test(address ?? '')) throw new Error(`${what} needs the address of its upstream.`)
-  if (url.protocol !== `${scheme}:` && !(url.protocol === plain && THIS_MACHINE.has(url.hostname)))
+  if (url.protocol !== `${scheme}:` && !(url.protocol === plain && onThisMachine(url.hostname)))
     throw new Error(`${what} sends a key, so its upstream is named with ${scheme}.`)
   return (address ?? '').replace(/\/+$/, '')
 }
