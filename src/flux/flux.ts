@@ -27,6 +27,7 @@ export const REFUSALS = { hello: 4400, secret: 4401, model: 4403 }
 const BYTES_PER_S = SAMPLE_RATE * 2
 export const HELD_BYTES = 10 * BYTES_PER_S
 export const PIECE_BYTES = BYTES_PER_S
+export const STALLED_BYTES = 3 * HELD_BYTES
 export const QUIET_MS = 10_000
 export const CONNECT_MS = 10_000
 const RETRY_FIRST_MS = 500
@@ -114,7 +115,7 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
         news.push(() => told?.(now))
       }
 
-      const say = (turn: Turn) => void news.push(() => heard(turn))
+      const say = (turn: Turn) => void news.push(() => heard({ ...turn }))
 
       const cutTurn = () => {
         if (!growing) return
@@ -188,16 +189,24 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
         tell('down')
       }
 
-      const send = ({ pcm, speaker }: Piece) => {
-        if (!line) return
-        for (let at = 0; at < pcm.length; at += PIECE_BYTES) line.socket.send(pcm.subarray(at, at + PIECE_BYTES))
-        const last = runs.at(-1)
-        if (last?.speaker === speaker) last.end = sent + pcm.length
-        else runs.push({ start: sent, end: sent + pcm.length, speaker })
-        sent += pcm.length
+      const send = ({ pcm, speaker, at: heldAt }: Piece) => {
+        for (let at = 0; at < pcm.length; at += PIECE_BYTES) {
+          if (!line) return hold({ pcm: pcm.subarray(at), speaker, at: heldAt })
+          if (line.socket.bufferedAmount > STALLED_BYTES) {
+            lost(0)
+            return hold({ pcm: pcm.subarray(at), speaker, at: heldAt })
+          }
+          const part = pcm.subarray(at, at + PIECE_BYTES)
+          line.socket.send(part)
+          const last = runs.at(-1)
+          if (last?.speaker === speaker) last.end = sent + part.length
+          else runs.push({ start: sent, end: sent + part.length, speaker })
+          sent += part.length
+        }
       }
 
-      const hold = (piece: Piece) => {
+      function hold(given: Piece): void {
+        const piece = { ...given, pcm: given.pcm.slice(-HELD_BYTES - (given.pcm.length % 2)) }
         held.push(piece)
         heldBytes += piece.pcm.length
         while (heldBytes > HELD_BYTES) {
@@ -207,6 +216,14 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
           heldBytes -= extra
           if (!oldest.pcm.length) held.shift()
         }
+      }
+
+      const sendHeld = () => {
+        expire()
+        const waiting = held
+        forget()
+        if (waiting.length) rest()
+        waiting.forEach(send)
       }
 
       function connect(): void {
@@ -227,9 +244,7 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
           mine.connected = true
           mine.life.end()
           failures = 0
-          expire()
-          held.forEach(send)
-          forget()
+          sendHeld()
           tell('on')
         })
       }
@@ -262,7 +277,6 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
           if (line?.connected && sent > 0) leave(1000)
         }
         rest()
-        if (line?.connected && line.socket.bufferedAmount > HELD_BYTES) lost(0)
         if (line?.connected) return send(piece)
         hold(piece)
         if (!line && !retry) connect()

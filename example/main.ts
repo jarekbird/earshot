@@ -129,7 +129,7 @@ const listen = action({
         const say = speech()?.start(
           life,
           turn => {
-            said[turn.id] = `${WHO[turn.speaker]}: ${turn.words}${turn.cut ? ' (cut)' : ''}`
+            said[turn.id] = `${WHO[turn.speaker]}: ${turn.words}${turn.final ? (turn.cut ? ' (cut)' : '') : ' ...'}`
             show()
           },
           state => {

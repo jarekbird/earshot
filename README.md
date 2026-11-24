@@ -203,7 +203,7 @@ enter: life => {
 - A `LiveSpeech` takes sound and gives turns. `start(life, heard)` returns the function to hand each `sound` to, and stops with the lifetime.
 - A turn is `{ id, words, final, cut, speaker }`. It is told again as it grows, with the same `id`, and once more with `final: true`. `cut` is true on a final turn that ended because the sound or the line stopped, not because the speaker did: its words may be half a sentence. `speaker` is who spoke most of it: `self`, `other` or `unknown`.
 - Once the lifetime has ended nothing more is told, not even a last final turn: keep what you were told.
-- `scriptedLive(lines)` is the stand-in for tests and demos: it calls no service. Each `start` says the lines from the first, a word at a time as sound comes in, one word for each 300 ms of it, and ends a turn at a break in the sound.
+- `scriptedLive(lines)` is the stand-in for tests and demos: it calls no service. Each `start` says the lines from the first, a word at a time as sound comes in, one word for each 300 ms of it. It ends a turn at a break in the sound, counts nothing from before the break towards the next word, and names as speaker whoever spoke most of the turn's sound, as the real transport does.
 
 For real words, `fluxLive` sends the sound through your relay (below) to Deepgram's Flux, a model that hears where a turn ends:
 
@@ -219,7 +219,8 @@ const hear = speech.start(life, showTurn, state => showWhetherWordsCome(state))
 - It opens the line at the first sound and closes it when no sound has come for ten seconds. After a drop it tries again, after half a second and then longer, up to eight. It keeps the last ten seconds of sound it could not send, and sends them first, however long the line was away. An app for which late words are worse than none sets `staleMs`: sound held longer than that is not sent.
 - A break in the sound (`sound.gap`: a hold took the microphone, or the phone suspended the app) ends the turn that was growing as `cut`, and what follows goes on a new line, so Flux cannot join words across the break. Sound still held from before the break, because the line was away, is let go. `scriptedLive` cuts there too.
 - While the line is up, sound goes out as it comes, whatever its length. The ten seconds are only for sound that cannot be sent yet.
-- Your listener is told of a turn or a change only after the transport has settled it, so it may feed sound or end the lifetime from there.
+- Your listener is told of a turn or a change only after the transport has settled it, so it may feed sound or end the lifetime from there. The turn it is handed is its own to keep or change.
+- Sound the transport holds is a copy: reuse your buffer as you like.
 - A turn that was still growing when the line dropped, or when the sound stopped, is told once more as final and `cut`, with the words it had. Turns are numbered on across lines.
 - `speaker` is whoever the glasses said was speaking for most of the stretch of sound the turn was made from.
 
@@ -299,7 +300,7 @@ export default {
 
 `relayOptions` names every setting a host passes, set or not, so a host cannot leave one out. `Env` is those settings as your Worker has them, and `sockets` is how a Worker takes and opens a WebSocket, for live speech: copy both from `example/worker.ts`, which is this Worker. `MODELS` is the same comma-separated list as `EARSHOT_RELAY_MODELS`. The two are one server: what the Node server does the Worker does.
 
-`serve` from `earshot/relay/node` starts the same Node server from your own code. Closing that server hangs up on its live callers.
+`serve` from `earshot/relay/node` starts the same Node server from your own code. Closing that server tells its live callers it is going (1001) and lets go of their upstreams at once. A WebSocket on a path of your own stays yours: add your `upgrade` listener to the server it returns.
 
 For live speech the relay needs three more settings. It can also run with these alone, and then it forwards none of the three calls.
 
@@ -319,7 +320,7 @@ What the relay does:
 - It adds your key on the way out, follows the upstream to no other address, and passes back only the answer.
 - It waits ten seconds for a question or a shortening and twenty-eight for speech, just under what Earshot waits for each, so a slow upstream comes back as the relay's own answer.
 
-- For live speech it takes one WebSocket at `/api/v1/live`. The caller's first message must carry the secret and a model you list, within three seconds; then sound goes up and words come back. Text the caller sends after that goes nowhere, and any message over 64 kilobytes ends the line. It gives the upstream five seconds to open, follows it to no other address, lets go of it when the caller leaves, and passes on no message of the upstream's over 64 kilobytes. On Node it stops passing to a side that has stopped taking, at a mebibyte queued; a Worker cannot see its queue, and its runtime's memory limit is the bound there. It asks Deepgram to keep every line's sound out of its model-improvement programme (`mip_opt_out`), whatever the caller asks.
+- For live speech it takes one WebSocket at `/api/v1/live`. The caller's first message must carry the secret and a model you list, within three seconds; then sound goes up and words come back. Text the caller sends after that goes nowhere, and any message over 64 kilobytes ends the line. It gives the upstream five seconds to open, follows it to no other address, lets go of it when the caller leaves, and ends the line if the upstream sends a message over 64 kilobytes, text or sound. On Node it stops passing to a side that has stopped taking, at a mebibyte queued; a Worker cannot see its queue, and its runtime's memory limit is the bound there. It asks Deepgram to keep every line's sound out of its model-improvement programme (`mip_opt_out`), whatever the caller asks.
 
 What it does not do: tell one user from another. Anyone who finds the address can spend your credit on the three calls, so **set a spending limit on the key at OpenRouter**, for example a few dollars a month. That limit is the most a stranger can cost you; when it is reached, voice is off for everyone until it resets. Live speech is billed by the minute and Cloudflare offers no such limit, which is why a line opens only with the secret. The relay does not yet count the minutes: whoever holds the secret can use as many as they like.
 

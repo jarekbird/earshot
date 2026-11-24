@@ -1,7 +1,7 @@
 import { createServer, STATUS_CODES, type IncomingMessage, type Server } from 'node:http'
 import { Readable } from 'node:stream'
 import { WebSocket as Upstream, WebSocketServer } from 'ws'
-import { MAX_FRAME, relay, relayOptions, type Line, type RelayOptions, type Sockets } from './relay.js'
+import { LIVE_PATH, MAX_FRAME, relay, relayOptions, type Line, type RelayOptions, type Sockets } from './relay.js'
 
 export interface ServeOptions extends RelayOptions {
   port?: number
@@ -52,7 +52,10 @@ export function serve({ port = PORT, hostname, ...options }: ServeOptions): Prom
       outgoing.writeHead(500).end()
     }
   })
+  const closing = new AbortController()
   server.on('upgrade', async (incoming, socket, head) => {
+    const others = server.listenerCount('upgrade') > 1
+    if (others && (incoming.url ?? '').split('?')[0] !== LIVE_PATH) return
     let taken = false
     const accept: Sockets['accept'] = () => {
       taken = true
@@ -64,7 +67,7 @@ export function serve({ port = PORT, hostname, ...options }: ServeOptions): Prom
       )
     }
     try {
-      const response = await handle(requestOf(incoming), { accept, dial })
+      const response = await handle(requestOf(incoming), { accept, dial, closing: closing.signal })
       if (taken) return
       const body = await response.text()
       socket.end(
@@ -76,7 +79,7 @@ export function serve({ port = PORT, hostname, ...options }: ServeOptions): Prom
   })
   const stop = server.close.bind(server)
   server.close = done => {
-    for (const line of lines.clients) line.close(1001)
+    closing.abort()
     return stop(done)
   }
   return new Promise((resolve, reject) => {

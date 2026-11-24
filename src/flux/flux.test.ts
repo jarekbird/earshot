@@ -13,6 +13,7 @@ import {
   QUIET_MS,
   REFUSALS,
   retryDelay,
+  STALLED_BYTES,
   type FluxOptions,
   type FluxSocket,
 } from './flux.js'
@@ -276,6 +277,66 @@ describe('live speech from Flux, through the relay', () => {
     expect(seen).toEqual([1, 2])
   })
 
+  it('goes on sending a long piece on a line that is taking it, and stops in the middle of one on a line that is not', () => {
+    const { lines, states, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    const taking = lines[0]
+    taking.send = data => {
+      taking.sent.push(data)
+      taking.bufferedAmount += typeof data === 'string' ? 0 : data.length
+    }
+    hear(sound(12_000))
+    expect(states).toEqual([])
+    hear(sound(40_000, 'unknown', 8))
+    expect(states).toEqual(['down'])
+    expect(taking.closedWith).toBeDefined()
+    expect(taking.sound).toBeLessThan(3_200 + 384_000 + 1_280_000)
+    vi.advanceTimersByTime(retryDelay(1))
+    lines[1].connects()
+    expect(lines[1].sound).toBe(HELD_BYTES)
+  })
+
+  it('keeps its own copy of sound it holds: what the app does with its buffer afterwards changes nothing', () => {
+    const { lines, hear } = listening()
+    const reused = new Uint8Array(64_000).fill(1)
+    hear({ pcm: reused.subarray(0, 3_200), speaker: 'unknown', gap: false })
+    reused.fill(9)
+    lines[0].connects()
+    const first = lines[0].sent[1] as Uint8Array
+    expect([first[0], first.buffer.byteLength]).toEqual([1, 3_200])
+  })
+
+  it('hands the listener a turn of its own: changing it does not change what the transport knows', () => {
+    const life = new Lifetime()
+    const lines: Line[] = []
+    const told: string[] = []
+    const open = (url: string) => lines[lines.push(new Line(url)) - 1]
+    const hear = fluxLive({ host: 'https://relay.example', open }).start(life, turn => {
+      told.push(`${turn.id} ${turn.words}${turn.final ? '.' : ''}`)
+      turn.id = 99
+      turn.words = 'changed'
+    })
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(0, 'one'))
+    lines[0].says(info(0, 'one two', 'EndOfTurn'))
+    lines[0].says(info(1, 'three'))
+    lines[0].drops()
+    expect(told).toEqual(['0 one', '0 one two.', '1 three', '1 three.'])
+  })
+
+  it('gives sound it had held the whole quiet time once it has gone out, so its words are still heard', () => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    vi.advanceTimersByTime(QUIET_MS - 100)
+    lines[0].connects()
+    vi.advanceTimersByTime(200)
+    lines[0].says(info(0, 'late but said', 'EndOfTurn'))
+    expect(turns.map(turn => turn.words)).toEqual(['late but said'])
+    expect(lines[0].closedWith).toBeUndefined()
+  })
+
   it('sends at once, and whole, a piece of sound of any length while the line is up', () => {
     const { lines, hear } = listening()
     hear(sound(100))
@@ -452,7 +513,7 @@ describe('live speech from Flux, through the relay', () => {
     const { lines, states, hear } = listening()
     hear(sound(100))
     lines[0].connects()
-    lines[0].bufferedAmount = HELD_BYTES + 1
+    lines[0].bufferedAmount = STALLED_BYTES + 1
     hear(sound(100))
     expect(lines[0].closedWith).toBeDefined()
     expect(states).toEqual(['down'])

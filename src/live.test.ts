@@ -35,12 +35,29 @@ describe('scripted live speech, the offline stand-in', () => {
     ])
   })
 
-  it('gives a turn to whoever was speaking as most of its words were said', () => {
+  it('gives a turn to whoever spoke most of the sound it was made from, as the transport for real speech does', () => {
     const { turns, hear } = listening(['one two three', 'four'])
     hear(sound(200, 'self'))
     hear(sound(700, 'other'))
     hear(sound(300, 'self'))
-    expect(turns.map(turn => turn.speaker)).toEqual(['other', 'other', 'other', 'self'])
+    expect(turns.map(turn => turn.speaker)).toEqual(['self', 'other', 'other', 'self'])
+  })
+
+  it('does not hand a word to whoever spoke only its last moment', () => {
+    const { turns, hear } = listening(['yes'])
+    hear(sound(299, 'self'))
+    hear(sound(1, 'other'))
+    expect(turns.map(turn => [turn.words, turn.speaker])).toEqual([['yes', 'self']])
+  })
+
+  it('counts nothing from before a break towards the next word', () => {
+    const { turns, hear } = listening(['one two', 'three'])
+    hear(sound(299))
+    hear(sound(1, 'unknown', true))
+    expect(turns).toEqual([])
+    hear(sound(550))
+    hear(sound(50, 'unknown', true))
+    expect(turns.map(turn => `${turn.id} ${turn.words}${turn.cut ? ' cut' : ''}`)).toEqual(['0 one', '0 one cut'])
   })
 
   it('names the speaker of each turn that one piece of sound finishes, not only of the first', () => {

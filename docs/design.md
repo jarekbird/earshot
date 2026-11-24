@@ -421,8 +421,10 @@ words as they come.
 - Nothing is told once the lifetime has ended, also when the listener ended it while being told: a turn that was
   growing then stays as it was last told (E7).
 - `scriptedLive` is the offline stand-in (E4), driven by the amount of sound alone, so a test needs no clock. Each
-  start plays the lines from the first, so two listeners on one script do not take each other's lines. The example's
-  Listen screen shows its turns.
+  start plays the lines from the first, so two listeners on one script do not take each other's lines. Where the
+  real transport draws a line, the stand-in draws the same one: a break ends the turn and nothing from before it
+  counts towards the next word, and the speaker is whoever spoke most of the turn's sound. The example's Listen
+  screen shows its turns, a growing one with three dots after it.
 - `fluxLive` (`src/flux`, the second folder that may open a connection, E2) is the transport: sound to the
   developer's relay over one WebSocket, and Deepgram Flux's turns back. Flux decides where a turn ends, so Earshot
   cuts nothing by pauses. The relay is named with `https`, or is on the same device: the line carries the secret.
@@ -447,12 +449,16 @@ The line, as states:
 - A break in the sound ends the turn that was growing, as cut, and what follows goes on a new line: on one line Flux
   would join the words on either side of a hold. Sound still held from before the break is let go, so no line ever
   carries both sides. The stand-in cuts at a break too, so an app tested on it sees what it will get.
+- **What the transport holds and hands over is its own.** Held sound is a copy of exactly what is held, so an app
+  may reuse its buffer. A turn handed to the listener is a copy too. Sound that was held gets the whole quiet time
+  from the moment it goes out, so its words are still heard.
 - **The app is told last.** Every step of the transport (a sound, a message, a close, a timer) first settles its own
   state and only then tells the listener of turns and changes, in order. A listener may feed sound or end the
   lifetime from inside its callback and finds the transport as the callback describes it. The stand-in moves on to
   its next line before it tells of a final turn, for the same reason.
 - Sound goes out a second at a time at most, whatever size the glasses hand over, so the relay's limit on one piece
-  is never met by a well-behaved app. A line whose sound is not getting out (ten seconds of it queued) counts as lost.
+  is never met by a well-behaved app. A line whose sound is not getting out (thirty seconds of it queued, looked at
+  before each second that goes out) counts as lost, and the rest of the piece is held.
 - The speaker of a turn is whoever the glasses named for most of the stretch of sound Flux says the turn came from.
   The transport keeps who spoke only for sound no finished turn has covered.
 - The first tests ran on what Flux really sent: 90 messages recorded on 2026-11-23 from 21 seconds of synthetic
@@ -478,8 +484,13 @@ The line, as states:
   same machine. The relay follows an upstream to no other address, for the three calls as for live speech, so a
   redirect gets no key and no recording.
 - **What the relay starts ends with the caller.** When the caller leaves, the relay tells the host to stop reaching
-  for the upstream, and closes it if it opened all the same. Closing the Node server hangs up on its callers.
-- **It holds little.** A message of the upstream's over 64 kilobytes ends the line (4502) on both hosts. On Node the
+  for the upstream, and closes it if it opened all the same. A host that is closing says so (`Sockets.closing`); the
+  relay then tells each caller it is going (1001) and lets go of the upstream at once, without waiting for the
+  caller to answer. The Node server does this when it is closed.
+- **The Node server takes only its own WebSocket path.** An upgrade on any other path is left to the app's own
+  listener, when it has one. The upstream of the three calls may carry a query of its own, as it always could.
+- **It holds little.** A message of the upstream's over 64 kilobytes, text or sound, ends the line (4502) on both
+  hosts. On Node the
   relay stops passing to a side that has stopped taking once a mebibyte is queued for it (1013). A Worker's
   WebSocket does not say how much it has queued, so there the runtime's memory limit is the bound.
 - **The upstream is Cloudflare's AI Gateway, for both hosts.** Reaching Workers AI through a Worker's own binding

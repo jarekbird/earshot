@@ -30,10 +30,10 @@ interface Setup {
   calls?: boolean
   door?: boolean
   deaf?: boolean
-  long?: boolean
+  long?: 'text' | 'sound'
 }
 
-async function gateway({ script, slowMs = 0, silent = false, door = false, deaf = false, long = false }: Setup = {}) {
+async function gateway({ script, slowMs = 0, silent = false, door = false, deaf = false, long }: Setup = {}) {
   const seen = { urls: [] as string[], sound: 0, text: [] as string[], closed: 0, refused: 0, asked: 0, abandoned: 0 }
   const callers = new Set<Caller>()
   const server = new WebSocketServer({
@@ -60,7 +60,9 @@ async function gateway({ script, slowMs = 0, silent = false, door = false, deaf 
     seen.urls.push(request.url ?? '')
     caller.send(script?.[0] ?? JSON.stringify({ type: 'Connected' }))
     caller.send(new Uint8Array(8))
-    if (long) caller.send(JSON.stringify({ type: 'TurnInfo', transcript: 'a'.repeat(MAX_FRAME) }))
+    if (long === 'text') caller.send(JSON.stringify({ type: 'TurnInfo', transcript: 'a'.repeat(MAX_FRAME) }))
+    if (long === 'sound') caller.send(new Uint8Array(MAX_FRAME + 1))
+    if (long) caller.send(JSON.stringify({ type: 'TurnInfo', transcript: 'after' }))
     if (deaf) (caller as unknown as { _socket: Socket })._socket.pause()
     caller.on('message', (data: Buffer, binary: boolean) => {
       if (!binary) return void seen.text.push(String(data))
@@ -343,14 +345,17 @@ describe('E13: live speech through the relay, on the Node server and on the Work
     expect(code).toBe(CLOSES.big)
   })
 
-  it('both hang up on the caller when the upstream says more in one message than the relay passes on', async () => {
-    const answer = await both({ long: true }, async ({ at }) => {
-      const { got, ended, say } = call(at)
-      await say(greeting())
-      return { code: await ended, got }
-    })
-    expect(answer).toEqual({ code: CLOSES.upstream, got: ['{"type":"Connected"}'] })
-  })
+  it.each(['text', 'sound'] as const)(
+    'both hang up on the caller when the upstream sends more %s in one message than the relay takes',
+    async long => {
+      const answer = await both({ long }, async ({ at }) => {
+        const { got, ended, say } = call(at)
+        await say(greeting())
+        return { code: await ended, got }
+      })
+      expect(answer).toEqual({ code: CLOSES.upstream, got: ['{"type":"Connected"}'] })
+    },
+  )
 
   it('the Node server stops passing sound to an upstream that has stopped taking it, before it holds much of it', async () => {
     const up = await gateway({ deaf: true })
@@ -368,16 +373,55 @@ describe('E13: live speech through the relay, on the Node server and on the Work
     expect(await ended).toBe(CLOSES.stalled)
   })
 
-  it('the Node server, when it is closed, hangs up on its callers, and so on their upstreams', async () => {
+  it('the Node server, when it is closed, tells its callers it is going and lets go of their upstreams at once', async () => {
     const up = await gateway()
     const server = await serve({ live: { upstream: up.at, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
     const { got, ended, say } = call(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
     await say(greeting())
     await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
     const closed = new Promise<void>(done => server.close(() => done()))
-    expect(await ended).toBe(1001)
+    expect(await ended).toBe(CLOSES.going)
     await vi.waitFor(() => expect(up.seen.closed).toBe(1), WAIT)
     await closed
+  })
+
+  it('the Node server, when it is closed, lets go of an upstream whose caller does not answer the goodbye', async () => {
+    const up = await gateway()
+    const server = await serve({ live: { upstream: up.at, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
+    const { line, got, say } = call(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
+    await say(greeting())
+    await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
+    ;(line as unknown as { _socket: Socket })._socket.pause()
+    server.close()
+    await vi.waitFor(() => expect(up.seen.closed).toBe(1), { timeout: 2_000, interval: 10 })
+  })
+
+  it('the Node server, when it is closed, stops reaching for an upstream that has not answered yet', async () => {
+    const up = await gateway({ silent: true })
+    const server = await serve({ live: { upstream: up.at, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
+    const { say } = call(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
+    await say(greeting())
+    await vi.waitFor(() => expect(up.seen.asked).toBe(1), WAIT)
+    server.close()
+    await vi.waitFor(() => expect(up.seen.abandoned).toBe(1), { timeout: 2_000, interval: 10 })
+  })
+
+  it("the Node server leaves a WebSocket on a path of the app's own to the app", async () => {
+    const up = await gateway()
+    const server = await serve({ live: { upstream: up.at, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
+    onTestFinished(() => void server.close())
+    const own = new WebSocketServer({ noServer: true })
+    server.on('upgrade', (incoming, socket, head) => {
+      if (incoming.url === '/sync') own.handleUpgrade(incoming, socket, head, line => line.send('the app has it'))
+    })
+    const at = `127.0.0.1:${(server.address() as AddressInfo).port}`
+    const mine = new Caller(`ws://${at}/sync`)
+    onTestFinished(() => mine.terminate())
+    const said = await new Promise<string>(heard => mine.on('message', data => heard(String(data))))
+    expect(said).toBe('the app has it')
+    const { got, say } = call(`http://${at}`)
+    await say(greeting())
+    await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
   })
 
   it('both pass on sound only: what the caller says in text after the greeting goes nowhere', async () => {
