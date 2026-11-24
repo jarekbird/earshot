@@ -138,8 +138,7 @@ export class Shell {
   #turn = 0
   #said = false
   #deciding: Lifetime | null = null
-  #asked: Array<{ frame: number; screen: Screen; page: Page }> = []
-  #scrolled: { screen: Screen; frame: number } | null = null
+  #asked: Array<{ frame: number; screen: Screen; page: Page; scrolled: boolean }> = []
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -168,6 +167,10 @@ export class Shell {
   }
 
   redraw(): void {
+    this.#draw(false)
+  }
+
+  #draw(scrolled: boolean): void {
     if (this.#life.ended) return
     const screen = this.#router.current
     const actions = this.#router.actions()
@@ -203,21 +206,28 @@ export class Shell {
     this.#shown()
     const frame = this.#glasses.draw({ boxes, pictures, menu })
     this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls, page }
-    this.#asked.push({ frame, screen, page })
+    this.#asked.push({ frame, screen, page, scrolled })
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
     this.#shown()
     const seen = this.#asked[0]
     const onGlasses = seen && seen.frame <= this.#glasses.shown && seen.screen === drawn.screen ? seen.page : drawn.page
-    const asked = this.#scrolled?.screen === drawn.screen && this.#scrolled.frame > this.#glasses.shown
-    const from = asked ? drawn.page : onGlasses
+    const from = this.#scrolledTo(drawn.screen) ?? onGlasses
     const lines = up ? -from[by].up : from[by].down
     if (drawn.view.kind !== 'text' || !drawn.view.end) place.top += lines
     else if (!up && from.atEnd) Object.assign(place, { top: 0, away: false })
     else Object.assign(place, { top: from.at + lines, away: true })
-    this.redraw()
-    if (this.#drawn) this.#scrolled = { screen: drawn.screen, frame: this.#drawn.frame }
+    this.#draw(true)
+  }
+
+  #scrolledTo(screen: Screen): Page | undefined {
+    for (let at = this.#asked.length - 1; at >= 0; at--) {
+      const asked = this.#asked[at]
+      if (asked.screen !== screen || asked.frame <= this.#glasses.shown) return undefined
+      if (asked.scrolled) return asked.page
+    }
+    return undefined
   }
 
   #shown(): Screen | undefined {

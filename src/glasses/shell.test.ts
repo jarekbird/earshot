@@ -266,6 +266,23 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(fake.lines().at(-1)).toBe('Line 31')
   })
 
+  it('counts a swipe on from the swipes before it, not from text the app added between them that no one has seen', async () => {
+    const { fake, router, shell } = world()
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 22')
+    const release = held(fake)
+    fake.up()
+    fake.down()
+    for (let at = 31; at <= 50; at++) log.push(`Line ${at}`)
+    shell.redraw()
+    fake.up()
+    release()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 20')
+  })
+
   it('counts the first from the page the wearer saw and the second on from there, while more text is on its way too', async () => {
     const { fake, router, shell } = world()
     const log = Array.from({ length: 12 }, (_, at) => `Line ${at + 1}`)
