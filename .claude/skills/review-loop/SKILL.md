@@ -1,9 +1,11 @@
 ---
 name: review-loop
-description: Review an Earshot branch with a panel of focused reviewers before it merges. Use after a branch passes npm run check, or when Jarek asks for a review.
+description: The maintainer's review of an Earshot branch, with a panel of focused reviewers, before it merges. Use after a branch of the maintainer's own passes npm run check, or when Jarek asks for a review. An outside contribution follows CONTRIBUTING.md and starts no panel.
 ---
 
 # Review loop
+
+The maintainer's process. An outside contribution follows `CONTRIBUTING.md` and runs none of this.
 
 ## Panel
 

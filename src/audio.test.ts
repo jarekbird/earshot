@@ -46,6 +46,12 @@ describe('a recording', () => {
     ])
     expect([...wav.subarray(44, 54)]).toEqual([...pcm.subarray(0, 10)])
   })
+
+  it('is a sound file a request can carry as its body, as the README posts it', async () => {
+    const pcm = tone(100, 8_000)
+    const request = new Request('http://localhost/', { method: 'POST', body: toWav(pcm) })
+    expect((await request.arrayBuffer()).byteLength).toBe(44 + pcm.length)
+  })
 })
 
 describe('a long recording', () => {
