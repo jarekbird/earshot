@@ -59,9 +59,9 @@ export class Frames {
     return this.#asked.findLast(asked => asked.frame <= this.#progress.menu)?.showing
   }
 
-  kind(showing: unknown): View['kind'] | undefined {
+  get seen(): { showing: unknown; kind: View['kind'] } | undefined {
     this.forget()
-    return this.#asked.findLast(asked => asked.showing === showing && asked.frame <= this.#read())?.kind
+    return this.#asked.findLast(asked => asked.frame <= this.#read())
   }
 
   swiping(showing: unknown, to: Read): void {

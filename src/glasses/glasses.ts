@@ -192,6 +192,7 @@ export class Glasses {
   readonly #listeners = new Set<{ hear: (input: Input) => void }>()
   readonly #mic: Mic
   #frame: Frame = { boxes: [] }
+  #before: Frame = { boxes: [] }
   #overlay: string | null = null
   #wanted: Page | null = null
   #shape = ''
@@ -248,7 +249,9 @@ export class Glasses {
         return () => void this.#following.delete(told)
       },
       drop: frame => {
-        if (this.#wanted?.frame === frame && progress.sending !== frame) this.#wanted = null
+        if (this.#wanted?.frame !== frame || progress.sending === frame) return
+        this.#wanted = null
+        if (frame === this.#frames) this.#frame = this.#before
       },
     }
   }
@@ -294,6 +297,7 @@ export class Glasses {
     const pictures = (frame.pictures ?? []).filter(fits).length - MAX_IMAGE_BOXES
     if (pictures > 0)
       console.error(`Earshot: the glasses take ${MAX_IMAGE_BOXES} pictures. The last ${pictures} of this frame are left out.`)
+    this.#before = this.#frame
     this.#frame = frame
     const number = ++this.#frames
     this.#watch({ at: 'ask', frame: number, page: frame })
@@ -397,8 +401,8 @@ export class Glasses {
         }
         this.#progressed({ sending: frame })
         this.#watch({ at: 'begin', frame, rebuild })
-        const written = rebuild ? await this.#build(page, shape) : await this.#update(page)
-        if (written && !rebuild && !this.#life.ended) this.#progressed({ menu: frame })
+        const written = rebuild ? await this.#build(page, shape) : await this.#update(page, true)
+        if (written && !rebuild && !this.#life.ended && this.#progress.menu !== frame) this.#progressed({ menu: frame })
         const drawn = written && (await this.#hang(page))
         if (this.#life.ended) return void (this.#progress.sending = 0)
         this.#progressed(drawn ? { shown: frame, menu: frame, sending: 0 } : { sending: 0 })
@@ -485,7 +489,7 @@ export class Glasses {
     return drawn && !this.#life.ended
   }
 
-  async #update({ frame, boxes }: Page): Promise<boolean> {
+  async #update({ frame, boxes }: Page, whole = false): Promise<boolean> {
     let drawn = true
     for (const box of boxes) {
       if (this.#sent.get(box.id) === stateOf(box)) {
@@ -501,7 +505,7 @@ export class Glasses {
       const taken = () => {
         this.#sent.set(box.id, stateOf(box))
         this.#from.set(box.name, frame)
-        this.#progressed({})
+        this.#progressed(whole && boxes.every(other => this.#sent.get(other.id) === stateOf(other)) ? { menu: frame } : {})
       }
       const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name, taken)
       if (this.#life.ended) return false

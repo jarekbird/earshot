@@ -156,7 +156,13 @@ export class Shell {
     })
     this.#life.own(sent.onChange(() => this.#frames.forget()))
     this.#life.own(() => this.#frames.end())
-    this.#life.own(router[SHOWINGS].onLeave(() => this.#frames.left(showing => router[SHOWINGS].onPath(showing))))
+    this.#life.own(
+      router[SHOWINGS].onLeave(() => {
+        this.#frames.left(showing => router[SHOWINGS].onPath(showing))
+        if (router[SHOWINGS].onPath(router[SHOWINGS].current)) return
+        this.#callOff()
+      }),
+    )
     this.#router = router
     this.#words = { ...WORDS, ...options.words }
     this.#noticeMs = options.noticeMs ?? NOTICE_MS
@@ -362,7 +368,8 @@ export class Shell {
     const place = this.#places.get(showing)
     if (!drawn || drawn.showing !== showing || !place || !this.#router[SHOWINGS].onPath(showing)) return
     const { view } = drawn
-    if ((this.#frames.kind(showing) ?? view.kind) !== view.kind) return
+    const seen = this.#frames.seen
+    if (seen && (seen.kind !== view.kind || (view.kind !== 'text' && seen.showing !== showing))) return
     if (view.kind === 'boxes') {
       const bound = view.on?.[input.kind]
       if (!bound) return
@@ -464,7 +471,7 @@ export class Shell {
     if (!recording || !voice) return
     recording.end()
     const pcm = joinPcm(recording.chunks)
-    if (this.#router[SHOWINGS].current !== recording.showing) return this.#clear()
+    if (this.#router[SHOWINGS].current !== recording.showing || !this.#router[SHOWINGS].onPath(recording.showing)) return this.#clear()
     if (problemWith(pcm)) return this.notice(this.#words.missed)
     void this.#decide(voice, { pcm, seconds: secondsOf(pcm) })
   }
@@ -474,7 +481,7 @@ export class Shell {
     const showing = this.#router[SHOWINGS].current
     const life = this.#life.child()
     const mine = () => turn === this.#turn && !this.#life.ended
-    const moved = () => this.#router[SHOWINGS].current !== showing
+    const moved = () => this.#router[SHOWINGS].current !== showing || !this.#router[SHOWINGS].onPath(showing)
     const finish = (then: () => void) => {
       if (!mine()) return
       this.#deciding = null
@@ -524,8 +531,10 @@ export class Shell {
     navigate: boolean,
   ): Promise<{ verdict: Verdict; more: boolean }> {
     const agents = [...(navigate ? [navigator(voice.model ?? matchWords)] : []), ...(voice.agents ?? [])]
+    const showings = this.#router[SHOWINGS]
+    const showing = showings.current
     for (const [index, agent] of agents.entries()) {
-      if (said.life.ended) throw new LifetimeEnded()
+      if (said.life.ended || showings.current !== showing || !showings.onPath(showing)) throw new LifetimeEnded()
       const screen = this.#context()
       const verdict = await agent({
         ...said,
