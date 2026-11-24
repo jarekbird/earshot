@@ -490,11 +490,12 @@ The line, as states:
 - **The Node server takes only its own WebSocket path, and none without live speech.** An upgrade on any other path
   is left to the app's own listener, when it has one; with no live speech set the server listens for no upgrade at
   all. The upstream of the three calls is used spelled as the developer spelled it, a query of its own
-  included, as it always was. For a host that brings its own `fetch` it may be a name on that host (`backend`,
-  `/backend`), as it always could; what could name another host when it is resolved (two slashes or a scheme at the start, a backslash, a control sign) is refused. The name is read as a URL reads it, without the spaces and control signs at its two ends, and that reading is what is passed on, so the name that was checked is the name that is used. The live upstream is dialled at the address that was checked.
-  A whole address is written with its scheme and two slashes, and with `https` (`wss` for live speech), or plain
-  `http` (`ws`) on the same machine (`localhost`, `[::1]`, anything in 127) and no other scheme, so the address that was checked is the one that is used on
-  either host.
+  included, as it always was. It is always a whole address, written with its scheme and two slashes, and with
+  `https` (`wss` for live speech), or plain `http` (`ws`) on the same machine (`localhost`, `[::1]`, anything in 127)
+  and no other scheme, so the address that was checked is the one that is used on either host. A host that brings
+  its own `fetch` names a whole address too. For some rounds of review it could name a path on itself, as it could
+  before this change; every way of checking such a name left one that came to mean another host, so it was removed
+  (Jarek, 2026-11-23). The live upstream is dialled at the address that was checked.
 - **An upstream that misbehaves is dropped at once.** When the Node server's socket to the upstream fails (a
   message too large, say), it is destroyed there and then, so the caller hears 4502 as soon as a Worker's would.
 - **A refused upgrade leaves no socket behind.** The Node server destroys the socket once its answer is written,
