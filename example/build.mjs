@@ -1,10 +1,11 @@
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { build } from 'esbuild'
+import { relayAddress } from './address.mjs'
 
+const relay = relayAddress(process.env.EARSHOT_RELAY)
 rmSync('example/dist', { recursive: true, force: true })
 mkdirSync('example/dist', { recursive: true })
 mkdirSync('example/build', { recursive: true })
-const relay = process.env.EARSHOT_RELAY ?? ''
 await build({
   entryPoints: ['example/main.ts'],
   bundle: true,

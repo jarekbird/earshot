@@ -47,7 +47,7 @@ const scripted = flags.get('say')?.split('|')
 const secret = document.getElementById('secret') as HTMLInputElement
 const STALE_MS = 3_000
 const speech = () => {
-  if (flags.has('live')) return scriptedLive(flags.get('live')!.split('|'), Number(flags.get('pace')) || undefined)
+  if (flags.has('live')) return scriptedLive(flags.get('live')!.split('|'))
   return EARSHOT_RELAY && secret.value ? fluxLive({ host: EARSHOT_RELAY, secret: secret.value, staleMs: STALE_MS }) : undefined
 }
 
@@ -164,6 +164,14 @@ const router: Router = new Router({
     view: () => list({ title: 'Earshot example', action: open, empty: 'No notes' }),
   },
 })
+
+life.own(
+  glasses.onInput(input => {
+    if (input.kind !== 'exit') return
+    router.close()
+    life.end()
+  }),
+)
 
 const rolling = new Rolling(life, service ? { compact: service.compact } : {})
 for (const note of notes) rolling.add(open, note.id, note.body)

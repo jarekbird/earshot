@@ -220,7 +220,9 @@ const hear = speech.start(life, showTurn, state => showWhetherWordsCome(state))
 - A break in the sound (`sound.gap`: a hold took the microphone, or the phone suspended the app) ends the turn that was growing as `cut`, and what follows goes on a new line, so Flux cannot join words across the break. Sound still held from before the break, because the line was away, is let go. `scriptedLive` cuts there too.
 - While the line is up, sound goes out as it comes, whatever its length. The ten seconds are only for sound that cannot be sent yet.
 - Your listener is told of a turn or a change only after the transport has settled it, so it may feed sound or end the lifetime from there. The turn it is handed is its own to keep or change.
-- Sound the transport holds is a copy, a Node `Buffer` included: reuse your buffer as you like.
+- Sound the transport holds is a copy, a Node `Buffer` included: reuse your buffer as you like. A piece with no sound in it opens nothing and keeps nothing awake.
+- If your listener throws, or answers with a promise that fails, only a fixed sentence is reported, never the words it was handed. The same goes for the stand-in.
+- Ending the lifetime closes the line. Sound the browser had already taken for that line may still go out before it closes: a page cannot take it back.
 - A turn that was still growing when the line dropped, or when the sound stopped, is told once more as final and `cut`, with the words it had. Turns are numbered on across lines.
 - `speaker` is whoever the glasses said was speaking for most of the stretch of sound the turn was made from.
 
@@ -304,12 +306,12 @@ export default {
 
 For live speech the relay needs three more settings. It can also run with these alone, and then it forwards none of the three calls.
 
-| Node                          | Worker          | What                                                                                     |
-| ----------------------------- | --------------- | ---------------------------------------------------------------------------------------- |
-| `EARSHOT_RELAY_LIVE_UPSTREAM` | `LIVE_UPSTREAM` | The `wss` address of your Cloudflare AI Gateway's Workers AI path, with no query         |
-| `EARSHOT_RELAY_LIVE_KEY`      | `LIVE_KEY`      | A Cloudflare token that may run requests through that gateway                            |
-| `EARSHOT_RELAY_SECRET`        | `SECRET`        | What an app must say before a line opens: sixteen characters or more, of your own making |
-| `EARSHOT_RELAY_LIVE_MODELS`   | `LIVE_MODELS`   | A comma-separated list, when your app uses another model than `@cf/deepgram/flux`        |
+| Node                          | Worker          | What                                                                                 |
+| ----------------------------- | --------------- | ------------------------------------------------------------------------------------ |
+| `EARSHOT_RELAY_LIVE_UPSTREAM` | `LIVE_UPSTREAM` | The `wss` address of your Cloudflare AI Gateway's Workers AI path, with no query     |
+| `EARSHOT_RELAY_LIVE_KEY`      | `LIVE_KEY`      | A Cloudflare token that may run requests through that gateway                        |
+| `EARSHOT_RELAY_SECRET`        | `SECRET`        | What an app must say before a line opens: 16 to 1,024 characters, of your own making |
+| `EARSHOT_RELAY_LIVE_MODELS`   | `LIVE_MODELS`   | A comma-separated list, when your app uses another model than `@cf/deepgram/flux`    |
 
 With no upstream for it the relay has no live path. With one, no relay is made without the key and the secret, whichever way it is started. An upstream is named with `https` (`wss` for live speech), so that no key travels in the clear; one on the same machine may be plain. Turn the gateway's logs off: they are on for a new gateway, and they would keep what was said.
 

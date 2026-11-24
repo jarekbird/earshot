@@ -438,6 +438,11 @@ The line, as states:
 - **What the transport holds and hands over is its own.** Held sound is a copy of exactly what is held, so an app
   may reuse its buffer. A turn handed to the listener is a copy too. Sound that was held gets the whole quiet time
   from the moment it goes out, so its words are still heard.
+- **A listener's failure says nothing of what was heard.** Turns and changes are handed over the way the microphone
+  hands over sound: if the listener throws, or its promise fails, one fixed sentence is reported and the words stay
+  out of it. The stand-in does the same.
+- **What ending cannot take back.** Ending the lifetime closes the line and lets go of held sound, but sound the
+  browser had already taken for the line may still be sent before the close: a page cannot cancel it.
 - **The app is told last.** Every step of the transport (a sound, a message, a close, a timer) first settles its own
   state and only then tells the listener of turns and changes, in order. A listener may feed sound or end the
   lifetime from inside its callback and finds the transport as the callback describes it. The stand-in moves on to
@@ -462,7 +467,7 @@ The line, as states:
 - **The sound stays out of training.** The relay adds Deepgram's `mip_opt_out` to every line itself, so no caller
   can leave it out or turn it off.
 - **The secret is required.** Live speech is billed by the minute and the provider offers no limit to set, so no
-  relay is made with a live upstream and a secret under sixteen characters. The relay itself refuses, so a host that
+  relay is made with a live upstream and a secret under sixteen characters, or over 1,024, which no greeting could carry. The relay itself refuses, so a host that
   builds its options by hand cannot skip the check. The secret is the user's to type on the phone, never the
   build's, and never part of an address. The relay does not count minutes yet: that comes with the first app that
   needs it.

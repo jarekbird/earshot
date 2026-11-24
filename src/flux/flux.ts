@@ -1,6 +1,7 @@
 import { SAMPLE_RATE, type Speaker } from '../audio.js'
 import { Lifetime, type Timer } from '../lifetime.js'
 import { most, type LiveSpeech, type LiveState, type Turn } from '../live.js'
+import { serve } from '../serve.js'
 
 export interface FluxSocket {
   binaryType: string
@@ -33,6 +34,7 @@ const RETRY_FIRST_MS = 500
 const RETRY_MAX_MS = 8_000
 const FOR_GOOD = new Set<number>(Object.values(REFUSALS))
 const THIS_DEVICE = new Set(['localhost', '127.0.0.1', '[::1]'])
+const HEARD = 'live speech'
 
 export const retryDelay = (failures: number) => Math.min(RETRY_MAX_MS, RETRY_FIRST_MS * 2 ** (failures - 1))
 
@@ -62,7 +64,7 @@ function lineTo(host: string): string {
   const relay = new URL(host)
   if (relay.protocol !== 'https:' && !(relay.protocol === 'http:' && THIS_DEVICE.has(relay.hostname)))
     throw new Error('Live speech carries a secret and sound, so its relay is named with https.')
-  if (relay.search || relay.hash || relay.username || relay.password)
+  if (/[?#]/.test(host) || relay.username || relay.password)
     throw new Error('The relay of live speech is named by its address alone: no query, no fragment, no name or password.')
   relay.protocol = relay.protocol === 'https:' ? 'wss:' : 'ws:'
   relay.pathname = `${relay.pathname.replace(/\/+$/, '')}${LIVE_PATH}`
@@ -115,10 +117,10 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
       const tell = (now: LiveState) => {
         if (state === now) return
         state = now
-        news.push(() => told?.(now))
+        news.push(() => serve(() => told?.(now), HEARD))
       }
 
-      const say = (turn: Turn) => void news.push(() => heard({ ...turn }))
+      const say = (turn: Turn) => void news.push(() => serve(() => heard({ ...turn }), HEARD))
 
       const cutTurn = () => {
         if (!growing) return
@@ -279,6 +281,7 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
           forget()
           if (line?.connected && sent > 0) leave(1000)
         }
+        if (!sound.pcm.length) return
         rest()
         if (line?.connected) return send(piece)
         hold(piece)

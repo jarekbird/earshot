@@ -301,6 +301,31 @@ describe('the upstream of the calls, named with a query of its own', () => {
   })
 })
 
+describe('the upstream of the calls, named by a host that brings its own fetch', () => {
+  it('may be a path of the host, as it always could: the host knows where that is', async () => {
+    const urls: string[] = []
+    const handle = relay({
+      key: 'sk-developer',
+      upstream: '/backend/',
+      fetch: async url => {
+        urls.push(String(url))
+        return new Response('{}')
+      },
+    })
+    await handle(
+      new Request('https://relay.example/api/v1/audio/transcriptions', {
+        method: 'POST',
+        body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
+      }),
+    )
+    expect(urls).toEqual(['/backend/api/v1/audio/transcriptions'])
+  })
+
+  it('must be a whole address when the relay fetches it itself', () => {
+    expect(() => relay({ key: 'sk-developer', upstream: '/backend' })).toThrow('needs the address')
+  })
+})
+
 describe('reaching the upstream of live speech', () => {
   const PHRASE = 'what only this phone was told'
 
