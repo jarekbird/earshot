@@ -109,6 +109,15 @@ describe('the example app in the real Even Hub simulator', () => {
     expect(lines.slice(5).map(line => line.replace(/[╭╮╰╯─│]/g, '').trim())).toEqual(['', 'Saved', ''])
   })
 
+  it.runIf(process.platform === 'linux')("turns the navigator's choice down at a swipe: the words go to the app's agent", async () => {
+    const sim = await start('&say=remember%20to%20delete%20welcome', true)
+    await sim.hold(1_200)
+    await sim.shows('Swipe: Keep as a note')
+    await sim.input('down')
+    const lines = await sim.shows('Saved')
+    expect(lines.slice(0, 5)).toEqual(['Earshot example', '> Welcome', 'Voice', 'A long note', 'to delete welcome'])
+  })
+
   it.runIf(process.platform === 'linux')('listens for as long as a screen is open, and still takes a hold meanwhile', async () => {
     const sim = await start('&say=go%20back', true)
     await sim.pick('Listen')
