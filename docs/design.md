@@ -101,12 +101,14 @@ containers change, and maps the touchpad to actions: swipe moves, tap runs, doub
   an old menu cannot run a different action. Over ten, the rest fold into a list.
 - A blocked action says why in the overlay for three seconds. A `confirm` action asks there first, and only a tap
   confirms. An action that needs a target and has none opens a list of its targets.
-- A swipe on a text counts from what the wearer has read, since the glasses draw later than the app asks. The shell
-  keeps, for each frame it asked for, the text and the place it drew, and for a frame a swipe asked for, the place
-  that swipe reached on the text the wearer was reading. A swipe made before the last one is drawn goes on from
-  that place; any other counts from the frame the glasses show. So swipes land where they would had each been drawn
-  before the next, and text that came in the meantime is laid out after them. A test holds that over random orders
-  of swipes, new text, other screens and draws.
+- A swipe on a text counts from what the wearer has read, since the glasses draw later than the app asks. `Frames`
+  keeps a copy of the text and the place of each frame that can still matter: the one the glasses show, the one
+  being sent (`glasses.sending`), and the newest. Every other frame can never be shown, so it is let go at once,
+  and a stalled display holds three texts at most. For each screen it also keeps where the newest swipe not yet
+  drawn reached on the text the wearer was reading. A swipe goes on from that place; with none, it counts from the
+  frame the glasses show. So swipes land where they would had each been drawn before the next, and text that came
+  in the meantime is laid out after them. A test holds that over random orders of swipes, new text, other screens
+  and draws.
 - Holds are handed on untouched; slice 3 takes them.
 
 `earshot/testing` is a stand-in bridge for tests, and a traced frame is what `earshot/sim` reads back as the glasses'

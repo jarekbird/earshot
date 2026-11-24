@@ -8,6 +8,7 @@ import type { Router, Screen } from '../router.js'
 import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
+import { Frames, type Read } from './frames.js'
 import type { Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { layoutList, layoutText, type TextState } from './layout.js'
@@ -110,20 +111,6 @@ interface Drawn {
   scrolls: boolean
 }
 
-type Words = Extract<View, { kind: 'text' }>
-
-interface Read {
-  view: Words
-  state: TextState
-}
-
-interface Asked {
-  frame: number
-  screen: Screen
-  drew: Read | null
-  swipedTo: Read | null
-}
-
 export class Shell {
   readonly #life: Lifetime
   readonly #glasses: Glasses
@@ -144,11 +131,12 @@ export class Shell {
   #turn = 0
   #said = false
   #deciding: Lifetime | null = null
-  #asked: Asked[] = []
+  readonly #frames: Frames
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
     this.#glasses = glasses
+    this.#frames = new Frames(glasses)
     this.#router = router
     this.#words = { ...WORDS, ...options.words }
     this.#noticeMs = options.noticeMs ?? NOTICE_MS
@@ -197,7 +185,7 @@ export class Shell {
       const laid = layoutText(view, place)
       Object.assign(place, laid.state)
       scrolls = laid.scrolls
-      drew = { view, state: { ...laid.state } }
+      drew = { view: { ...view }, state: { ...laid.state } }
       boxes = laid.boxes
     } else {
       boxes = view.boxes
@@ -209,15 +197,13 @@ export class Shell {
     const shown = fold ? offered.slice(0, MAX_MENU_ITEMS - 1) : offered
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
-    this.#shown()
     const frame = this.#glasses.draw({ boxes, pictures, menu })
     this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
-    this.#asked.push({ frame, screen, drew, swipedTo })
+    this.#frames.asked(frame, screen, drew, swipedTo)
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
-    this.#shown()
-    const read = this.#read(drawn.screen)
+    const read = this.#frames.read(drawn.screen)
     if (!read) return
     const { view, state } = read
     const from = layoutText(view, { ...state })
@@ -226,21 +212,6 @@ export class Shell {
     const to = layoutText(view, view.end && !up && from.atEnd ? { top: 0, away: false } : { top, away: true }).state
     Object.assign(place, to)
     this.#draw({ view, state: to })
-  }
-
-  #read(screen: Screen): Read | null {
-    const shown = this.#glasses.shown
-    const mine = this.#asked.filter(asked => asked.screen === screen && asked.drew)
-    const swiped = mine.findLast(asked => asked.swipedTo && asked.frame > shown)
-    const seen = mine[0]?.frame <= shown ? mine[0] : mine.at(-1)
-    return swiped?.swipedTo ?? seen?.drew ?? null
-  }
-
-  #shown(): Screen | undefined {
-    const shown = this.#glasses.shown
-    const at = this.#asked.findLastIndex(asked => asked.frame <= shown)
-    if (at > 0) this.#asked.splice(0, at)
-    return this.#asked[0] && this.#asked[0].frame <= shown ? this.#asked[0].screen : undefined
   }
 
   #bound(view: View): Action[] {
@@ -571,7 +542,7 @@ export class Shell {
   }
 
   #picked(item: number): void {
-    const shown = this.#shown()
+    const shown = this.#frames.screen
     if (shown && shown !== this.#router.current) return
     const id = [...this.#items].find(([, number]) => number === item)?.[0]
     const folded = this.#drawn?.folded ?? []

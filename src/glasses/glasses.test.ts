@@ -1635,6 +1635,29 @@ describe('watching the draws', () => {
     expect(glasses.shown).toBe(1)
   })
 
+  it('knows the frame that is on its way to the glasses, which a newer one waits behind and cannot replace', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    glasses.draw(frame(box('title', 'One')))
+    await settle()
+    expect(glasses.sending).toBe(0)
+    let release = () => {}
+    const waiting = new Promise<void>(go => (release = go))
+    const real = fake.bridge.textContainerUpgrade
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      await waiting
+      return real(upgrade)
+    }
+    glasses.draw(frame(box('title', 'Two')))
+    await settle(0)
+    glasses.draw(frame(box('title', 'Three')))
+    glasses.draw(frame(box('title', 'Four')))
+    expect([glasses.shown, glasses.sending]).toEqual([1, 2])
+    release()
+    await settle()
+    expect([glasses.shown, glasses.sending]).toEqual([4, 0])
+  })
+
   it('tells of a frame from its start to its end, with each call to the glasses and its answer', async () => {
     const { glasses, seen, told } = watched()
     glasses.draw(frame(box('title', 'Threads')))

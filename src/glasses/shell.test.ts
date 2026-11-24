@@ -255,7 +255,7 @@ describe('a text that stays at its end, swiped any way while the glasses are beh
   async function shownAfter(taken: Step[], behind: boolean): Promise<string[]> {
     const { fake, router, shell } = world()
     const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
-    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    router.open({ id: 'log', view: () => text({ title: `${log.length} lines`, body: log.join('\n'), end: true }) })
     await settle()
     let release = behind ? held(fake) : () => {}
     for (const step of taken) {
@@ -271,7 +271,7 @@ describe('a text that stays at its end, swiped any way while the glasses are beh
         log.push(...step.more)
         shell.redraw()
       }
-      if (!behind) await settle()
+      await settle(behind ? 0 : undefined)
     }
     release()
     await settle()
@@ -384,6 +384,42 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     release()
     await settle()
     expect(fake.lines()[1]).toBe('Line 20')
+  })
+
+  it('counts a swipe from the text the wearer saw also when the app changes that very view and hands it over again', async () => {
+    const { fake, router, shell } = world()
+    const view = text({ title: 'Log', body: Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join('\n'), end: true })
+    router.open({ id: 'log', view: () => view })
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 22')
+    const release = held(fake)
+    if (view.kind === 'text') view.body = Array.from({ length: 50 }, (_, at) => `Line ${at + 1}`).join('\n')
+    shell.redraw()
+    fake.up()
+    release()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 20')
+  })
+
+  it('counts a swipe from the frame the glasses have just shown, when a newer one was already waiting behind it', async () => {
+    const { fake, router, shell } = world()
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    const first = held(fake)
+    for (let at = 31; at <= 40; at++) log.push(`Line ${at}`)
+    shell.redraw()
+    await settle(0)
+    for (let at = 41; at <= 50; at++) log.push(`Line ${at}`)
+    shell.redraw()
+    first()
+    const second = held(fake)
+    await settle(0)
+    expect(fake.lines().at(-1)).toBe('Line 40')
+    fake.up()
+    second()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 30')
   })
 
   it('counts the first from the page the wearer saw and the second on from there, while more text is on its way too', async () => {

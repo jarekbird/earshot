@@ -206,6 +206,7 @@ export class Glasses {
   #retryAt = 0
   #traced = ''
   #shown = 0
+  #sending = 0
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
@@ -224,6 +225,10 @@ export class Glasses {
 
   get shown(): number {
     return this.#shown
+  }
+
+  get sending(): number {
+    return this.#sending
   }
 
   get micOpen(): boolean {
@@ -366,7 +371,9 @@ export class Glasses {
           continue
         }
         this.#watch({ at: 'begin', frame, rebuild })
+        this.#sending = frame
         const drawn = (rebuild ? await this.#build(page, shape) : await this.#update(page)) && (await this.#hang(page))
+        this.#sending = 0
         if (this.#life.ended) return
         if (!drawn) {
           const inMs = retryDelay(++this.#failures)
