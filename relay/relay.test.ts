@@ -1,7 +1,7 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { openRouter, MODELS } from '../src/openrouter/openrouter.js'
 import { CLOSES, DIAL_MS, LIVE_PATH } from './limits.js'
-import { DEFAULT_MODELS, relay, type Line, type Sockets } from './relay.js'
+import { DEFAULT_MODELS, relay, relayOptions, type Line, type Sockets } from './relay.js'
 
 interface Sent {
   url: string
@@ -347,12 +347,18 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
     expect(urls).toEqual(['/backend/api/v1/audio/transcriptions'])
   })
 
-  it.each(['//upstream.example', '/\\upstream.example', '\\\\upstream.example', '/\t/upstream.example', 'back end'])(
-    'is refused when it could name another host: %j',
-    upstream => {
-      expect(() => relay({ key: 'sk-developer', upstream, fetch: async () => new Response('{}') })).toThrow('needs the address')
-    },
-  )
+  it.each([
+    '//upstream.example',
+    '/\\upstream.example',
+    '\\\\upstream.example',
+    '/\t/upstream.example',
+    'back end',
+    'http://',
+    'https:',
+    'HTTP://',
+  ])('is refused when it could name another host: %j', upstream => {
+    expect(() => relay({ key: 'sk-developer', upstream, fetch: async () => new Response('{}') })).toThrow('needs the address')
+  })
 
   it.each(['backend', '/backend', './backend/v1', 'backend?route='])(
     'is taken when it is a name on the host itself, %j, and resolves to that host and no other',
@@ -420,6 +426,33 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
       }),
     )
     expect([answer.status, keys.length]).toEqual([200, 1])
+  })
+
+  it('may come with no key and no address through the settings a host reads, as it always could', async () => {
+    const paths: string[] = []
+    const settings = {
+      key: '',
+      upstream: '',
+      models: undefined,
+      liveUpstream: undefined,
+      liveKey: undefined,
+      liveModels: undefined,
+      secret: undefined,
+    }
+    const handle = relay({
+      ...relayOptions(settings),
+      fetch: async url => {
+        paths.push(String(url))
+        return new Response('{}')
+      },
+    })
+    await handle(
+      new Request('https://relay.example/api/v1/audio/transcriptions', {
+        method: 'POST',
+        body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
+      }),
+    )
+    expect(paths).toEqual(['/api/v1/audio/transcriptions'])
   })
 
   it('needs a key when the relay fetches its upstream itself', () => {

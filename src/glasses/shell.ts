@@ -10,7 +10,7 @@ import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
 import type { Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
-import { layoutList, layoutText } from './layout.js'
+import { layoutList, layoutText, type Stride } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
 import { HOLD, type Held } from './mic.js'
 
@@ -108,6 +108,7 @@ interface Drawn {
   targets: readonly TargetInfo[]
   folded: readonly Action[]
   scrolls: boolean
+  stride: (wanted: number) => Stride
 }
 
 export class Shell {
@@ -168,6 +169,7 @@ export class Shell {
     let boxes: Box[]
     let pictures: Picture[] = []
     let scrolls = false
+    let stride = (wanted: number): Stride => ({ up: wanted, down: wanted })
     let targets: readonly TargetInfo[] = []
     if (view.kind === 'list') {
       targets = view.action.targets() ?? []
@@ -178,6 +180,7 @@ export class Shell {
       const laid = layoutText(view, place)
       Object.assign(place, laid.state)
       scrolls = laid.scrolls
+      stride = laid.stride
       boxes = laid.boxes
     } else {
       boxes = view.boxes
@@ -191,7 +194,7 @@ export class Shell {
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
     this.#shown()
     const frame = this.#glasses.draw({ boxes, pictures, menu })
-    this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
+    this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls, stride }
     this.#asked.push({ frame, screen })
   }
 
@@ -228,7 +231,10 @@ export class Shell {
         ? this.#bound(view)
         : view.kind === 'text'
           ? drawn.scrolls
-            ? [move(UP, this.#words.scrollUp, -SCREENFUL, 'top'), move(DOWN, this.#words.scrollDown, SCREENFUL, 'top')]
+            ? [
+                move(UP, this.#words.scrollUp, -drawn.stride(SCREENFUL).up, 'top'),
+                move(DOWN, this.#words.scrollDown, drawn.stride(SCREENFUL).down, 'top'),
+              ]
             : []
           : drawn.targets.length === 0
             ? []
@@ -324,7 +330,7 @@ export class Shell {
     }
     const step = input.kind === 'up' ? -1 : 1
     if (view.kind === 'text') {
-      if (input.kind !== 'tap') place.top += step * SCROLL_LINES
+      if (input.kind !== 'tap') place.top += step < 0 ? -drawn.stride(SCROLL_LINES).up : drawn.stride(SCROLL_LINES).down
     } else if (input.kind !== 'tap') place.cursor += step
     else return this.#choose(drawn, place)
     this.redraw()

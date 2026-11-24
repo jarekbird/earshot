@@ -62,7 +62,7 @@ const listed = (models: string | undefined) => {
 
 export function relayOptions({ key, upstream, models, liveUpstream, liveKey, liveModels, secret }: RelaySettings): RelayOptions {
   return {
-    ...(key || upstream ? { key, upstream } : {}),
+    ...(key !== undefined || upstream !== undefined ? { key, upstream } : {}),
     ...listed(models),
     ...(liveUpstream ? { live: { upstream: liveUpstream, key: liveKey ?? '', secret: secret ?? '', ...listed(liveModels) } } : {}),
   }
@@ -80,7 +80,7 @@ const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_t
 const KEPT_OUT_OF_TRAINING = ['mip_opt_out', 'true']
 const BYTES = new TextEncoder()
 const THIS_MACHINE = new Set(['localhost', '127.0.0.1', '[::1]'])
-const STAYS_ON_ITS_HOST = /^(?!\/\/)[^\\\s\u0000-\u001f]+$/
+const STAYS_ON_ITS_HOST = /^(?!\/\/)(?![a-z][a-z0-9+.-]*:)[^\\\s\u0000-\u001f]+$/i
 const WHOLE = /^\s*[a-z][a-z0-9+.-]*:\/\//i
 const MAX_BYTES = 4_000_000
 const WAIT_MS = 10_000

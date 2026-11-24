@@ -58,23 +58,38 @@ export function layoutList(
   }
 }
 
+export interface Stride {
+  up: number
+  down: number
+}
+
 export function layoutText(
   view: { title?: string; body: string; end?: boolean },
   state: TextState,
-): { boxes: Box[]; state: TextState; scrolls: boolean } {
+): { boxes: Box[]; state: TextState; scrolls: boolean; stride: (wanted: number) => Stride } {
   const { rows, y, h, titleBox } = areas(view.title)
   const lines = wrapText(cleanText(view.body), SCREEN_WIDTH)
   const fits = (from: number, to: number) => BYTES.encode(lines.slice(from, to).join('\n')).length <= MAX_TEXT_BYTES
+  const endOf = (from: number) => {
+    let to = Math.min(lines.length, from + rows)
+    while (view.end && to > from + 1 && !fits(from, to)) to--
+    return to
+  }
   let last = Math.max(0, lines.length - rows)
   while (view.end && last < lines.length - 1 && !fits(last, lines.length)) last++
   const following = view.end === true && !state.away
   const top = clamp(following ? last + state.top : state.top, 0, last)
-  let end = Math.min(lines.length, top + rows)
-  while (view.end && end > top + 1 && !fits(top, end)) end--
+  const end = endOf(top)
   const more = `${top > 0 ? '▲' : ''}${end < lines.length ? '▼' : ''}`
   return {
     state: view.end ? (top >= last ? { top: 0, away: false } : { top, away: true }) : { top },
     scrolls: last > 0,
+    stride: wanted => {
+      if (!view.end) return { up: wanted, down: wanted }
+      let up = Math.max(1, Math.min(wanted, top))
+      while (up > 1 && endOf(top - up) < top) up--
+      return { up, down: Math.max(1, Math.min(wanted, end - top)) }
+    },
     boxes: [
       ...titleBox(more ? `  ${more}` : ''),
       { id: 'body', x: 0, y, w: SCREEN_WIDTH, h, text: lines.slice(top, end).join('\n'), brightness: MAX_BRIGHTNESS },
