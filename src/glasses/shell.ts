@@ -128,12 +128,19 @@ export class Shell {
   #asking: { yes: () => void; no?: () => void } | null = null
   #overlaid = false
   #fading: Timer | undefined
-  #recording: { chunks: Uint8Array[]; showing: object; source: HoldSource; hear: (sound: Sound) => void; end: () => void } | null = null
+  #recording: {
+    chunks: Uint8Array[]
+    showing: object | undefined
+    source: HoldSource
+    hear: (sound: Sound) => void
+    end: () => void
+  } | null = null
   readonly #down = new Map<HoldSource, Timer>()
   #held: Held | null = null
   #turn = 0
   #said = false
   #deciding: Lifetime | null = null
+  #decidingOn: object | null = null
   readonly #frames: Frames
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
@@ -158,9 +165,13 @@ export class Shell {
     this.#life.own(() => this.#frames.end())
     this.#life.own(
       router[SHOWINGS].onLeave(() => {
-        this.#frames.left(showing => router[SHOWINGS].onPath(showing))
-        if (router[SHOWINGS].onPath(router[SHOWINGS].current)) return
+        const { onPath, current } = router[SHOWINGS]
+        this.#frames.left(onPath)
+        const spoken = this.#recording?.showing ?? this.#decidingOn
+        if (spoken !== undefined && spoken !== null && !onPath(spoken)) this.#callOff()
+        if (onPath(current)) return
         this.#callOff()
+        if (this.#drawn) this.#glasses[PROGRESS].drop(this.#drawn.frame)
       }),
     )
     this.#router = router
@@ -197,7 +208,7 @@ export class Shell {
     const screen = this.#router.current
     const actions = this.#router.actions()
     const view = screen.view?.() ?? list({ action: this.#chooser(actions) })
-    if (showings.current !== showing || !showings.onPath(showing)) return
+    if (showing === undefined || showings.current !== showing || !showings.onPath(showing)) return
     const place = this.#places.get(showing) ?? { cursor: 0, top: 0 }
     this.#places.set(showing, place)
     let boxes: Box[]
@@ -259,7 +270,7 @@ export class Shell {
   #reachable(): Action[] {
     const drawn = this.#drawn
     const showing = this.#router[SHOWINGS].current
-    const place = this.#places.get(showing)
+    const place = showing && this.#places.get(showing)
     const actions = [...this.#router.actions()]
     if (!drawn || drawn.showing !== showing || !place) return actions
     const { view } = drawn
@@ -365,11 +376,11 @@ export class Shell {
     if (input.kind === 'menu') return this.#picked(input.item)
     const drawn = this.#drawn
     const showing = this.#router[SHOWINGS].current
-    const place = this.#places.get(showing)
+    const place = showing && this.#places.get(showing)
     if (!drawn || drawn.showing !== showing || !place || !this.#router[SHOWINGS].onPath(showing)) return
     const { view } = drawn
-    const seen = this.#frames.seen
-    if (seen && (seen.kind !== view.kind || (view.kind !== 'text' && seen.showing !== showing))) return
+    const seen = view.kind === 'text' ? this.#frames.words : this.#frames.whole
+    if (seen && (seen.kind !== view.kind || seen.showing !== showing)) return
     if (view.kind === 'boxes') {
       const bound = view.on?.[input.kind]
       if (!bound) return
@@ -410,6 +421,7 @@ export class Shell {
   }
 
   #hold(source: HoldSource): void {
+    if (!this.#router[SHOWINGS].onPath(this.#router[SHOWINGS].current)) return
     const voice = this.#voice
     const longest = Math.min(voice?.maxHoldMs ?? MAX_HOLD_MS, LONGEST_HOLD_MS)
     this.#down.get(source)?.cancel()
@@ -492,6 +504,7 @@ export class Shell {
     }
     const slow = this.#life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), voice.timeoutMs ?? VOICE_TIMEOUT_MS)
     this.#deciding = life
+    this.#decidingOn = showing ?? null
     if (passed === undefined) this.#show(this.#words.thinking)
     try {
       const transcript = passed ?? (await voice.transcribe(audio, life))
@@ -520,7 +533,7 @@ export class Shell {
     const current = this.#router.current
     const drawn = this.#drawn
     const showing = this.#router[SHOWINGS].current
-    const under = drawn && drawn.showing === showing ? drawn.targets[this.#places.get(showing)?.cursor ?? 0] : undefined
+    const under = drawn && drawn.showing === showing ? drawn.targets[(showing && this.#places.get(showing))?.cursor ?? 0] : undefined
     const selected = under && !under.private ? `${this.#words.selected}: ${under.say}` : ''
     return [current.context?.() ?? '', selected].filter(Boolean).join('\n').slice(-ITEM_LIMIT)
   }
@@ -534,16 +547,19 @@ export class Shell {
     const showings = this.#router[SHOWINGS]
     const showing = showings.current
     for (const [index, agent] of agents.entries()) {
-      if (said.life.ended || showings.current !== showing || !showings.onPath(showing)) throw new LifetimeEnded()
+      const gone = () => said.life.ended || showings.current !== showing || !showings.onPath(showing)
+      if (gone()) throw new LifetimeEnded()
       const screen = this.#context()
-      const verdict = await agent({
+      const heard = {
         ...said,
         actions: this.#reachable(),
         rolling: voice.rolling?.items() ?? [],
         hasNext: index < agents.length - 1,
         ...(voice.otherwise === undefined ? {} : { otherwise: voice.otherwise }),
         ...(screen ? { screen } : {}),
-      })
+      }
+      if (gone()) throw new LifetimeEnded()
+      const verdict = await agent(heard)
       if (verdict.kind !== 'notMine') return { verdict, more: navigate && index === 0 && agents.length > 1 }
     }
     return { verdict: { kind: 'none' }, more: false }

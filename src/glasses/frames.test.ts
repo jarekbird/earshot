@@ -146,6 +146,23 @@ describe('the frames a shell asked for', () => {
     expect(body(frames, log)).toBe('where the second reached')
   })
 
+  it('keeps where a swipe reached on one showing while a frame of another showing, asked for later, is on the glasses', () => {
+    const progress = { shown: 1, menu: 1, text: 1, sending: 0 }
+    const frames = new Frames(progress)
+    const log = screen('log')
+    const about = screen('about')
+    frames.asked(1, log, read('seen'))
+    frames.swiping(log, read('where the swipe reached'))
+    frames.asked(2, log, read('after the swipe'))
+    frames.asked(3, about, read('about'))
+    Object.assign(progress, { shown: 3, menu: 3, text: 3 })
+    frames.forget()
+    expect(body(frames, log)).toBe('where the swipe reached')
+    frames.asked(4, log, read('back on the log'))
+    Object.assign(progress, { shown: 4, menu: 4, text: 4 })
+    expect(body(frames, log)).toBe('back on the log')
+  })
+
   it('says which screen the glasses show, and none before they show any', () => {
     const progress = { shown: 0, menu: 0, text: 0, sending: 0 }
     const frames = new Frames(progress)

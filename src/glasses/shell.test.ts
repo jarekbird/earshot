@@ -643,7 +643,7 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     fake.up()
     release()
     await settle()
-    expect(fake.lines()[1]).toBe('Line 40')
+    expect(fake.lines()[1]).toBe('Line 42')
   })
 
   it('keeps the swipes and the words of a screen that stays on the path while the very same screen is opened over it and left', async () => {
@@ -684,7 +684,7 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(fake.lines()[1]).toBe('Line 18')
   })
 
-  it('keeps a swipe not yet drawn on a screen while a screen opened over it is drawn and left', async () => {
+  it('takes no swipe for a screen while the glasses still show the one that was opened over it and left', async () => {
     const { fake, router } = world()
     const lines = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
     router.open({ id: 'log', view: () => text({ title: 'Log', body: lines.join('\n'), end: true }) })
@@ -702,7 +702,7 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     fake.up()
     second()
     await settle()
-    expect(fake.lines()[1]).toBe('Line 20')
+    expect(fake.lines()[1]).toBe('Line 42')
   })
 
   it('gives each showing of a screen a place of its own, so a swipe on one opened over itself leaves the one below where it was', async () => {
@@ -739,6 +739,57 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     release()
     await settle()
     expect(fake.lines()[1]).toBe('Line 20')
+  })
+
+  it('lets an app replace its home screen with a shell attached, and draws the new one', async () => {
+    const { fake, router } = world()
+    await settle()
+    router.replace({ id: 'next', view: () => text({ body: 'Next home' }) })
+    await settle()
+    expect(fake.lines()).toEqual(['Next home'])
+  })
+
+  it('sends the glasses no frame asked for just before the router was closed, nor with an overlay after', async () => {
+    const { fake, router, shell } = world()
+    let body = 'Before'
+    router.open({ id: 'note', view: () => text({ body }) })
+    await settle()
+    body = 'Never to be shown'
+    shell.redraw()
+    router.close()
+    await settle()
+    shell.notice('Status')
+    await settle(5_000)
+    expect(fake.lines()).toEqual(['Before'])
+  })
+
+  it('takes no tap for controls whose label the glasses refused, though another box of that frame was taken', async () => {
+    const ran: string[] = []
+    const { fake, router } = world()
+    const control = (id: string) => {
+      const act = action({ id: 'act', say: id, run: () => void ran.push(id) })
+      return {
+        id,
+        view: () =>
+          boxes(
+            [
+              { id: 'body', x: 0, y: 0, w: 200, h: 40, text: `${id} body` },
+              { id: 'prompt', x: 0, y: 60, w: 200, h: 40, text: `Tap: ${id}` },
+            ],
+            { on: { tap: act } },
+          ),
+      }
+    }
+    router.open(control('Keep'))
+    await settle()
+    const real = fake.bridge.textContainerUpgrade
+    fake.bridge.textContainerUpgrade = async upgrade => (upgrade.containerName === 'prompt' ? false : real(upgrade))
+    router.replace(control('Delete'))
+    await settle(100)
+    expect(fake.lines()).toContain('Tap: Keep')
+    fake.tap()
+    await settle(100)
+    expect(ran).toEqual([])
   })
 
   it('runs nothing for a tap or a swipe once the router is closed', async () => {
@@ -1559,6 +1610,61 @@ describe('a hold', () => {
     marker = 'second showing'
     router.replace(card)
     answer({ kind: 'notMine' })
+    await settle()
+    expect(heard).toEqual([])
+  })
+
+  it('ends a hold when the screen it began on is replaced, though the screen below stays', async () => {
+    const { voice, asked } = hearing('open ben')
+    const { fake, router, shell } = world({ voice })
+    router.open({ id: 'card', view: () => text({ body: 'Card' }) })
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(400))
+    expect(shell.busy).toBe(true)
+    router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+    expect(shell.busy).toBe(false)
+    fake.release()
+    await settle(50)
+    expect(asked).toEqual([])
+  })
+
+  it('opens no microphone for a hold once the router is closed', async () => {
+    const { voice } = hearing('open ben')
+    const { fake, router } = world({ voice })
+    await settle()
+    router.close()
+    fake.hold()
+    await settle(500)
+    expect(fake.mic).toBeNull()
+  })
+
+  it('asks no agent about a turn when the screen moved on as the app was asked for its context', async () => {
+    const heard: string[] = []
+    const { voice } = hearing('remember this')
+    voice.model = {
+      choose: async question => {
+        heard.push(question.screen ?? '')
+        return matchWords.choose(question)
+      },
+    }
+    const { fake, router } = world({ voice })
+    let moved = false
+    const card: Screen = {
+      id: 'card',
+      context: () => {
+        if (!moved) {
+          moved = true
+          router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+        }
+        return 'Previous context'
+      },
+      view: () => text({ body: 'Card' }),
+    }
+    router.open(card)
+    await settle()
+    await say(fake)
     await settle()
     expect(heard).toEqual([])
   })

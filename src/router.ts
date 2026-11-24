@@ -28,7 +28,7 @@ interface Jump {
 export const SHOWINGS = Symbol('the showings of screens on the path from home to the one on show')
 
 export interface Showings {
-  readonly current: object
+  readonly current: object | undefined
   onPath(showing: unknown): boolean
   onLeave(told: () => void): () => void
 }
@@ -72,9 +72,9 @@ export class Router {
     const left = this.#left
     return {
       get current() {
-        return stack[stack.length - 1].life
+        return stack.at(-1)?.life
       },
-      onPath: showing => stack.some(entry => entry.life === showing && !entry.life.ended),
+      onPath: showing => showing !== undefined && stack.some(entry => entry.life === showing && !entry.life.ended),
       onLeave: told => {
         left.add(told)
         return () => void left.delete(told)

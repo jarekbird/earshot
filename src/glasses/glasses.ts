@@ -192,7 +192,8 @@ export class Glasses {
   readonly #listeners = new Set<{ hear: (input: Input) => void }>()
   readonly #mic: Mic
   #frame: Frame = { boxes: [] }
-  #before: Frame = { boxes: [] }
+  #whole: Frame = { boxes: [] }
+  #askedFor: Array<{ number: number; frame: Frame }> = []
   #overlay: string | null = null
   #wanted: Page | null = null
   #shape = ''
@@ -249,9 +250,10 @@ export class Glasses {
         return () => void this.#following.delete(told)
       },
       drop: frame => {
-        if (this.#wanted?.frame !== frame || progress.sending === frame) return
-        this.#wanted = null
-        if (frame === this.#frames) this.#frame = this.#before
+        if (progress.sending === frame || !this.#askedFor.some(asked => asked.number === frame)) return
+        this.#askedFor = this.#askedFor.filter(asked => asked.number !== frame)
+        this.#frame = this.#askedFor.at(-1)?.frame ?? this.#whole
+        if (this.#wanted?.frame === frame) this.#wanted = null
       },
     }
   }
@@ -297,9 +299,9 @@ export class Glasses {
     const pictures = (frame.pictures ?? []).filter(fits).length - MAX_IMAGE_BOXES
     if (pictures > 0)
       console.error(`Earshot: the glasses take ${MAX_IMAGE_BOXES} pictures. The last ${pictures} of this frame are left out.`)
-    this.#before = this.#frame
     this.#frame = frame
     const number = ++this.#frames
+    this.#askedFor.push({ number, frame })
     this.#watch({ at: 'ask', frame: number, page: frame })
     if (number === this.#frames) this.#place()
     return number
@@ -405,6 +407,10 @@ export class Glasses {
         if (written && !rebuild && !this.#life.ended && this.#progress.menu !== frame) this.#progressed({ menu: frame })
         const drawn = written && (await this.#hang(page))
         if (this.#life.ended) return void (this.#progress.sending = 0)
+        if (drawn) {
+          this.#whole = this.#askedFor.find(asked => asked.number === frame)?.frame ?? this.#whole
+          this.#askedFor = this.#askedFor.filter(asked => asked.number > frame)
+        }
         this.#progressed(drawn ? { shown: frame, menu: frame, sending: 0 } : { sending: 0 })
         if (!drawn) {
           const inMs = retryDelay(++this.#failures)

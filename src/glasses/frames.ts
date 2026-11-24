@@ -59,9 +59,14 @@ export class Frames {
     return this.#asked.findLast(asked => asked.frame <= this.#progress.menu)?.showing
   }
 
-  get seen(): { showing: unknown; kind: View['kind'] } | undefined {
+  get words(): { showing: unknown; kind: View['kind'] } | undefined {
     this.forget()
     return this.#asked.findLast(asked => asked.frame <= this.#read())
+  }
+
+  get whole(): { showing: unknown; kind: View['kind'] } | undefined {
+    this.forget()
+    return this.#asked.findLast(asked => asked.frame <= this.#progress.shown)
   }
 
   swiping(showing: unknown, to: Read): void {
@@ -93,11 +98,14 @@ export class Frames {
   forget(): void {
     const { menu: built, sending } = this.#progress
     const read = this.#read()
+    const whole = this.#asked.findLastIndex(asked => asked.frame <= this.#progress.shown)
     const menu = this.#asked.findLastIndex(asked => asked.frame <= built)
     const words = this.#asked.findLastIndex(asked => asked.frame <= read)
     const newest = this.#asked.length - 1
-    if (menu >= 0 && menu < words) this.#asked[menu].drew = null
-    this.#asked = this.#asked.filter((asked, at) => at === menu || at === words || at === newest || (at > words && asked.frame === sending))
+    for (const at of [whole, menu]) if (at >= 0 && at < words) this.#asked[at].drew = null
+    this.#asked = this.#asked.filter(
+      (asked, at) => at === whole || at === menu || at === words || at === newest || (at > words && asked.frame === sending),
+    )
     for (const [showing, swiped] of this.#swiped) {
       const drawn = (asked: Asked) => asked.showing === showing && asked.frame >= swiped.frame && asked.frame <= read
       if (this.#asked.some(drawn)) this.#swiped.delete(showing)
