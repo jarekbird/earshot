@@ -233,11 +233,19 @@ it("E4: a pull request runs check and the simulator suite with no network but th
   expect(workflow).toMatch(/^ {2}check:\n(?: {4}.*\n)*? {6}- run: \.github\/offline\.sh npm run check$/m)
   expect(workflow).toMatch(/^ {2}sim:\n(?: {4,}.*\n)*? {6}- run: \.github\/offline\.sh npm run check:sim$/m)
   expect(workflow).not.toMatch(/^ {4}if:/m)
-  expect(workflow.match(/npm run check/g)?.length).toBe(2)
   const offline = readFileSync(join(root, '.github/offline.sh'), 'utf8')
   expect(offline).toContain('unshare --net')
   expect(offline).toContain('EARSHOT_OFFLINE=1')
   expect(offline).toContain('"CI=$ci"')
+})
+
+it('E4: on the other systems CI has only the guard, since only Linux can take the network away; on Linux it always does', () => {
+  const workflow = readFileSync(join(root, '.github/workflows/check.yml'), 'utf8')
+  const elsewhere = [...workflow.matchAll(/^ {10}- \{ os: (\w+)-latest, node: \d+, run: (.+) \}$/gm)].map(([, os, run]) => `${os}: ${run}`)
+  expect(elsewhere.filter(leg => !/^(macos|windows): npm run check$|^ubuntu: \.github\/offline\.sh npm run check$/.test(leg))).toEqual([])
+  expect(elsewhere.map(leg => leg.split(':')[0]).sort()).toEqual(['macos', 'ubuntu', 'windows'])
+  expect(workflow).toMatch(/^ {2}elsewhere:\n(?: {4,}.*\n)*? {6}- run: \$\{\{ matrix\.run \}\}$/m)
+  expect(workflow.match(/npm run check/g)?.length).toBe(2 + elsewhere.length)
 })
 
 it("an app that installs Earshot installs no tool that runs on fewer machines than Earshot's own: the Worker's runtime is apart", () => {
@@ -249,9 +257,9 @@ it("an app that installs Earshot installs no tool that runs on fewer machines th
   ).toEqual([])
   const apart = JSON.parse(readFileSync(join(root, 'workerd/package.json'), 'utf8'))
   expect(Object.keys(apart.devDependencies)).toEqual(['miniflare'])
-  expect(readFileSync(join(root, '.github/workflows/check.yml'), 'utf8')).toMatch(
-    /^ {6}- run: npm ci --prefix workerd\n {6}- run: \.github\/offline\.sh npm run check$/m,
-  )
+  const workflow = readFileSync(join(root, '.github/workflows/check.yml'), 'utf8')
+  expect(workflow).toMatch(/^ {6}- run: npm ci --prefix workerd\n {6}- run: \.github\/offline\.sh npm run check$/m)
+  expect(workflow).toMatch(/^ {6}- run: npm ci --prefix workerd\n {6}- run: \$\{\{ matrix\.run \}\}$/m)
 })
 
 it.runIf(process.env.EARSHOT_OFFLINE)("E4: in CI the tests see no network but the machine's own", () => {
@@ -261,7 +269,9 @@ it.runIf(process.env.EARSHOT_OFFLINE)("E4: in CI the tests see no network but th
   expect(outside).toEqual([])
 })
 
-it.runIf(process.env.CI || process.env.GITHUB_ACTIONS)('E4: CI never runs the tests with the network on', () => {
+const onLinuxInCi = (process.env.CI || process.env.GITHUB_ACTIONS) && process.platform === 'linux'
+
+it.runIf(onLinuxInCi)('E4: on Linux, CI never runs the tests with the network on', () => {
   expect(process.env.EARSHOT_OFFLINE).toBe('1')
 })
 
