@@ -1,15 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import type { Screen } from '../router.js'
 import { text } from '../view.js'
 import { copied, Frames, type Read } from './frames.js'
 
-const screen = (id: string): Screen => ({ id })
+const screen = (id: string) => ({ id })
 const read = (body: string): Read => {
   const view = text({ body })
   if (view.kind !== 'text') throw new Error('not a text')
   return { view, state: { top: 0 } }
 }
-const body = (frames: Frames, of: Screen) => frames.read(of)?.view.body
+const body = (frames: Frames, of: unknown) => frames.read(of)?.view.body
 
 describe('the frames a shell asked for', () => {
   it('keeps only those the glasses show, are being sent, or will be sent next, however many were asked while the glasses were behind', () => {
@@ -60,7 +59,7 @@ describe('the frames a shell asked for', () => {
     frames.asked(2, log, read('written, its menu still to come'))
     progress.text = 2
     expect(body(frames, log)).toBe('written, its menu still to come')
-    expect(frames.menu?.screen).toBe(log)
+    expect(frames.menu).toBe(log)
     expect(frames.kept).toBe(2)
   })
 
@@ -119,7 +118,7 @@ describe('the frames a shell asked for', () => {
     frames.left(showing => showing !== log)
     expect(frames.texts).toBe(0)
     expect(frames.read(log)).toBeNull()
-    expect(frames.menu?.screen).toBe(log)
+    expect(frames.menu).toBe(log)
   })
 
   it('keeps of the frame whose menu shows only which screen it was, once newer words are on the glasses', () => {
@@ -130,7 +129,7 @@ describe('the frames a shell asked for', () => {
     frames.asked(2, log, read('the words written in place'))
     progress.text = 2
     frames.forget()
-    expect(frames.menu?.screen).toBe(log)
+    expect(frames.menu).toBe(log)
     expect(frames.texts).toBe(1)
     expect(body(frames, log)).toBe('the words written in place')
   })
@@ -154,6 +153,6 @@ describe('the frames a shell asked for', () => {
     frames.asked(1, home, null)
     expect(frames.menu).toBeUndefined()
     Object.assign(progress, { shown: 1, menu: 1 })
-    expect(frames.menu?.screen).toBe(home)
+    expect(frames.menu).toBe(home)
   })
 })

@@ -741,6 +741,114 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(fake.lines()[1]).toBe('Line 20')
   })
 
+  it('runs nothing for a tap or a swipe once the router is closed', async () => {
+    const ran: string[] = []
+    const { fake, router } = world()
+    const count = action({ id: 'count', say: 'Count', run: () => void ran.push('count') })
+    router.open({
+      id: 'card',
+      view: () => boxes([{ id: 'title', x: 0, y: 0, w: 200, h: 40, text: 'Card' }], { on: { tap: count, up: count } }),
+    })
+    await settle()
+    router.close()
+    fake.tap()
+    fake.up()
+    await settle()
+    expect(ran).toEqual([])
+  })
+
+  it('sends the glasses no frame of a showing that was closed while that frame was being asked for', async () => {
+    let close = false
+    const watch = (event: Drawing) => {
+      if (!close || event.at !== 'ask') return
+      close = false
+      router.close()
+    }
+    const { fake, router, shell } = world({ watch })
+    let body = 'Before'
+    router.open({ id: 'note', view: () => text({ body }) })
+    await settle()
+    body = 'Never to be shown'
+    close = true
+    shell.redraw()
+    await settle()
+    expect(fake.lines()).toEqual(['Before'])
+  })
+
+  it('draws the screen a list moved on to while it was asked for its rows, not the list it left', async () => {
+    const { fake, router } = world()
+    const index = { id: 'index', view: () => text({ body: 'Index' }) }
+    let moved = false
+    const pick = action({
+      id: 'pick',
+      say: 'Pick',
+      targets: () => {
+        if (!moved) {
+          moved = true
+          router.replace(index)
+        }
+        return [{ id: 'a', say: 'Row', value: 'a' }]
+      },
+      run: () => {},
+    })
+    router.open({ id: 'rows', view: () => list({ title: 'Rows', action: pick }) })
+    await settle()
+    expect(fake.lines()).toEqual(['Index'])
+  })
+
+  it('runs a pick for the screen whose words the glasses show under a menu that did not change, though its picture is still refused', async () => {
+    const ran: string[] = []
+    const { fake, router } = world()
+    const refresh = action({ id: 'refresh', say: 'Refresh', run: () => void ran.push(router.current.id) })
+    const card = (id: string) => ({
+      id,
+      actions: () => [refresh],
+      view: () =>
+        boxes([{ id: 'title', x: 0, y: 0, w: 200, h: 40, text: id }], {
+          pictures: [{ id: 'icon', x: 376, y: 54, w: 200, h: 100, key: id, data: new Uint8Array([1, 2, 3]) }],
+        }),
+    })
+    router.open(card('one'))
+    await settle()
+    fake.refuse('picture', 100)
+    router.replace(card('two'))
+    await settle()
+    expect(fake.lines()).toEqual(['two'])
+    fake.pick('Refresh')
+    await settle(100)
+    expect(ran).toEqual(['two'])
+  })
+
+  it('takes no swipe for a view of another kind that the glasses do not show yet', async () => {
+    const ran: string[] = []
+    const { fake, router, shell } = world()
+    const count = action({ id: 'count', say: 'Count', run: () => void ran.push('count') })
+    let controls = false
+    router.open({
+      id: 'log',
+      view: () =>
+        controls
+          ? boxes([{ id: 'title', x: 0, y: 0, w: 200, h: 40, text: 'Controls' }], { on: { up: count } })
+          : text({ title: 'Log', body: Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join('\n'), end: true }),
+    })
+    await settle()
+    const release = held(fake)
+    const { rebuildPageContainer } = fake.bridge
+    let built = () => {}
+    const building = new Promise<void>(go => (built = go))
+    fake.bridge.rebuildPageContainer = async page => (await building, rebuildPageContainer(page))
+    controls = true
+    shell.redraw()
+    fake.up()
+    release()
+    built()
+    await settle()
+    expect(ran).toEqual([])
+    fake.up()
+    await settle(100)
+    expect(ran).toEqual(['count'])
+  })
+
   it('runs no pick once the router is closed', async () => {
     const ran: string[] = []
     const { fake, router } = world()
@@ -1315,6 +1423,22 @@ describe('a hold', () => {
     expect(front()).toBe('"open ben"')
     await settle(2_000)
     expect(front()).toBe('')
+  })
+
+  it('sends nothing to the transcriber when the screen was shown anew during the hold, also as the very same screen', async () => {
+    const { voice, asked } = hearing('open ben')
+    const { fake, router } = world({ voice })
+    const card = { id: 'card', view: () => text({ body: 'Card' }) }
+    router.open(card)
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(400))
+    router.replace(card)
+    fake.sound(tone(400))
+    fake.release()
+    await settle(50)
+    expect(asked).toEqual([])
   })
 
   it('goes back when asked to', async () => {

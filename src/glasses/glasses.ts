@@ -247,6 +247,9 @@ export class Glasses {
         this.#following.add(told)
         return () => void this.#following.delete(told)
       },
+      drop: frame => {
+        if (this.#wanted?.frame === frame && progress.sending !== frame) this.#wanted = null
+      },
     }
   }
 
@@ -394,7 +397,9 @@ export class Glasses {
         }
         this.#progressed({ sending: frame })
         this.#watch({ at: 'begin', frame, rebuild })
-        const drawn = (rebuild ? await this.#build(page, shape) : await this.#update(page)) && (await this.#hang(page))
+        const written = rebuild ? await this.#build(page, shape) : await this.#update(page)
+        if (written && !rebuild && !this.#life.ended) this.#progressed({ menu: frame })
+        const drawn = written && (await this.#hang(page))
         if (this.#life.ended) return void (this.#progress.sending = 0)
         this.#progressed(drawn ? { shown: frame, menu: frame, sending: 0 } : { sending: 0 })
         if (!drawn) {

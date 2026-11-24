@@ -1,4 +1,3 @@
-import type { Screen } from '../router.js'
 import { text, type View } from '../view.js'
 import type { TextState } from './layout.js'
 
@@ -22,6 +21,7 @@ export interface Sent {
   readonly sending: number
   has(box: string): number
   onChange(told: () => void): () => void
+  drop(frame: number): void
 }
 
 export const PROGRESS = Symbol('how far the glasses are with the frames asked of them')
@@ -31,9 +31,9 @@ export const copied = (view: Words): Words =>
 
 interface Asked {
   frame: number
-  screen: Screen
-  drew: Read | null
   showing: unknown
+  kind: View['kind']
+  drew: Read | null
 }
 
 export class Frames {
@@ -54,19 +54,24 @@ export class Frames {
     return this.#asked.filter(asked => asked.drew).length + this.#swiped.size
   }
 
-  get menu(): { screen: Screen; showing: unknown } | undefined {
+  get menu(): unknown {
     this.forget()
-    return this.#asked.findLast(asked => asked.frame <= this.#progress.menu)
+    return this.#asked.findLast(asked => asked.frame <= this.#progress.menu)?.showing
+  }
+
+  kind(showing: unknown): View['kind'] | undefined {
+    this.forget()
+    return this.#asked.findLast(asked => asked.showing === showing && asked.frame <= this.#read())?.kind
   }
 
   swiping(showing: unknown, to: Read): void {
     if (!this.#ended) this.#swiped.set(showing, { frame: Infinity, to })
   }
 
-  asked(frame: number, screen: Screen, drew: Read | null, showing: unknown = screen): void {
+  asked(frame: number, showing: unknown, drew: Read | null, kind: View['kind'] = 'text'): void {
     if (this.#ended) return
     const later = this.#asked.findIndex(asked => asked.frame > frame)
-    this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, screen, drew, showing })
+    this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, showing, kind, drew })
     const swiped = this.#swiped.get(showing)
     if (swiped?.frame === Infinity) swiped.frame = frame
     this.forget()

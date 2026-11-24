@@ -128,7 +128,7 @@ export class Shell {
   #asking: { yes: () => void; no?: () => void } | null = null
   #overlaid = false
   #fading: Timer | undefined
-  #recording: { chunks: Uint8Array[]; screen: Screen; source: HoldSource; hear: (sound: Sound) => void; end: () => void } | null = null
+  #recording: { chunks: Uint8Array[]; showing: object; source: HoldSource; hear: (sound: Sound) => void; end: () => void } | null = null
   readonly #down = new Map<HoldSource, Timer>()
   #held: Held | null = null
   #turn = 0
@@ -220,10 +220,12 @@ export class Shell {
     const shown = fold ? offered.slice(0, MAX_MENU_ITEMS - 1) : offered
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
+    if (showings.current !== showing || !showings.onPath(showing)) return
     const frame = this.#glasses.draw({ boxes, pictures, menu })
+    if (!showings.onPath(showing)) return this.#glasses[PROGRESS].drop(frame)
     if (!this.#drawn || frame > this.#drawn.frame)
       this.#drawn = { frame, screen, showing, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
-    this.#frames.asked(frame, screen, showings.onPath(showing) ? drew : null, showing)
+    this.#frames.asked(frame, showing, drew, view.kind)
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
@@ -358,8 +360,9 @@ export class Shell {
     const drawn = this.#drawn
     const showing = this.#router[SHOWINGS].current
     const place = this.#places.get(showing)
-    if (!drawn || drawn.showing !== showing || !place) return
+    if (!drawn || drawn.showing !== showing || !place || !this.#router[SHOWINGS].onPath(showing)) return
     const { view } = drawn
+    if ((this.#frames.kind(showing) ?? view.kind) !== view.kind) return
     if (view.kind === 'boxes') {
       const bound = view.on?.[input.kind]
       if (!bound) return
@@ -426,7 +429,7 @@ export class Shell {
     const limit = this.#life.timeout(() => this.#finish(), longest)
     const recording = {
       chunks,
-      screen: this.#router.current,
+      showing: this.#router[SHOWINGS].current,
       source,
       hear: ({ pcm }: Sound) => {
         chunks.push(pcm)
@@ -461,17 +464,17 @@ export class Shell {
     if (!recording || !voice) return
     recording.end()
     const pcm = joinPcm(recording.chunks)
-    if (this.#router.current !== recording.screen) return this.#clear()
+    if (this.#router[SHOWINGS].current !== recording.showing) return this.#clear()
     if (problemWith(pcm)) return this.notice(this.#words.missed)
     void this.#decide(voice, { pcm, seconds: secondsOf(pcm) })
   }
 
   async #decide(voice: VoiceOptions, audio: Audio, passed?: string): Promise<void> {
     const turn = ++this.#turn
-    const screen = this.#router.current
+    const showing = this.#router[SHOWINGS].current
     const life = this.#life.child()
     const mine = () => turn === this.#turn && !this.#life.ended
-    const moved = () => this.#router.current !== screen
+    const moved = () => this.#router[SHOWINGS].current !== showing
     const finish = (then: () => void) => {
       if (!mine()) return
       this.#deciding = null
@@ -574,7 +577,7 @@ export class Shell {
   #picked(item: number): void {
     const shown = this.#frames.menu
     const showing = this.#router[SHOWINGS].current
-    if (!this.#router[SHOWINGS].onPath(showing) || (shown && shown.showing !== showing)) return
+    if (!this.#router[SHOWINGS].onPath(showing) || (shown !== undefined && shown !== showing)) return
     const id = [...this.#items].find(([, number]) => number === item)?.[0]
     const folded = this.#drawn?.folded ?? []
     if (id === MORE && folded.length) {
