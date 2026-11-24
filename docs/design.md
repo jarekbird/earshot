@@ -447,8 +447,10 @@ The line, as states:
 - A line still connecting when quiet comes with nothing left to send (what it held went stale) is lost as well, so
   the app hears `down`.
 - A line that closes while the lifetime goes on ends the turn that was growing, as final and cut, with the words it
-  had. Turns of the next line are numbered on from there. A turn the upstream numbers with anything but a count
-  (a fraction, a negative, a number too large to count with) is not taken, so it cannot hide the turns after it.
+  had. The transport numbers the turns itself, one by one and on across lines: the upstream's number only says
+  which turn of its line a message is about. A message about a turn before the newest of its line is not taken, nor
+  one numbered with anything but a count (a fraction, a negative, a number too large to count with), so no number
+  the upstream sends can hide the turns of the next line.
 - While the line is up, sound goes out as it comes. Only sound that cannot be sent yet is held: the last ten
   seconds of it, to the sample, in memory of its own (a long piece is copied, not kept whole), and let go of when the
   lifetime ends. It is sent however long the line was away, unless the app set `staleMs`: then sound held longer is
