@@ -206,7 +206,7 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
       }
 
       function hold(given: Piece): void {
-        const piece = { ...given, pcm: given.pcm.slice(-HELD_BYTES - (given.pcm.length % 2)) }
+        const piece = { ...given, pcm: new Uint8Array(given.pcm.subarray(-HELD_BYTES - (given.pcm.length % 2))) }
         held.push(piece)
         heldBytes += piece.pcm.length
         while (heldBytes > HELD_BYTES) {

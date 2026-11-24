@@ -27,11 +27,12 @@ export function scriptedLive(lines: readonly string[], msPerWord = 300): LiveSpe
   return {
     start(life, heard) {
       const left = [...script]
+      const news: Turn[] = []
+      const word = msPerWord * BYTES_PER_MS
       let id = 0
       let said = 0
       let waiting: Array<[Speaker, number]> = []
       let by: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
-      const word = msPerWord * BYTES_PER_MS
       const takeWord = () => {
         if (waiting.reduce((bytes, [, part]) => bytes + part, 0) < word) return false
         for (let needed = word; needed > 0;) {
@@ -45,14 +46,12 @@ export function scriptedLive(lines: readonly string[], msPerWord = 300): LiveSpe
         return true
       }
       const turn = (final: boolean, cut: boolean) => {
-        const told = { id, words: left[0].slice(0, said).join(' '), final, cut, speaker: most(by) }
-        if (final) {
-          left.shift()
-          id++
-          said = 0
-          by = { self: 0, other: 0, unknown: 0 }
-        }
-        heard(told)
+        news.push({ id, words: left[0].slice(0, said).join(' '), final, cut, speaker: most(by) })
+        if (!final) return
+        left.shift()
+        id++
+        said = 0
+        by = { self: 0, other: 0, unknown: 0 }
       }
       return sound => {
         if (life.ended) return
@@ -60,11 +59,12 @@ export function scriptedLive(lines: readonly string[], msPerWord = 300): LiveSpe
           waiting = []
           if (said > 0) turn(true, true)
         }
-        waiting.push([sound.speaker, sound.pcm.length])
-        while (!life.ended && left.length && takeWord()) {
+        if (left.length) waiting.push([sound.speaker, sound.pcm.length])
+        while (left.length && takeWord()) {
           said++
           turn(said === left[0].length, false)
         }
+        for (let told = news.shift(); told && !life.ended; told = news.shift()) heard(told)
       }
     },
   }

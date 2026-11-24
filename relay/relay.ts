@@ -36,7 +36,7 @@ export interface Line {
 export interface Sockets {
   accept(request: Request): Promise<{ line: Line; response: Response }>
   dial(url: string, headers: Record<string, string>, stop: AbortSignal, opened: (line: Line) => void): Promise<void>
-  closing?: AbortSignal
+  readonly closing?: AbortSignal
 }
 
 export const MIN_SECRET = 16
@@ -209,7 +209,7 @@ function live(line: Line, sockets: Sockets, { upstream, key, secret, models }: L
   })
 }
 
-export function relay(options: RelayOptions): (request: Request, sockets?: Sockets) => Promise<Response> {
+export function relay(options: RelayOptions, sockets?: Sockets): (request: Request) => Promise<Response> {
   const forwards = options.key !== undefined || options.upstream !== undefined
   if (!forwards && !options.live) throw new Error('A relay needs an upstream: for its calls, for live speech, or for both.')
   if (forwards && !options.key) throw new Error("The relay's calls need the key of their upstream.")
@@ -218,7 +218,7 @@ export function relay(options: RelayOptions): (request: Request, sockets?: Socke
   const models = new Set(options.models ?? DEFAULT_MODELS)
   const limit = options.maxBytes ?? MAX_BYTES
 
-  return async (request, sockets) => {
+  return async request => {
     const { pathname } = new URL(request.url)
     if (request.method === 'OPTIONS') {
       return new Response(null, {

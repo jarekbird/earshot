@@ -297,15 +297,21 @@ describe('live speech from Flux, through the relay', () => {
     expect(lines[1].sound).toBe(HELD_BYTES)
   })
 
-  it('keeps its own copy of sound it holds: what the app does with its buffer afterwards changes nothing', () => {
-    const { lines, hear } = listening()
-    const reused = new Uint8Array(64_000).fill(1)
-    hear({ pcm: reused.subarray(0, 3_200), speaker: 'unknown', gap: false })
-    reused.fill(9)
-    lines[0].connects()
-    const first = lines[0].sent[1] as Uint8Array
-    expect([first[0], first.buffer.byteLength]).toEqual([1, 3_200])
-  })
+  it.each([
+    ['a Uint8Array', () => new Uint8Array(64_000).fill(1)],
+    ['a Node Buffer, whose slice is no copy', () => Buffer.alloc(64_000, 1) as Uint8Array],
+  ])(
+    'keeps its own copy of sound it holds, handed over as %s: what the app does with its buffer afterwards changes nothing',
+    (_name, make) => {
+      const { lines, hear } = listening()
+      const reused = make()
+      hear({ pcm: reused.subarray(0, 3_200), speaker: 'unknown', gap: false })
+      reused.fill(9)
+      lines[0].connects()
+      const first = lines[0].sent[1] as Uint8Array
+      expect([first[0], first.buffer.byteLength]).toEqual([1, 3_200])
+    },
+  )
 
   it('hands the listener a turn of its own: changing it does not change what the transport knows', () => {
     const life = new Lifetime()
