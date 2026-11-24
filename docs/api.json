@@ -110,7 +110,7 @@
     "./relay/node": ["ServeOptions", "serve", "settings"]
   },
   "bin": ["earshot-check", "earshot-relay"],
-  "node": ">=20",
+  "node": ">=22",
   "peers": {
     "@evenrealities/even_hub_sdk": ">=0.0.16"
   }
