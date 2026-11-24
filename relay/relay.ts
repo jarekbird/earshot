@@ -80,9 +80,6 @@ const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_t
 const KEPT_OUT_OF_TRAINING = ['mip_opt_out', 'true']
 const BYTES = new TextEncoder()
 const onThisMachine = (hostname: string) => hostname === 'localhost' || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname)
-// Fact: a URL is read with the spaces and control signs at its two ends taken off.
-const EDGES = /^[\u0000-\u0020]+|[\u0000-\u0020]+$/g
-const STAYS_ON_ITS_HOST = /^(?!\/\/)(?![a-z][a-z0-9+.-]*:)[^\\\u0000-\u001f\u007f]+$/i
 const WHOLE = /^\s*[a-z][a-z0-9+.-]*:\/\//i
 const MAX_BYTES = 4_000_000
 const WAIT_MS = 10_000
@@ -127,14 +124,12 @@ function same(given: string, wanted: string): boolean {
   return differ === 0
 }
 
-function sealed(address: string | undefined, scheme: 'https' | 'wss', what: string, own = false): string {
+function sealed(address: string | undefined, scheme: 'https' | 'wss', what: string): string {
   const plain = scheme === 'https' ? 'http:' : 'ws:'
   let url: URL | undefined
   try {
     url = new URL(address ?? '')
   } catch {
-    const name = (address ?? '').replace(EDGES, '')
-    if (own && address !== undefined && (name === '' || STAYS_ON_ITS_HOST.test(name))) return name.replace(/\/+$/, '')
     throw new Error(`${what} needs the address of its upstream.`)
   }
   if (!WHOLE.test(address ?? '')) throw new Error(`${what} needs the address of its upstream.`)
@@ -223,7 +218,7 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
   const forwards = options.key !== undefined || options.upstream !== undefined
   if (!forwards && !options.live) throw new Error('A relay needs an upstream: for its calls, for live speech, or for both.')
   if (forwards && options.key === undefined && !options.fetch) throw new Error("The relay's calls need the key of their upstream.")
-  const upstream = forwards ? sealed(options.upstream, 'https', "The relay's calls", Boolean(options.fetch)) : ''
+  const upstream = forwards ? sealed(options.upstream, 'https', "The relay's calls") : ''
   const speech = options.live && checked(options.live)
   const models = new Set(options.models ?? DEFAULT_MODELS)
   const limit = options.maxBytes ?? MAX_BYTES
