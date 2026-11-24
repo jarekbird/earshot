@@ -206,7 +206,7 @@ export class Glasses {
   #retry: Timer | undefined
   #retryAt = 0
   #traced = ''
-  readonly #progress = { shown: 0, sending: 0 }
+  readonly #progress = { shown: 0, menu: 0, sending: 0 }
   readonly #from = new Map<string, number>()
   readonly #following = new Set<() => void>()
 
@@ -234,6 +234,9 @@ export class Glasses {
     return {
       get shown() {
         return progress.shown
+      },
+      get menu() {
+        return progress.menu
       },
       get sending() {
         return progress.sending
@@ -381,8 +384,8 @@ export class Glasses {
           if (inPlace) {
             this.#watch({ at: 'begin', frame, rebuild: false })
             await this.#update(page)
+            if (this.#life.ended) return void (this.#progress.sending = 0)
             this.#progressed({ sending: 0 })
-            if (this.#life.ended) return
             this.#watch({ at: 'end', frame, drawn: false })
           }
           if (this.#holds > 0 && this.#wanted === page) return
@@ -391,8 +394,8 @@ export class Glasses {
         this.#progressed({ sending: frame })
         this.#watch({ at: 'begin', frame, rebuild })
         const drawn = (rebuild ? await this.#build(page, shape) : await this.#update(page)) && (await this.#hang(page))
-        if (this.#life.ended) return
-        this.#progressed(drawn ? { shown: frame, sending: 0 } : { sending: 0 })
+        if (this.#life.ended) return void (this.#progress.sending = 0)
+        this.#progressed(drawn ? { shown: frame, menu: frame, sending: 0 } : { sending: 0 })
         if (!drawn) {
           const inMs = retryDelay(++this.#failures)
           this.#watch({ at: 'retry', frame, failures: this.#failures, inMs })
@@ -409,7 +412,7 @@ export class Glasses {
     }
   }
 
-  #progressed(now: Partial<{ shown: number; sending: number }>): void {
+  #progressed(now: Partial<{ shown: number; menu: number; sending: number }>): void {
     Object.assign(this.#progress, now)
     for (const told of [...this.#following]) if (this.#following.has(told)) serve(told)
   }
@@ -422,7 +425,15 @@ export class Glasses {
     }, ms)
   }
 
-  async #ask<T>(frame: number, op: DrawOp, boxes: number, call: () => Promise<T>, accepted: T, box?: string): Promise<boolean> {
+  async #ask<T>(
+    frame: number,
+    op: DrawOp,
+    boxes: number,
+    call: () => Promise<T>,
+    accepted: T,
+    box?: string,
+    taken?: () => void,
+  ): Promise<boolean> {
     const named = box === undefined ? {} : { box }
     const started = this.#now()
     this.#watch({ at: 'call', frame, op, ...named })
@@ -433,6 +444,7 @@ export class Glasses {
       got = error
     }
     const ok = got === accepted
+    if (ok && !this.#life.ended) taken?.()
     this.#watch({ at: 'answer', frame, op, ...named, boxes, ms: this.#now() - started, ok, got })
     return ok
   }
@@ -448,18 +460,21 @@ export class Glasses {
     const create = () => this.#bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page))
     const rebuild = () => this.#bridge.rebuildPageContainer(new RebuildPageContainer(page))
     const shown = boxes.length - 1
-    let drawn = !this.#created && (await this.#ask(frame, 'create', shown, create, StartUpPageCreateResult.success))
+    const built = () => {
+      this.#created = true
+      this.#shape = shape
+      this.#layout = layoutOf({ frame, boxes, pictures, menu })
+      this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
+      this.#from.clear()
+      for (const box of boxes) this.#from.set(box.name, frame)
+      this.#hung = new Map()
+      this.#rebuildAt = this.#now() + REBUILD_GAP_MS
+      this.#progressed({ menu: frame })
+    }
+    let drawn = !this.#created && (await this.#ask(frame, 'create', shown, create, StartUpPageCreateResult.success, undefined, built))
     // A reloaded web view already owns a page, so a create is refused and a rebuild takes it over.
-    if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, rebuild, true)
-    if (!drawn) return false
-    this.#created = true
-    this.#shape = shape
-    this.#layout = layoutOf({ frame, boxes, pictures, menu })
-    this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
-    for (const box of boxes) this.#from.set(box.name, frame)
-    this.#hung = new Map()
-    this.#rebuildAt = this.#now() + REBUILD_GAP_MS
-    return true
+    if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, rebuild, true, undefined, built)
+    return drawn
   }
 
   async #update({ frame, boxes }: Page): Promise<boolean> {
@@ -475,12 +490,14 @@ export class Glasses {
         content: box.text,
         textColor: box.brightness,
       })
-      const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name)
-      if (this.#life.ended) return false
-      if (accepted) {
+      const taken = () => {
         this.#sent.set(box.id, stateOf(box))
         this.#from.set(box.name, frame)
-      } else drawn = false
+        this.#progressed({})
+      }
+      const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name, taken)
+      if (this.#life.ended) return false
+      if (!accepted) drawn = false
     }
     return drawn
   }

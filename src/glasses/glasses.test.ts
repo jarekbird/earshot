@@ -1724,6 +1724,7 @@ describe('watching the draws', () => {
     await settle()
     expect(seen).toEqual([
       [1, 0],
+      [1, 0],
       [0, 1],
     ])
   })
@@ -1738,6 +1739,61 @@ describe('watching the draws', () => {
     await settle(0)
     expect(glasses.shown).toBe(1)
     expect([glasses[PROGRESS].has('title'), glasses[PROGRESS].has('body')]).toEqual([1, 2])
+  })
+
+  it('has noted which frame a box of text is from before it tells whoever watches of the answer', async () => {
+    const seen: number[] = []
+    const glasses: Glasses = new Glasses(new Lifetime(), fakeBridge().bridge, {
+      watch: event => {
+        if (event.at === 'answer' && event.op === 'update' && event.ok) seen.push(glasses[PROGRESS].has('title'))
+      },
+    })
+    glasses.draw(frame(box('title', 'One')))
+    await settle()
+    glasses.draw(frame(box('title', 'Two')))
+    await settle()
+    expect(seen).toEqual([2])
+  })
+
+  it('forgets which frame a box was from once a rebuilt page no longer has that box', async () => {
+    const glasses = new Glasses(new Lifetime(), fakeBridge().bridge)
+    glasses.draw(frame(box('old', 'One')))
+    await settle()
+    glasses.draw(frame(box('new', 'Two')))
+    await settle(1_000)
+    expect([glasses[PROGRESS].has('old'), glasses[PROGRESS].has('new')]).toEqual([0, 2])
+  })
+
+  it('says which frame the menu on the glasses is from as soon as the page is built, though a picture of it is still refused', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    glasses.draw(frame(box('title', 'One')))
+    await settle()
+    fake.refuse('picture', 100)
+    const icon = { id: 'icon', x: 376, y: 54, w: 200, h: 100, key: 'v1', data: new Uint8Array([1, 2, 3]) }
+    glasses.draw({ ...frame(box('title', 'Two')), menu: [{ id: 1, name: 'Open' }], pictures: [icon] })
+    await settle(400)
+    expect([glasses.shown, glasses[PROGRESS].menu]).toEqual([1, 2])
+  })
+
+  it('tells nothing of its progress, and leaves no frame as being sent, once its lifetime has ended', async () => {
+    const fake = fakeBridge()
+    const life = new Lifetime()
+    const glasses = new Glasses(life, fake.bridge)
+    glasses.draw(frame(box('title', 'One')))
+    await settle()
+    let answer = () => {}
+    const waiting = new Promise<void>(go => (answer = go))
+    const real = fake.bridge.textContainerUpgrade
+    fake.bridge.textContainerUpgrade = async upgrade => (await waiting, real(upgrade))
+    glasses.draw(frame(box('title', 'Two')))
+    await settle(0)
+    let told = 0
+    glasses[PROGRESS].onChange(() => void told++)
+    life.end()
+    answer()
+    await settle()
+    expect([told, glasses[PROGRESS].sending]).toEqual([0, 0])
   })
 
   it('tells of a frame from its start to its end, with each call to the glasses and its answer', async () => {

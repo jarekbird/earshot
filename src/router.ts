@@ -25,6 +25,8 @@ interface Jump {
   moved: boolean
 }
 
+export const ON_PATH = Symbol('whether a screen is on the path from home to the one on show')
+
 export class Router {
   readonly #stack: Entry[]
   readonly #appActions: () => readonly Action[]
@@ -56,6 +58,10 @@ export class Router {
 
   get depth(): number {
     return this.#stack.length
+  }
+
+  [ON_PATH](screen: Screen): boolean {
+    return this.#stack.some(entry => entry.screen === screen)
   }
 
   onChange(listener: (current: Screen) => void): () => void {

@@ -102,21 +102,23 @@ containers change, and maps the touchpad to actions: swipe moves, tap runs, doub
 - A blocked action says why in the overlay for three seconds. A `confirm` action asks there first, and only a tap
   confirms. An action that needs a target and has none opens a list of its targets.
 - A swipe on a text counts from what the wearer has read, since the glasses draw later than the app asks. `Frames`
-  keeps a copy of the text and the place of each frame that can still matter: the one whose menu the glasses show,
-  the one whose words they show, the one being sent, and the newest. Every other frame can never be shown, so it is
-  let go at once. For each screen it also keeps where the newest swipe not yet drawn reached on the text the wearer
-  was reading, until a frame as new is on the glasses. So a stalled display holds four texts and one per screen
-  that was swiped; the copy takes the title, the words and `end` of a view and nothing else an app hung on it, and
-  all of it goes when the shell ends. A swipe goes on from where the last one reached; with none, it counts from
-  the words the glasses show. So swipes land where they would had each been drawn before the next, and text that
-  came in the meantime is laid out after them. A test holds that over random orders of swipes, new text, other
-  screens and draws.
+  keeps of the frames asked for only those that can still matter: the one whose menu the glasses show (of that one
+  only which screen it was, once newer words are shown), the one whose words they show, the one being sent, and the
+  newest. Of a text it keeps a copy of the title, the words and `end`, nothing else an app hung on the view. For
+  each screen on the path it also keeps where the newest swipe not yet drawn reached on the text the wearer was
+  reading, noted before the draw is asked for, until a frame as new is on the glasses or the screen leaves the
+  path. So a stalled display holds three texts and one per swiped screen on the path, and all of it goes when the
+  shell ends. A swipe goes on from where the last one reached; with none, it counts from the words the glasses
+  show. So swipes land where they would had each been drawn before the next, and text that came in the meantime is
+  laid out after them. A test holds that over random orders of swipes, new text, other screens and draws.
 - `Glasses` tells `Frames` how far it is through a key the package does not export (`PROGRESS`), as it does the
-  microphone of a hold: no app has a use for it. It says which frame is shown, which is being sent, and for each
-  box of text which frame its words are from: a box is written in place while a rebuild is held back, and one box
-  can be taken while another of the same frame is refused. It says so before it tells whoever watches, and tells
-  `Frames` at each change, so nothing is kept past its use and a redraw from an observer finds the frames as they
-  are. Each draw has its own number, also one asked for from inside the telling of another.
+  microphone of a hold: no app has a use for it. It says which frame is whole on the glasses, which frame the menu
+  is from (a page can be built while a picture of it is still refused), which is being sent, and for each box of
+  the page which frame its words are from: a box is written in place while a rebuild is held back, and one box can
+  be taken while another of the same frame is refused. It notes each of these before it tells whoever watches, and
+  tells `Frames` at each change until its lifetime ends, so nothing is kept past its use and a redraw or a swipe
+  from an observer finds the frames as they are. Each draw has its own number, also one asked for from inside the
+  telling of another. The router tells the shell whether a screen is still on the path the same way (`ON_PATH`).
 - Holds are handed on untouched; slice 3 takes them.
 
 `earshot/testing` is a stand-in bridge for tests, and a traced frame is what `earshot/sim` reads back as the glasses'

@@ -550,6 +550,62 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(fake.lines()[1]).toBe('Line 30')
   })
 
+  it('counts a swipe that comes while the glasses are being asked for the one before it on from that one', async () => {
+    let more = false
+    const watch = (event: Drawing) => {
+      if (!more || event.at !== 'ask') return
+      more = false
+      fake.up()
+    }
+    const { fake, router } = world({ watch })
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 22')
+    more = true
+    fake.up()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 18')
+  })
+
+  it('counts a swipe from words the glasses have just taken, when it comes as whoever watches is told of that answer', async () => {
+    let swipe = false
+    const watch = (event: Drawing) => {
+      if (!swipe || event.at !== 'answer' || !event.ok || event.box !== 'body') return
+      swipe = false
+      fake.up()
+    }
+    const { fake, router, shell } = world({ watch })
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    for (let at = 31; at <= 40; at++) log.push(`Line ${at}`)
+    swipe = true
+    shell.redraw()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 30')
+  })
+
+  it('runs a pick from the menu the glasses show, though a picture of that page is still refused', async () => {
+    const ran: string[] = []
+    const { fake, router } = world()
+    await settle()
+    const go = action({ id: 'go', say: 'Go', run: () => void ran.push('go') })
+    fake.refuse('picture', 100)
+    router.open({
+      id: 'card',
+      actions: () => [go],
+      view: () =>
+        boxes([{ id: 'title', x: 0, y: 0, w: 200, h: 40, text: 'Card' }], {
+          pictures: [{ id: 'icon', x: 376, y: 54, w: 200, h: 100, key: 'v1', data: new Uint8Array([1, 2, 3]) }],
+        }),
+    })
+    await settle()
+    fake.pick('Go')
+    await settle(100)
+    expect(ran).toEqual(['go'])
+  })
+
   it('counts a swipe on the page the wearer saw when the screen has meanwhile turned to following its end', async () => {
     const { fake, router, shell } = world()
     const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
