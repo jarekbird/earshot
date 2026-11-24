@@ -16,7 +16,7 @@ export interface FluxSocket {
 
 export interface FluxOptions {
   host: string
-  secret?: string
+  secret: string
   staleMs?: number
 }
 
@@ -94,7 +94,7 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
     model: FLUX,
     encoding: 'linear16',
     sample_rate: String(SAMPLE_RATE),
-    ...(options.secret ? { secret: options.secret } : {}),
+    secret: options.secret,
   })
 
   return {

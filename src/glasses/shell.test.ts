@@ -181,6 +181,30 @@ describe('a text that stays at its end, with a page that holds one line', () => 
   })
 })
 
+describe('a text that stays at its end, while more of it is on its way to the glasses', () => {
+  it('counts a swipe from the page the wearer is looking at, not from one not yet drawn', async () => {
+    const { fake, router, shell } = world()
+    const log = Array.from({ length: 12 }, (_, at) => `Line ${at + 1}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    expect(fake.lines().at(-1)).toBe('Line 12')
+    let release = () => {}
+    const waiting = new Promise<void>(go => (release = go))
+    const real = fake.bridge.textContainerUpgrade
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      await waiting
+      return real(upgrade)
+    }
+    for (let at = 13; at <= 24; at++) log.push(`Line ${at}`)
+    shell.redraw()
+    await settle(0)
+    fake.up()
+    release()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 2')
+  })
+})
+
 describe('a list', () => {
   it('moves the cursor with a swipe, in place, and stops at each end', async () => {
     const { fake, cursor } = world()

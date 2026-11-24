@@ -10,7 +10,7 @@ import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
 import type { Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
-import { layoutList, layoutText, type Stride } from './layout.js'
+import { layoutList, layoutText, type Stride, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
 import { HOLD, type Held } from './mic.js'
 
@@ -108,6 +108,11 @@ interface Drawn {
   targets: readonly TargetInfo[]
   folded: readonly Action[]
   scrolls: boolean
+  page: Page
+}
+
+interface Page {
+  at: number
   stride: (wanted: number) => Stride
 }
 
@@ -131,7 +136,7 @@ export class Shell {
   #turn = 0
   #said = false
   #deciding: Lifetime | null = null
-  #asked: Array<{ frame: number; screen: Screen }> = []
+  #asked: Array<{ frame: number; screen: Screen; page: Page }> = []
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -169,7 +174,7 @@ export class Shell {
     let boxes: Box[]
     let pictures: Picture[] = []
     let scrolls = false
-    let stride = (wanted: number): Stride => ({ up: wanted, down: wanted })
+    let page: Page = { at: 0, stride: wanted => ({ up: wanted, down: wanted }) }
     let targets: readonly TargetInfo[] = []
     if (view.kind === 'list') {
       targets = view.action.targets() ?? []
@@ -180,7 +185,7 @@ export class Shell {
       const laid = layoutText(view, place)
       Object.assign(place, laid.state)
       scrolls = laid.scrolls
-      stride = laid.stride
+      page = { at: laid.at, stride: laid.stride }
       boxes = laid.boxes
     } else {
       boxes = view.boxes
@@ -194,8 +199,19 @@ export class Shell {
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
     this.#shown()
     const frame = this.#glasses.draw({ boxes, pictures, menu })
-    this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls, stride }
-    this.#asked.push({ frame, screen })
+    this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls, page }
+    this.#asked.push({ frame, screen, page })
+  }
+
+  #scroll(drawn: Drawn, place: TextState, wanted: number, up: boolean): void {
+    this.#shown()
+    const seen = this.#asked[0]
+    const onGlasses = seen && seen.frame <= this.#glasses.shown && seen.screen === drawn.screen ? seen.page : drawn.page
+    const stride = onGlasses.stride(wanted)
+    const by = up ? -stride.up : stride.down
+    if (drawn.view.kind === 'text' && drawn.view.end) Object.assign(place, { top: onGlasses.at + by, away: true })
+    else place.top += by
+    this.redraw()
   }
 
   #shown(): Screen | undefined {
@@ -232,8 +248,8 @@ export class Shell {
         : view.kind === 'text'
           ? drawn.scrolls
             ? [
-                move(UP, this.#words.scrollUp, -drawn.stride(SCREENFUL).up, 'top'),
-                move(DOWN, this.#words.scrollDown, drawn.stride(SCREENFUL).down, 'top'),
+                action({ id: UP, say: this.#words.scrollUp, run: () => this.#scroll(drawn, place, SCREENFUL, true) }),
+                action({ id: DOWN, say: this.#words.scrollDown, run: () => this.#scroll(drawn, place, SCREENFUL, false) }),
               ]
             : []
           : drawn.targets.length === 0
@@ -330,7 +346,7 @@ export class Shell {
     }
     const step = input.kind === 'up' ? -1 : 1
     if (view.kind === 'text') {
-      if (input.kind !== 'tap') place.top += step < 0 ? -drawn.stride(SCROLL_LINES).up : drawn.stride(SCROLL_LINES).down
+      if (input.kind !== 'tap') return this.#scroll(drawn, place, SCROLL_LINES, step < 0)
     } else if (input.kind !== 'tap') place.cursor += step
     else return this.#choose(drawn, place)
     this.redraw()

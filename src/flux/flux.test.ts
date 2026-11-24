@@ -82,7 +82,7 @@ function listening({ now = Date.now, ...options }: Partial<FluxOptions> & { now?
   const turns: Turn[] = []
   const states: LiveState[] = []
   const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-  const speech = fluxOver({ host: 'https://relay.example/', ...options }, { open, now })
+  const speech = fluxOver({ host: 'https://relay.example/', secret: PHRASE, ...options }, { open, now })
   const hear = speech.start(
     life,
     turn => turns.push(turn),
@@ -106,11 +106,11 @@ describe('the relay of live speech', () => {
     'https://someone@relay.example',
     'ws://localhost:8787',
   ])('is refused when named %s: the secret and the sound would be readable', host => {
-    expect(() => fluxLive({ host })).toThrow(/https|address alone/)
+    expect(() => fluxLive({ host, secret: PHRASE })).toThrow(/https|address alone/)
   })
 
   it.each(['https://relay.example', 'http://127.0.0.1:8787', 'http://localhost:8787', 'http://[::1]:8787'])('may be %s', host => {
-    expect(() => fluxLive({ host })).not.toThrow()
+    expect(() => fluxLive({ host, secret: PHRASE })).not.toThrow()
   })
 })
 
@@ -118,7 +118,7 @@ describe('a relay address that cannot be read', () => {
   it('is refused without the address in the error, which could hold a name and a password', () => {
     let thrown: unknown
     try {
-      fluxLive({ host: 'https://user:synthetic-marker@' })
+      fluxLive({ host: 'https://user:synthetic-marker@', secret: PHRASE })
     } catch (error) {
       thrown = error
     }
@@ -176,13 +176,6 @@ describe('live speech from Flux, through the relay', () => {
     expect(lines[0].sent).toEqual([])
     lines[0].opens()
     expect(lines[0].sent).toEqual([JSON.stringify({ model: FLUX, encoding: 'linear16', sample_rate: '16000', secret: PHRASE })])
-  })
-
-  it('sends no secret when the app has none', () => {
-    const { lines, hear } = listening()
-    hear(sound(100))
-    lines[0].opens()
-    expect(lines[0].sent).toEqual([JSON.stringify({ model: FLUX, encoding: 'linear16', sample_rate: '16000' })])
   })
 
   it.each([
@@ -273,7 +266,10 @@ describe('live speech from Flux, through the relay', () => {
     const life = new Lifetime()
     const lines: Line[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(life, turn => void (turn.cut && life.end()))
+    const hear = fluxOver({ host: 'https://relay.example', secret: PHRASE }, { open, now: Date.now }).start(
+      life,
+      turn => void (turn.cut && life.end()),
+    )
     hear(sound(100))
     lines[0].connects()
     lines[0].says(info(0, 'before the'))
@@ -287,7 +283,7 @@ describe('live speech from Flux, through the relay', () => {
     const life = new Lifetime()
     const lines: Line[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(
+    const hear = fluxOver({ host: 'https://relay.example', secret: PHRASE }, { open, now: Date.now }).start(
       life,
       turn => void (turn.cut && hear(sound(100))),
     )
@@ -309,7 +305,10 @@ describe('live speech from Flux, through the relay', () => {
     const life = new Lifetime()
     const lines: Line[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(life, () => void seen.push(lines.length))
+    const hear = fluxOver({ host: 'https://relay.example', secret: PHRASE }, { open, now: Date.now }).start(
+      life,
+      () => void seen.push(lines.length),
+    )
     hear(sound(100))
     lines[0].connects()
     lines[0].says(info(0, 'before the'))
@@ -358,7 +357,7 @@ describe('live speech from Flux, through the relay', () => {
     const lines: Line[] = []
     const told: string[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(life, turn => {
+    const hear = fluxOver({ host: 'https://relay.example', secret: PHRASE }, { open, now: Date.now }).start(life, turn => {
       told.push(`${turn.id} ${turn.words}${turn.final ? '.' : ''}`)
       turn.id = 99
       turn.words = 'changed'
@@ -422,7 +421,7 @@ describe('live speech from Flux, through the relay', () => {
     const life = new Lifetime()
     const lines: Line[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(life, turn => fail(turn.words))
+    const hear = fluxOver({ host: 'https://relay.example', secret: PHRASE }, { open, now: Date.now }).start(life, turn => fail(turn.words))
     hear(sound(100))
     lines[0].connects()
     lines[0].says(info(0, 'what was said in confidence'))
@@ -440,7 +439,7 @@ describe('live speech from Flux, through the relay', () => {
       if (refuse) throw new SyntaxError('not an address the browser takes')
       return lines[lines.push(new Line(url)) - 1]
     }
-    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(
+    const hear = fluxOver({ host: 'https://relay.example', secret: PHRASE }, { open, now: Date.now }).start(
       new Lifetime(),
       () => {},
       state => states.push(state),
@@ -468,7 +467,7 @@ describe('live speech from Flux, through the relay', () => {
     )
     onTestFinished(() => void vi.unstubAllGlobals())
     const life = new Lifetime()
-    fluxLive({ host: 'https://relay.example' }).start(life, () => {})(sound(100))
+    fluxLive({ host: 'https://relay.example', secret: PHRASE }).start(life, () => {})(sound(100))
     life.end()
     expect(made).toEqual(['wss://relay.example/api/v1/live'])
   })
@@ -556,7 +555,7 @@ describe('live speech from Flux, through the relay', () => {
     const life = new Lifetime()
     const lines: Line[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(
+    const hear = fluxOver({ host: 'https://relay.example', secret: PHRASE }, { open, now: Date.now }).start(
       life,
       () => {},
       state => state === 'down' && hear(sound(100)),
@@ -744,7 +743,7 @@ describe('live speech from Flux, through the relay', () => {
     const lines: Line[] = []
     const told: string[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
-    const hear = fluxOver({ host: 'https://relay.example' }, { open, now: Date.now }).start(life, turn => {
+    const hear = fluxOver({ host: 'https://relay.example', secret: PHRASE }, { open, now: Date.now }).start(life, turn => {
       told.push(`${turn.words}${turn.final ? '.' : ''}`)
       if (turn.final) life.end()
     })
