@@ -60,7 +60,7 @@ export function scriptedLive(lines: readonly string[]): LiveSpeech {
           waiting = []
           if (said > 0) turn(true, true)
         }
-        if (left.length) waiting.push([sound.speaker, sound.pcm.length])
+        if (left.length && sound.pcm.length) waiting.push([sound.speaker, sound.pcm.length])
         while (left.length && takeWord()) {
           said++
           turn(said === left[0].length, false)
@@ -69,6 +69,7 @@ export function scriptedLive(lines: readonly string[]): LiveSpeech {
         telling = true
         try {
           for (let told = news.shift(); told && !life.ended; told = news.shift()) serve(() => heard(told), 'live speech')
+          if (life.ended) news.length = 0
         } finally {
           telling = false
         }

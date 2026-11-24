@@ -1,6 +1,7 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { openRouter, MODELS } from '../src/openrouter/openrouter.js'
-import { CLOSES, DEFAULT_MODELS, DIAL_MS, LIVE_PATH, relay, type Line, type Sockets } from './relay.js'
+import { CLOSES, DIAL_MS, LIVE_PATH } from './limits.js'
+import { DEFAULT_MODELS, relay, type Line, type Sockets } from './relay.js'
 
 interface Sent {
   url: string
@@ -281,6 +282,31 @@ describe('the calls, when the upstream answers with another address', () => {
 })
 
 describe('the upstream of the calls, named with a query of its own', () => {
+  it.each([
+    [
+      "https://gateway.example/dispatch?tenant=Bob's&route=",
+      "https://gateway.example/dispatch?tenant=Bob's&route=/api/v1/audio/transcriptions",
+    ],
+    ['https://upstream.example?route=', 'https://upstream.example?route=/api/v1/audio/transcriptions'],
+  ])("reaches a host's own fetch spelled as the developer spelled it: %s", async (upstream, called) => {
+    const urls: string[] = []
+    const handle = relay({
+      key: 'sk-developer',
+      upstream,
+      fetch: async url => {
+        urls.push(String(url))
+        return new Response('{}')
+      },
+    })
+    await handle(
+      new Request('https://relay.example/api/v1/audio/transcriptions', {
+        method: 'POST',
+        body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
+      }),
+    )
+    expect(urls).toEqual([called])
+  })
+
   it('is called as it always was: the path follows the query', async () => {
     const urls: string[] = []
     const handle = relay({
@@ -320,6 +346,13 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
     )
     expect(urls).toEqual(['/backend/api/v1/audio/transcriptions'])
   })
+
+  it.each(['//upstream.example', 'backend', '', '\\\\upstream.example'])(
+    'is a path of the host and nothing that names another: %j is refused',
+    upstream => {
+      expect(() => relay({ key: 'sk-developer', upstream, fetch: async () => new Response('{}') })).toThrow('needs the address')
+    },
+  )
 
   it('must be a whole address when the relay fetches it itself', () => {
     expect(() => relay({ key: 'sk-developer', upstream: '/backend' })).toThrow('needs the address')

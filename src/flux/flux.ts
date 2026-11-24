@@ -60,12 +60,18 @@ function parse(data: unknown): Record<string, unknown> | null {
   }
 }
 
+const NOT_ALONE = 'The relay of live speech is named by its address alone: no query, no fragment, no name or password.'
+
 function lineTo(host: string): string {
-  const relay = new URL(host)
+  let relay: URL
+  try {
+    relay = new URL(host)
+  } catch {
+    throw new Error(NOT_ALONE)
+  }
   if (relay.protocol !== 'https:' && !(relay.protocol === 'http:' && THIS_DEVICE.has(relay.hostname)))
     throw new Error('Live speech carries a secret and sound, so its relay is named with https.')
-  if (/[?#]/.test(host) || relay.username || relay.password)
-    throw new Error('The relay of live speech is named by its address alone: no query, no fragment, no name or password.')
+  if (/[?#]/.test(host) || relay.username || relay.password) throw new Error(NOT_ALONE)
   relay.protocol = relay.protocol === 'https:' ? 'wss:' : 'ws:'
   relay.pathname = `${relay.pathname.replace(/\/+$/, '')}${LIVE_PATH}`
   return relay.href

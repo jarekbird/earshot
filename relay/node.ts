@@ -1,7 +1,8 @@
 import { createServer, STATUS_CODES, type IncomingMessage, type Server } from 'node:http'
 import { Readable, type Duplex } from 'node:stream'
 import { WebSocket as Upstream, WebSocketServer } from 'ws'
-import { LIVE_PATH, MAX_FRAME, relay, relayOptions, type Line, type RelayOptions, type Sockets } from './relay.js'
+import { LIVE_PATH, MAX_FRAME } from './limits.js'
+import { relay, relayOptions, type Line, type RelayOptions, type Sockets } from './relay.js'
 
 export interface ServeOptions extends RelayOptions {
   port?: number

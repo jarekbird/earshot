@@ -10,6 +10,7 @@ const proxy = createServer((request, response) => {
   response.writeHead(403).end()
 })
 proxy.on('connect', (request, socket) => {
+  socket.on('error', () => {})
   outsideCalls.push(`CONNECT ${request.url}`)
   socket.end('HTTP/1.1 403 Forbidden\r\n\r\n')
 })

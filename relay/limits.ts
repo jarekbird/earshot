@@ -1,0 +1,10 @@
+export const DEFAULT_LIVE_MODELS = ['@cf/deepgram/flux']
+export const LIVE_PATH = '/api/v1/live'
+export const CLOSES = { hello: 4400, secret: 4401, model: 4403, upstream: 4502, big: 1009, stalled: 1013, going: 1001 }
+export const HELLO_MS = 3_000
+export const DIAL_MS = 5_000
+export const MAX_FRAME = 65_536
+export const MAX_QUEUED = 1_048_576
+export const MIN_SECRET = 16
+export const MAX_SECRET = 1_024
+export const MAX_HELLO = 4_096

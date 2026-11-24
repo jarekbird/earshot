@@ -306,12 +306,12 @@ export default {
 
 For live speech the relay needs three more settings. It can also run with these alone, and then it forwards none of the three calls.
 
-| Node                          | Worker          | What                                                                                 |
-| ----------------------------- | --------------- | ------------------------------------------------------------------------------------ |
-| `EARSHOT_RELAY_LIVE_UPSTREAM` | `LIVE_UPSTREAM` | The `wss` address of your Cloudflare AI Gateway's Workers AI path, with no query     |
-| `EARSHOT_RELAY_LIVE_KEY`      | `LIVE_KEY`      | A Cloudflare token that may run requests through that gateway                        |
-| `EARSHOT_RELAY_SECRET`        | `SECRET`        | What an app must say before a line opens: 16 to 1,024 characters, of your own making |
-| `EARSHOT_RELAY_LIVE_MODELS`   | `LIVE_MODELS`   | A comma-separated list, when your app uses another model than `@cf/deepgram/flux`    |
+| Node                          | Worker          | What                                                                                                     |
+| ----------------------------- | --------------- | -------------------------------------------------------------------------------------------------------- |
+| `EARSHOT_RELAY_LIVE_UPSTREAM` | `LIVE_UPSTREAM` | The `wss` address of your Cloudflare AI Gateway's Workers AI path, with no query                         |
+| `EARSHOT_RELAY_LIVE_KEY`      | `LIVE_KEY`      | A Cloudflare token that may run requests through that gateway                                            |
+| `EARSHOT_RELAY_SECRET`        | `SECRET`        | What an app must say before a line opens: 16 to 1,024 characters as JSON writes them, of your own making |
+| `EARSHOT_RELAY_LIVE_MODELS`   | `LIVE_MODELS`   | A comma-separated list, when your app uses another model than `@cf/deepgram/flux`                        |
 
 With no upstream for it the relay has no live path. With one, no relay is made without the key and the secret, whichever way it is started. An upstream is named with `https` (`wss` for live speech), so that no key travels in the clear; one on the same machine may be plain. Turn the gateway's logs off: they are on for a new gateway, and they would keep what was said.
 

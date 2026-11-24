@@ -1,3 +1,16 @@
+import {
+  CLOSES,
+  DEFAULT_LIVE_MODELS,
+  DIAL_MS,
+  HELLO_MS,
+  LIVE_PATH,
+  MAX_FRAME,
+  MAX_HELLO,
+  MAX_QUEUED,
+  MAX_SECRET,
+  MIN_SECRET,
+} from './limits.js'
+
 export interface LiveOptions {
   upstream: string
   key: string
@@ -39,9 +52,6 @@ export interface Sockets {
   readonly closing?: AbortSignal
 }
 
-export const MIN_SECRET = 16
-export const MAX_SECRET = 1_024
-
 const listed = (models: string | undefined) => {
   const names = models
     ?.split(',')
@@ -59,13 +69,6 @@ export function relayOptions({ key, upstream, models, liveUpstream, liveKey, liv
 }
 
 export const DEFAULT_MODELS = ['openai/whisper-large-v3-turbo', 'typesafe/jev-1.14', 'mistralai/mistral-nemo']
-export const DEFAULT_LIVE_MODELS = ['@cf/deepgram/flux']
-export const LIVE_PATH = '/api/v1/live'
-export const CLOSES = { hello: 4400, secret: 4401, model: 4403, upstream: 4502, big: 1009, stalled: 1013, going: 1001 }
-export const HELLO_MS = 3_000
-export const DIAL_MS = 5_000
-export const MAX_FRAME = 65_536
-export const MAX_QUEUED = 1_048_576
 
 const SPEECH = '/api/v1/audio/transcriptions'
 const FIELDS = new Map([
@@ -77,7 +80,6 @@ const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_t
 const KEPT_OUT_OF_TRAINING = ['mip_opt_out', 'true']
 const BYTES = new TextEncoder()
 const THIS_MACHINE = new Set(['localhost', '127.0.0.1', '[::1]'])
-const MAX_HELLO = 4_096
 const MAX_BYTES = 4_000_000
 const WAIT_MS = 10_000
 const SPEECH_WAIT_MS = 28_000
@@ -126,17 +128,17 @@ function sealed(address: string | undefined, scheme: string, what: string, own =
   try {
     url = new URL(address ?? '')
   } catch {
-    if (own && address) return address.replace(/\/+$/, '')
+    if (own && /^\/(?!\/)/.test(address ?? '')) return (address ?? '').replace(/\/+$/, '')
     throw new Error(`${what} needs the address of its upstream.`)
   }
   if (url.protocol !== `${scheme}:` && !THIS_MACHINE.has(url.hostname))
     throw new Error(`${what} sends a key, so its upstream is named with ${scheme}.`)
-  return url.href.replace(/\/+$/, '')
+  return (address ?? '').replace(/\/+$/, '')
 }
 
 function checked(live: LiveOptions): LiveOptions {
   if (!live.key) throw new Error('Live speech needs the key of its upstream.')
-  if (typeof live.secret !== 'string' || live.secret.length < MIN_SECRET || live.secret.length > MAX_SECRET)
+  if (typeof live.secret !== 'string' || live.secret.length < MIN_SECRET || JSON.stringify(live.secret).length - 2 > MAX_SECRET)
     throw new Error(`Live speech needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters.`)
   const upstream = sealed(live.upstream, 'wss', 'Live speech')
   if (/[?#]/.test(upstream)) throw new Error('Live speech names its upstream with no query.')
