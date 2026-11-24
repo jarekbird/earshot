@@ -444,6 +444,8 @@ The line, as states:
   out of it. The stand-in does the same.
 - **What ending cannot take back.** Ending the lifetime closes the line and lets go of held sound, but sound the
   browser had already taken for the line may still be sent before the close: a page cannot cancel it.
+- **Sound that comes while a line is closing is held**, not handed to a socket that would drop it, and goes out
+  on the next line.
 - **A line that cannot even be opened is a line lost.** If the browser refuses to make the socket, the transport
   says `down` and tries again as after any loss; nothing is thrown at the app's microphone listener.
 - **Its socket and its clock are its own.** Tests hand in their own through `fluxOver`, which the package does not
@@ -489,13 +491,15 @@ The line, as states:
   is left to the app's own listener, when it has one; with no live speech set the server listens for no upgrade at
   all. The upstream of the three calls is used spelled as the developer spelled it, a query of its own
   included, as it always was. For a host that brings its own `fetch` it may be a name on that host (`backend`,
-  `/backend`), as it always could; what could name another host when it is resolved (two slashes at the start, a
-  backslash, a space or a control sign) is refused. The live upstream is dialled at the address that was checked.
+  `/backend`), as it always could; what could name another host when it is resolved (two slashes or a scheme at the
+  start, a backslash, a control sign, a space in front) is refused. The live upstream is dialled at the address that was checked.
   A whole address is written with its scheme and two slashes, and with `https` (`wss` for live speech), or plain
   `http` (`ws`) on the same machine and no other scheme, so the address that was checked is the one that is used on
   either host.
 - **An upstream that misbehaves is dropped at once.** When the Node server's socket to the upstream fails (a
   message too large, say), it is destroyed there and then, so the caller hears 4502 as soon as a Worker's would.
+- **A refused upgrade leaves no socket behind.** The Node server destroys the socket once its answer is written,
+  also when the caller keeps its own side open.
 - **A caller who will not say goodbye is let go of.** When the relay closes a line, the Node server waits one second
   for the caller's answer and then drops the socket; unanswered, `ws` would hold it for thirty.
 - **A host hands the relay its sockets when it makes it**, so what `relay` gives back still takes one request and

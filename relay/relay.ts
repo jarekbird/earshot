@@ -80,7 +80,7 @@ const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_t
 const KEPT_OUT_OF_TRAINING = ['mip_opt_out', 'true']
 const BYTES = new TextEncoder()
 const THIS_MACHINE = new Set(['localhost', '127.0.0.1', '[::1]'])
-const STAYS_ON_ITS_HOST = /^(?!\/\/)(?![a-z][a-z0-9+.-]*:)[^\\\s\u0000-\u001f]+$/i
+const STAYS_ON_ITS_HOST = /^(?!\s)(?!\/\/)(?![a-z][a-z0-9+.-]*:)[^\\\u0000-\u001f\u007f]+$/i
 const WHOLE = /^\s*[a-z][a-z0-9+.-]*:\/\//i
 const MAX_BYTES = 4_000_000
 const WAIT_MS = 10_000
@@ -219,7 +219,7 @@ function live(line: Line, sockets: Sockets, { upstream, key, secret, models }: L
 export function relay(options: RelayOptions, sockets?: Sockets): (request: Request) => Promise<Response> {
   const forwards = options.key !== undefined || options.upstream !== undefined
   if (!forwards && !options.live) throw new Error('A relay needs an upstream: for its calls, for live speech, or for both.')
-  if (forwards && !options.key && !options.fetch) throw new Error("The relay's calls need the key of their upstream.")
+  if (forwards && options.key === undefined && !options.fetch) throw new Error("The relay's calls need the key of their upstream.")
   const upstream = forwards ? sealed(options.upstream, 'https', "The relay's calls", Boolean(options.fetch)) : ''
   const speech = options.live && checked(options.live)
   const models = new Set(options.models ?? DEFAULT_MODELS)
@@ -259,7 +259,7 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
     try {
       const response = await (options.fetch ?? fetch)(`${upstream}${pathname}`, {
         method: 'POST',
-        headers: { authorization: `Bearer ${options.key}`, 'content-type': 'application/json' },
+        headers: { authorization: `Bearer ${options.key ?? ''}`, 'content-type': 'application/json' },
         body: JSON.stringify(kept),
         redirect: 'error',
         signal: control.signal,

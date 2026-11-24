@@ -27,6 +27,7 @@ const PHRASE = 'what only this phone was told'
 
 class Line implements FluxSocket {
   binaryType = 'blob'
+  readyState = 1
   bufferedAmount = 0
   sent: Array<string | Uint8Array> = []
   closedWith: number | undefined
@@ -470,6 +471,20 @@ describe('live speech from Flux, through the relay', () => {
     fluxLive({ host: 'https://relay.example' }).start(life, () => {})(sound(100))
     life.end()
     expect(made).toEqual(['wss://relay.example/api/v1/live'])
+  })
+
+  it('holds sound that comes while the line is closing, and sends it on the next line: the browser would drop it', () => {
+    const { lines, hear } = listening()
+    hear(sound(100, 'unknown', 1))
+    lines[0].connects()
+    lines[0].readyState = 2
+    hear(sound(100, 'unknown', 2))
+    expect(lines[0].marks).toEqual([1])
+    lines[0].drops(1001)
+    hear(sound(100, 'unknown', 3))
+    vi.advanceTimersByTime(retryDelay(1))
+    lines[1].connects()
+    expect(lines[1].marks).toEqual([2, 3])
   })
 
   it('sends at once, and whole, a piece of sound of any length while the line is up', () => {

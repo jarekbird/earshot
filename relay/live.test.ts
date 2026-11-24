@@ -480,6 +480,24 @@ describe('E13: live speech through the relay, on the Node server and on the Work
     await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
   })
 
+  it('the Node server lets go of a socket whose upgrade it refused, also when the caller keeps its side open', async () => {
+    const up = await gateway()
+    const server = await serve({ live: { upstream: up.at, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
+    onTestFinished(() => void server.close())
+    const { port } = server.address() as AddressInfo
+    const answer = await new Promise<string>(heard => {
+      const raw = connect({ port, host: '127.0.0.1', allowHalfOpen: true }, () =>
+        raw.write('GET /elsewhere HTTP/1.1\r\nhost: relay\r\nconnection: upgrade\r\nupgrade: websocket\r\n\r\n'),
+      )
+      onTestFinished(() => void raw.destroy())
+      raw.on('error', () => {})
+      raw.once('data', data => heard(String(data).split('\r\n')[0]))
+    })
+    expect(answer).toBe('HTTP/1.1 404 Not Found')
+    const connections = () => new Promise<number>(count => server.getConnections((_error, open) => count(open)))
+    await vi.waitFor(async () => expect(await connections()).toBe(0), { timeout: 2_000, interval: 20 })
+  })
+
   it("the Node server leaves a WebSocket on a path of the app's own to the app", async () => {
     const up = await gateway()
     const server = await serve({ live: { upstream: up.at, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
