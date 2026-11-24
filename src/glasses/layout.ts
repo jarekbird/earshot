@@ -1,6 +1,6 @@
 import type { TargetInfo } from '../action.js'
 import type { Box, Brightness } from './frame.js'
-import { LINE_HEIGHT, MAX_BRIGHTNESS, SCREEN_HEIGHT, SCREEN_WIDTH } from './limits.js'
+import { LINE_HEIGHT, MAX_BRIGHTNESS, MAX_TEXT_BYTES, SCREEN_HEIGHT, SCREEN_WIDTH } from './limits.js'
 import { cleanText, fitText, oneLine, textWidth, wrapText } from './text.js'
 
 export interface ListState {
@@ -10,9 +10,11 @@ export interface ListState {
 
 export interface TextState {
   top: number
+  away?: boolean
 }
 
 export const LIST_DIM: Brightness = 2
+const BYTES = new TextEncoder()
 const MARKER = '>'
 const GUTTER = 20
 const NOTHING = 'Nothing here'
@@ -63,15 +65,17 @@ export function layoutText(
   const { rows, y, h, titleBox } = areas(view.title)
   const lines = wrapText(cleanText(view.body), SCREEN_WIDTH)
   const last = Math.max(0, lines.length - rows)
-  const from = view.end ? last : 0
-  const top = clamp(from + state.top, 0, last)
+  const following = view.end === true && !state.away
+  const top = clamp(following ? last + state.top : state.top, 0, last)
+  let shown = lines.slice(top, top + rows)
+  while (view.end && shown.length > 1 && BYTES.encode(shown.join('\n')).length > MAX_TEXT_BYTES) shown = shown.slice(1)
   const more = `${top > 0 ? '▲' : ''}${top + rows < lines.length ? '▼' : ''}`
   return {
-    state: { top: top - from },
+    state: view.end ? (top >= last ? { top: 0, away: false } : { top, away: true }) : { top },
     scrolls: lines.length > rows,
     boxes: [
       ...titleBox(more ? `  ${more}` : ''),
-      { id: 'body', x: 0, y, w: SCREEN_WIDTH, h, text: lines.slice(top, top + rows).join('\n'), brightness: MAX_BRIGHTNESS },
+      { id: 'body', x: 0, y, w: SCREEN_WIDTH, h, text: shown.join('\n'), brightness: MAX_BRIGHTNESS },
     ],
   }
 }

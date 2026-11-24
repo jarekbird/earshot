@@ -81,6 +81,7 @@ const KEPT_OUT_OF_TRAINING = ['mip_opt_out', 'true']
 const BYTES = new TextEncoder()
 const THIS_MACHINE = new Set(['localhost', '127.0.0.1', '[::1]'])
 const STAYS_ON_ITS_HOST = /^(?!\/\/)[^\\\s\u0000-\u001f]+$/
+const WHOLE = /^\s*[a-z][a-z0-9+.-]*:\/\//i
 const MAX_BYTES = 4_000_000
 const WAIT_MS = 10_000
 const SPEECH_WAIT_MS = 28_000
@@ -124,15 +125,17 @@ function same(given: string, wanted: string): boolean {
   return differ === 0
 }
 
-function sealed(address: string | undefined, scheme: string, what: string, own = false): string {
+function sealed(address: string | undefined, scheme: 'https' | 'wss', what: string, own = false): string {
+  const plain = scheme === 'https' ? 'http:' : 'ws:'
   let url: URL | undefined
   try {
     url = new URL(address ?? '')
   } catch {
-    if (own && address && STAYS_ON_ITS_HOST.test(address)) return address.replace(/\/+$/, '')
+    if (own && address !== undefined && (address === '' || STAYS_ON_ITS_HOST.test(address))) return address.replace(/\/+$/, '')
     throw new Error(`${what} needs the address of its upstream.`)
   }
-  if (url.protocol !== `${scheme}:` && !THIS_MACHINE.has(url.hostname))
+  if (!WHOLE.test(address ?? '')) throw new Error(`${what} needs the address of its upstream.`)
+  if (url.protocol !== `${scheme}:` && !(url.protocol === plain && THIS_MACHINE.has(url.hostname)))
     throw new Error(`${what} sends a key, so its upstream is named with ${scheme}.`)
   return (address ?? '').replace(/\/+$/, '')
 }

@@ -145,7 +145,8 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
       }
 
       const expire = () => {
-        while (held.length && now() - held[0].at > staleMs) heldBytes -= held.shift()!.pcm.length
+        const stale = (at: number) => staleMs !== Infinity && !(now() >= at && now() - at <= staleMs)
+        while (held.length && stale(held[0].at)) heldBytes -= held.shift()!.pcm.length
       }
 
       const leave = (code?: number) => {

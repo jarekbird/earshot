@@ -109,7 +109,7 @@ const WHO: Record<Speaker, string> = { self: 'You', other: 'They', unknown: 'Som
 const WORDS: Record<LiveState, string> = { on: '', down: '\nNo words for now', refused: '\nWords are off' }
 const listened = () =>
   glasses.micOpen
-    ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}\nBreaks: ${breaks}${WORDS[words]}${said.map(line => `\n${line}`).join('')}`
+    ? `You: ${seconds(heard.self)}\nOthers: ${seconds(heard.other)}\nUnknown: ${seconds(heard.unknown)}\nBreaks: ${breaks}${said.map(line => `\n${line}`).join('')}${WORDS[words]}`
     : 'Not hearing'
 
 const listen = action({

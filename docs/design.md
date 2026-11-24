@@ -446,7 +446,8 @@ The line, as states:
 - While the line is up, sound goes out as it comes. Only sound that cannot be sent yet is held: the last ten
   seconds of it, to the sample, in memory of its own (a long piece is copied, not kept whole), and let go of when the
   lifetime ends. It is sent however long the line was away, unless the app set `staleMs`: then sound held longer is
-  dropped, before the transport decides whether to open a line again or to stay awake. A transcript wants the late
+  dropped, before the transport decides whether to open a line again or to stay awake; so is sound whose age
+  cannot be told because the clock went back. A transcript wants the late
   words; a command does not. The example's Listen screen sets three seconds.
 - A break in the sound ends the turn that was growing, as cut, and what follows goes on a new line: on one line Flux
   would join the words on either side of a hold. Sound still held from before the break is let go, so no line ever
@@ -506,6 +507,11 @@ The line, as states:
   included, as it always was. For a host that brings its own `fetch` it may be a name on that host (`backend`,
   `/backend`), as it always could; what could name another host when it is resolved (two slashes at the start, a
   backslash, a space or a control sign) is refused. The live upstream is dialled at the address that was checked.
+  A whole address is written with its scheme and two slashes, and with `https` (`wss` for live speech), or plain
+  `http` (`ws`) on the same machine and no other scheme, so the address that was checked is the one that is used on
+  either host.
+- **An upstream that misbehaves is dropped at once.** When the Node server's socket to the upstream fails (a
+  message too large, say), it is destroyed there and then, so the caller hears 4502 as soon as a Worker's would.
 - **A caller who will not say goodbye is let go of.** When the relay closes a line, the Node server waits one second
   for the caller's answer and then drops the socket; unanswered, `ws` would hold it for thirty.
 - **A host hands the relay its sockets when it makes it**, so what `relay` gives back still takes one request and

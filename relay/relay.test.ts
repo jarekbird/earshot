@@ -347,8 +347,8 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
     expect(urls).toEqual(['/backend/api/v1/audio/transcriptions'])
   })
 
-  it.each(['//upstream.example', '/\\upstream.example', '\\\\upstream.example', '/\t/upstream.example', 'back end', ''])(
-    'is refused when it could name another host, or is nothing: %j',
+  it.each(['//upstream.example', '/\\upstream.example', '\\\\upstream.example', '/\t/upstream.example', 'back end'])(
+    'is refused when it could name another host: %j',
     upstream => {
       expect(() => relay({ key: 'sk-developer', upstream, fetch: async () => new Response('{}') })).toThrow('needs the address')
     },
@@ -374,6 +374,32 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
       )
       expect(urls).toEqual([`${upstream}/api/v1/audio/transcriptions`])
       expect(new URL(urls[0], 'https://host.example/app/').origin).toBe('https://host.example')
+    },
+  )
+
+  it("may be nothing at all, as it always could: the host's fetch is handed the path alone", async () => {
+    const urls: string[] = []
+    const handle = relay({
+      key: 'sk-developer',
+      upstream: '',
+      fetch: async url => {
+        urls.push(String(url))
+        return new Response('{}')
+      },
+    })
+    await handle(
+      new Request('https://relay.example/api/v1/audio/transcriptions', {
+        method: 'POST',
+        body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
+      }),
+    )
+    expect(urls).toEqual(['/api/v1/audio/transcriptions'])
+  })
+
+  it.each(['http:127.0.0.1', 'https:upstream.example', 'ftp://localhost/x', 'ws://localhost:9'])(
+    'is refused as %j: an address is written whole and with its own scheme, so the one checked is the one used',
+    upstream => {
+      expect(() => relay({ key: 'sk-developer', upstream, fetch: async () => new Response('{}') })).toThrow(/address|https/)
     },
   )
 
