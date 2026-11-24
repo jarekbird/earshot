@@ -110,6 +110,11 @@ describe('Earshot as an app installs it', () => {
     expect(wanted).toEqual([])
   })
 
+  it('gives no typed array a type argument in its types: a TypeScript before 5.7 cannot read one', () => {
+    const TYPED = /\b(?:Big)?(?:Ui|I)nt(?:8|8Clamped|16|32|64)Array<|\bFloat(?:16|32|64)Array</
+    expect(shipped().filter(file => file.endsWith('.d.ts') && TYPED.test(readFileSync(join(installed, file), 'utf8')))).toEqual([])
+  })
+
   it('gives each entry point its types by name, under the strictest module rules an app can set', () => {
     expect(compile({ 'entries.ts': everyEntry }, ['node'])).toEqual([])
   })
