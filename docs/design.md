@@ -483,7 +483,8 @@ The line, as states:
 - **The sound stays out of training.** The relay adds Deepgram's `mip_opt_out` to every line itself, so no caller
   can leave it out or turn it off.
 - **The secret is required.** Live speech is billed by the minute and the provider offers no limit to set, so no
-  relay is made with a live upstream and a secret under sixteen characters, or over 1,024, which no greeting could carry. The relay itself refuses, so a host that
+  relay is made with a live upstream and a secret under sixteen characters, or over 1,024 as a greeting writes it
+  (a sign JSON must escape counts for six), which no greeting could carry. The relay itself refuses, so a host that
   builds its options by hand cannot skip the check. The secret is the user's to type on the phone, never the
   build's, and never part of an address. The relay does not count minutes yet: that comes with the first app that
   needs it.
@@ -497,7 +498,9 @@ The line, as states:
   goodbye waits behind queued sound. Set listening again, it takes live callers again.
 - **The Node server takes only its own WebSocket path, and none without live speech.** An upgrade on any other path
   is left to the app's own listener, when it has one; with no live speech set the server listens for no upgrade at
-  all. The upstream of the three calls may carry a query of its own, as it always could.
+  all. The upstream of the three calls is used spelled as the developer spelled it, a query of its own included, as
+  it always was. For a host that brings its own `fetch` it may be a path of that host, and nothing that could name
+  another.
 - **A host hands the relay its sockets when it makes it**, so what `relay` gives back still takes one request and
   fits wherever it fitted before.
 - **It holds little.** A message of the upstream's over 64 kilobytes, text or sound, ends the line (4502) on both

@@ -119,6 +119,20 @@ describe('the relay of live speech', () => {
   })
 })
 
+describe('a relay address that cannot be read', () => {
+  it('is refused without the address in the error, which could hold a name and a password', () => {
+    let thrown: unknown
+    try {
+      fluxLive({ host: 'https://user:synthetic-marker@' })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(Error)
+    expect(JSON.stringify([thrown, Object.entries(thrown as object), String((thrown as Error).cause)])).not.toContain('synthetic-marker')
+    expect((thrown as Error).message).toContain('address alone')
+  })
+})
+
 describe('live speech from Flux, through the relay', () => {
   it('says a recorded stream as three turns, each growing under one id and told final once', () => {
     const { lines, turns, hear } = listening()
