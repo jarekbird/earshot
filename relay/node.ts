@@ -9,7 +9,6 @@ export interface ServeOptions extends RelayOptions {
 }
 
 const PORT = 8787
-const MAX_FROM_UPSTREAM = 1_048_576
 
 function requestOf(incoming: IncomingMessage): Request {
   const headers = new Headers()
@@ -27,7 +26,7 @@ const UNHEARD = () => {}
 // Fact: Node's own WebSocket cannot drop a connection it is still making, so the upstream is opened with ws, which can.
 const dial: Sockets['dial'] = (url, headers, stop, opened) =>
   new Promise((done, failed) => {
-    const line = new Upstream(url, { headers, maxPayload: MAX_FROM_UPSTREAM })
+    const line = new Upstream(url, { headers, maxPayload: MAX_FRAME })
     const drop = () => line.terminate()
     stop.addEventListener('abort', drop)
     line.on('error', () => failed(new Error('The upstream could not be reached.')))

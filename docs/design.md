@@ -423,15 +423,18 @@ The line, as states:
 
 - A line that closes while the lifetime goes on ends the turn that was growing, as final and cut, with the words it
   had. Turns of the next line are numbered on from there.
-- The transport holds the last ten seconds of sound it could not send, to the sample, whatever size the pieces came
-  in, and lets go of it when the lifetime ends. It sends that sound however long the line was away, unless the app
-  set `staleMs`: then sound held longer is not sent. A transcript wants the late words; a command does not. The
-  example's Listen screen sets ten seconds.
+- While the line is up, sound goes out as it comes. Only sound that cannot be sent yet is held: the last ten
+  seconds of it, to the sample, in memory of its own (a long piece is copied, not kept whole), and let go of when the
+  lifetime ends. It is sent however long the line was away, unless the app set `staleMs`: then sound held longer is
+  dropped, before the transport decides whether to open a line again or to stay awake. A transcript wants the late
+  words; a command does not. The example's Listen screen sets three seconds.
 - A break in the sound ends the turn that was growing, as cut, and what follows goes on a new line: on one line Flux
-  would join the words on either side of a hold. The stand-in cuts at a break too, so an app tested on it sees what
-  it will get. Sound still held from before a break goes out with what follows it.
-- The app is told of a change only after the transport has settled it, so a listener that feeds sound as it is told
-  the line is down opens no second line.
+  would join the words on either side of a hold. Sound still held from before the break is let go, so no line ever
+  carries both sides. The stand-in cuts at a break too, so an app tested on it sees what it will get.
+- **The app is told last.** Every step of the transport (a sound, a message, a close, a timer) first settles its own
+  state and only then tells the listener of turns and changes, in order. A listener may feed sound or end the
+  lifetime from inside its callback and finds the transport as the callback describes it. The stand-in moves on to
+  its next line before it tells of a final turn, for the same reason.
 - Sound goes out a second at a time at most, whatever size the glasses hand over, so the relay's limit on one piece
   is never met by a well-behaved app. A line whose sound is not getting out (ten seconds of it queued) counts as lost.
 - The speaker of a turn is whoever the glasses named for most of the stretch of sound Flux says the turn came from.
@@ -460,6 +463,9 @@ The line, as states:
   redirect gets no key and no recording.
 - **What the relay starts ends with the caller.** When the caller leaves, the relay tells the host to stop reaching
   for the upstream, and closes it if it opened all the same. Closing the Node server hangs up on its callers.
+- **It holds little.** A message of the upstream's over 64 kilobytes ends the line (4502) on both hosts. On Node the
+  relay stops passing to a side that has stopped taking once a mebibyte is queued for it (1013). A Worker's
+  WebSocket does not say how much it has queued, so there the runtime's memory limit is the bound.
 - **The upstream is Cloudflare's AI Gateway, for both hosts.** Reaching Workers AI through a Worker's own binding
   would have made the Worker a different server from the Node one (E13). Tried on 2026-11-23: a WebSocket to the
   gateway's Workers AI path opens with the header `cf-aig-authorization`, and Flux answers as it does directly.

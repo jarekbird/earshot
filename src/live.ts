@@ -31,27 +31,25 @@ export function scriptedLive(lines: readonly string[], msPerWord = 300): LiveSpe
       let said = 0
       let waiting = 0
       let by: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
-      const turn = (final: boolean, cut: boolean) => heard({ id, words: left[0].slice(0, said).join(' '), final, cut, speaker: most(by) })
-      const next = () => {
-        left.shift()
-        id++
-        said = 0
-        by = { self: 0, other: 0, unknown: 0 }
+      const turn = (final: boolean, cut: boolean) => {
+        const told = { id, words: left[0].slice(0, said).join(' '), final, cut, speaker: most(by) }
+        if (final) {
+          left.shift()
+          id++
+          said = 0
+          by = { self: 0, other: 0, unknown: 0 }
+        }
+        heard(told)
       }
       return sound => {
         if (life.ended) return
-        if (sound.gap && said > 0) {
-          turn(true, true)
-          next()
-        }
+        if (sound.gap && said > 0) turn(true, true)
         waiting += sound.pcm.length
         while (!life.ended && left.length && waiting >= msPerWord * BYTES_PER_MS) {
           waiting -= msPerWord * BYTES_PER_MS
           said++
           by[sound.speaker]++
-          const final = said === left[0].length
-          turn(final, false)
-          if (final) next()
+          turn(said === left[0].length, false)
         }
       }
     },

@@ -92,27 +92,43 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
       let refused = false
       let retry: Timer | undefined
       let quiet: Timer | undefined
+      let telling = false
+      const news: Array<() => void> = []
+
+      const settled = <A extends unknown[]>(step: (...args: A) => void) => {
+        return (...args: A) => {
+          step(...args)
+          if (telling) return
+          telling = true
+          try {
+            for (let one = news.shift(); one; one = news.shift()) one()
+          } finally {
+            telling = false
+          }
+        }
+      }
 
       const tell = (now: LiveState) => {
-        if (state === now || life.ended) return
+        if (state === now) return
         state = now
-        told?.(now)
+        news.push(() => told?.(now))
       }
 
-      const say = (turn: Turn) => {
-        if (!life.ended) heard(turn)
-      }
+      const say = (turn: Turn) => void news.push(() => heard(turn))
 
       const cutTurn = () => {
         if (!growing) return
-        const turn = { ...growing, final: true, cut: true }
+        say({ ...growing, final: true, cut: true })
         growing = null
-        say(turn)
       }
 
       const forget = () => {
         held = []
         heldBytes = 0
+      }
+
+      const expire = () => {
+        while (held.length && now() - held[0].at > staleMs) heldBytes -= held.shift()!.pcm.length
       }
 
       const leave = (code?: number) => {
@@ -125,6 +141,7 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
         runs = []
         sent = 0
         first = next
+        cutTurn()
       }
 
       const who = (from: number, to: number): Speaker => {
@@ -153,7 +170,6 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
 
       const lost = (code: number) => {
         leave()
-        cutTurn()
         if (FOR_GOOD.has(code)) {
           refused = true
           forget()
@@ -161,62 +177,25 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
           return tell('refused')
         }
         failures++
-        retry = life.timeout(() => {
-          retry = undefined
-          if (heldBytes > 0) connect()
-        }, retryDelay(failures))
+        retry = life.timeout(
+          settled(() => {
+            retry = undefined
+            expire()
+            if (heldBytes > 0) connect()
+          }),
+          retryDelay(failures),
+        )
         tell('down')
       }
 
-      const flush = () => {
-        if (!line?.connected) return
-        if (line.socket.bufferedAmount > HELD_BYTES) return lost(0)
-        for (const { pcm, speaker, at: heldAt } of held) {
-          if (now() - heldAt > staleMs) continue
-          for (let at = 0; at < pcm.length; at += PIECE_BYTES) line.socket.send(pcm.subarray(at, at + PIECE_BYTES))
-          const last = runs.at(-1)
-          if (last?.speaker === speaker) last.end = sent + pcm.length
-          else runs.push({ start: sent, end: sent + pcm.length, speaker })
-          sent += pcm.length
-        }
-        forget()
+      const send = ({ pcm, speaker }: Piece) => {
+        if (!line) return
+        for (let at = 0; at < pcm.length; at += PIECE_BYTES) line.socket.send(pcm.subarray(at, at + PIECE_BYTES))
+        const last = runs.at(-1)
+        if (last?.speaker === speaker) last.end = sent + pcm.length
+        else runs.push({ start: sent, end: sent + pcm.length, speaker })
+        sent += pcm.length
       }
-
-      function connect(): void {
-        const socket = open(url)
-        const mine = { socket, life: new Lifetime(), connected: false }
-        line = mine
-        socket.binaryType = 'arraybuffer'
-        mine.life.timeout(() => lost(0), CONNECT_MS)
-        socket.onopen = () => socket.send(hello)
-        socket.onclose = event => lost(event.code)
-        socket.onmessage = event => {
-          const message = parse(event.data)
-          if (!message) return
-          if (message.type !== 'Connected') return turned(message)
-          mine.connected = true
-          mine.life.end()
-          failures = 0
-          flush()
-          tell('on')
-        }
-      }
-
-      const rest = () => {
-        quiet?.cancel()
-        quiet = life.timeout(() => {
-          if (heldBytes > 0) return rest()
-          leave(1000)
-          cutTurn()
-        }, QUIET_MS)
-      }
-
-      life.own(() => {
-        retry?.cancel()
-        quiet?.cancel()
-        leave(1000)
-        forget()
-      })
 
       const hold = (piece: Piece) => {
         held.push(piece)
@@ -224,24 +203,70 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
         while (heldBytes > HELD_BYTES) {
           const oldest = held[0]
           const extra = Math.min(oldest.pcm.length, heldBytes - HELD_BYTES + ((heldBytes - HELD_BYTES) % 2))
-          oldest.pcm = oldest.pcm.subarray(extra)
+          oldest.pcm = oldest.pcm.slice(extra)
           heldBytes -= extra
           if (!oldest.pcm.length) held.shift()
         }
       }
 
-      return sound => {
-        if (life.ended || refused) return
-        if (sound.gap && line?.connected && sent > 0) {
-          leave(1000)
-          cutTurn()
-          if (life.ended) return
-        }
-        hold({ pcm: sound.pcm, speaker: sound.speaker, at: now() })
-        rest()
-        if (line) flush()
-        else if (!retry) connect()
+      function connect(): void {
+        const socket = open(url)
+        const mine = { socket, life: new Lifetime(), connected: false }
+        line = mine
+        socket.binaryType = 'arraybuffer'
+        mine.life.timeout(
+          settled(() => lost(0)),
+          CONNECT_MS,
+        )
+        socket.onopen = () => socket.send(hello)
+        socket.onclose = settled(event => lost(event.code))
+        socket.onmessage = settled(event => {
+          const message = parse(event.data)
+          if (!message) return
+          if (message.type !== 'Connected') return turned(message)
+          mine.connected = true
+          mine.life.end()
+          failures = 0
+          expire()
+          held.forEach(send)
+          forget()
+          tell('on')
+        })
       }
+
+      const rest = () => {
+        quiet?.cancel()
+        quiet = life.timeout(
+          settled(() => {
+            expire()
+            if (heldBytes > 0) return rest()
+            leave(1000)
+          }),
+          QUIET_MS,
+        )
+      }
+
+      life.own(() => {
+        retry?.cancel()
+        quiet?.cancel()
+        leave(1000)
+        forget()
+        news.length = 0
+      })
+
+      return settled(sound => {
+        if (life.ended || refused) return
+        const piece = { pcm: sound.pcm, speaker: sound.speaker, at: now() }
+        if (sound.gap) {
+          forget()
+          if (line?.connected && sent > 0) leave(1000)
+        }
+        rest()
+        if (line?.connected && line.socket.bufferedAmount > HELD_BYTES) lost(0)
+        if (line?.connected) return send(piece)
+        hold(piece)
+        if (!line && !retry) connect()
+      })
     },
   }
 }

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { build } from 'esbuild'
-import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { WebSocketServer } from 'ws'
 import { serve } from '../relay/node.js'
 import { Simulator } from './simulator.js'
@@ -58,11 +58,12 @@ describe('the example app in the real Even Hub simulator', () => {
     })
     const script = bundle.outputFiles[0].text
     const page = readFileSync('example/index.html', 'utf8')
-    const typed = page.replace('id="secret"', `id="secret" value="${PHRASE}"`)
+    const typed = (secret: string) => page.replace('id="secret"', `id="secret" value="${secret}"`)
+    const pages: Record<string, string> = { [TYPED]: typed(PHRASE), [MISTYPED]: typed(`${PHRASE}, nearly`) }
     server = createServer((request, response) => {
       const wanted = request.url === '/main.js'
       response.setHeader('content-type', wanted ? 'text/javascript' : 'text/html')
-      response.end(wanted ? script : request.url === TYPED ? typed : page)
+      response.end(wanted ? script : (pages[request.url ?? ''] ?? page))
     })
     await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
     url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -76,6 +77,7 @@ describe('the example app in the real Even Hub simulator', () => {
   })
 
   const TYPED = '/with-the-secret-typed'
+  const MISTYPED = '/with-the-secret-mistyped'
   const start = async (more = '', mic = false, path = '/') => {
     const sim = await Simulator.start({ url: `${url}${path}#${more}`, limitSeconds: 300, mic })
     onTestFinished(() => sim.stop())
@@ -154,6 +156,13 @@ describe('the example app in the real Even Hub simulator', () => {
     await sim.shows('Someone: how are you', 30_000)
   })
 
+  it.runIf(process.platform === 'linux')("says that words are off when the secret typed on the phone is not the relay's", async () => {
+    const sim = await start('', true, MISTYPED)
+    await sim.pick('Listen')
+    await sim.shows('Listening')
+    await sim.shows('Words are off', 30_000)
+  })
+
   it.runIf(process.platform === 'linux')('marks a turn that a hold cut off', async () => {
     const words = Array.from({ length: 80 }, (_, at) => `w${at}`).join('%20')
     const sim = await start(`&say=zzz%20qqq&live=${words}`, true)
@@ -181,4 +190,80 @@ describe('the example app in the real Even Hub simulator', () => {
     await sim.shows('Hold the touchpad and say')
     expect(forwarded).toEqual(['/api/v1/audio/transcriptions', '/api/alpha/decisions'])
   })
+})
+
+describe('the example app while its relay cannot reach the speech service', () => {
+  const STALE_BYTES = 3 * 32_000
+  const HELD_BYTES = 10 * 32_000
+
+  async function site(gate: { down: boolean; firsts: number[] }) {
+    const flux = new WebSocketServer({
+      port: 0,
+      host: '127.0.0.1',
+      verifyClient: ({ req }: { req: { headers: Record<string, unknown> } }) =>
+        !gate.down && req.headers['cf-aig-authorization'] === `Bearer ${LIVE_KEY}`,
+    })
+    await new Promise<void>(listening => flux.once('listening', listening))
+    flux.on('connection', caller => {
+      let heard = 0
+      caller.send(RECORDED[0])
+      caller.on('message', (data: Buffer) => {
+        if (heard === 0) RECORDED.slice(1).forEach(message => caller.send(message))
+        heard += data.length
+      })
+      setTimeout(() => gate.firsts.push(heard), 300)
+    })
+    const relay = await serve({
+      live: {
+        upstream: `ws://127.0.0.1:${(flux.address() as AddressInfo).port}/v1/account/gateway/workers-ai`,
+        key: LIVE_KEY,
+        secret: PHRASE,
+      },
+      port: 0,
+      hostname: '127.0.0.1',
+    })
+    const bundle = await build({
+      entryPoints: ['example/main.ts'],
+      bundle: true,
+      format: 'esm',
+      write: false,
+      logLevel: 'silent',
+      define: { EARSHOT_RELAY: JSON.stringify(`http://127.0.0.1:${(relay.address() as AddressInfo).port}`), EARSHOT_TRACE: 'true' },
+    })
+    const page = readFileSync('example/index.html', 'utf8').replace('id="secret"', `id="secret" value="${PHRASE}"`)
+    const server = createServer((request, response) => {
+      const wanted = request.url === '/main.js'
+      response.setHeader('content-type', wanted ? 'text/javascript' : 'text/html')
+      response.end(wanted ? bundle.outputFiles[0].text : page)
+    })
+    await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
+    onTestFinished(() => {
+      server.close()
+      relay.close()
+      for (const caller of flux.clients) caller.terminate()
+      flux.close()
+    })
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}/#`
+  }
+
+  it.runIf(process.platform === 'linux')(
+    'says no words are coming, takes them up again when it can, and sends only the last seconds it held',
+    async () => {
+      const gate = { down: true, firsts: [] as number[] }
+      const sim = await Simulator.start({ url: await site(gate), limitSeconds: 300, mic: true })
+      onTestFinished(() => sim.stop())
+      await sim.shows('Earshot example', 60_000)
+      await sim.pick('Listen')
+      await sim.shows('Listening')
+      await sim.shows('No words for now', 30_000)
+      await new Promise(longer => setTimeout(longer, 12_000))
+      gate.down = false
+      await sim.shows('Someone: Good morning.', 40_000)
+      expect(sim.shown().join(' ')).not.toContain('No words for now')
+      await vi.waitFor(() => expect(gate.firsts).toHaveLength(1), { timeout: 5_000 })
+      expect(gate.firsts[0]).toBeGreaterThan(0)
+      expect(gate.firsts[0]).toBeLessThan((STALE_BYTES + HELD_BYTES) / 2)
+    },
+    120_000,
+  )
 })
