@@ -42,7 +42,7 @@ export const CONNECT_MS = 10_000
 const RETRY_FIRST_MS = 500
 const RETRY_MAX_MS = 8_000
 const FOR_GOOD = new Set<number>(Object.values(REFUSALS))
-const THIS_DEVICE = new Set(['localhost', '127.0.0.1', '[::1]'])
+const onThisDevice = (hostname: string) => hostname === 'localhost' || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname)
 const HEARD = 'live speech'
 const OPEN = 1
 
@@ -79,7 +79,7 @@ function lineTo(host: string): string {
   } catch {
     throw new Error(NOT_ALONE)
   }
-  if (relay.protocol !== 'https:' && !(relay.protocol === 'http:' && THIS_DEVICE.has(relay.hostname)))
+  if (relay.protocol !== 'https:' && !(relay.protocol === 'http:' && onThisDevice(relay.hostname)))
     throw new Error('Live speech carries a secret and sound, so its relay is named with https.')
   if (/[?#]/.test(host) || relay.username || relay.password) throw new Error(NOT_ALONE)
   relay.protocol = relay.protocol === 'https:' ? 'wss:' : 'ws:'

@@ -109,7 +109,9 @@ interface Drawn {
 
 interface Page {
   at: number
-  stride: (wanted: number) => Stride
+  atEnd: boolean
+  swipe: Stride
+  screenful: Stride
 }
 
 export class Shell {
@@ -170,7 +172,7 @@ export class Shell {
     let boxes: Box[]
     let pictures: Picture[] = []
     let scrolls = false
-    let page: Page = { at: 0, stride: wanted => ({ up: wanted, down: wanted }) }
+    let page: Page = { at: 0, atEnd: false, swipe: { up: SCROLL_LINES, down: SCROLL_LINES }, screenful: { up: SCREENFUL, down: SCREENFUL } }
     let targets: readonly TargetInfo[] = []
     if (view.kind === 'list') {
       targets = view.action.targets() ?? []
@@ -181,7 +183,7 @@ export class Shell {
       const laid = layoutText(view, place)
       Object.assign(place, laid.state)
       scrolls = laid.scrolls
-      page = { at: laid.at, stride: laid.stride }
+      page = { at: laid.at, atEnd: laid.atEnd, swipe: laid.stride(SCROLL_LINES), screenful: laid.stride(SCREENFUL) }
       boxes = laid.boxes
     } else {
       boxes = view.boxes
@@ -199,14 +201,14 @@ export class Shell {
     this.#asked.push({ frame, screen, page })
   }
 
-  #scroll(drawn: Drawn, place: TextState, wanted: number, up: boolean): void {
+  #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
     this.#shown()
     const seen = this.#asked[0]
     const onGlasses = seen && seen.frame <= this.#glasses.shown && seen.screen === drawn.screen ? seen.page : drawn.page
-    const stride = onGlasses.stride(wanted)
-    const by = up ? -stride.up : stride.down
-    if (drawn.view.kind === 'text' && drawn.view.end) Object.assign(place, { top: onGlasses.at + by, away: true })
-    else place.top += by
+    const lines = up ? -onGlasses[by].up : onGlasses[by].down
+    if (drawn.view.kind !== 'text' || !drawn.view.end) place.top += lines
+    else if (!up && onGlasses.atEnd) Object.assign(place, { top: 0, away: false })
+    else Object.assign(place, { top: onGlasses.at + lines, away: true })
     this.redraw()
   }
 
@@ -244,8 +246,8 @@ export class Shell {
         : view.kind === 'text'
           ? drawn.scrolls
             ? [
-                action({ id: UP, say: this.#words.scrollUp, run: () => this.#scroll(drawn, place, SCREENFUL, true) }),
-                action({ id: DOWN, say: this.#words.scrollDown, run: () => this.#scroll(drawn, place, SCREENFUL, false) }),
+                action({ id: UP, say: this.#words.scrollUp, run: () => this.#scroll(drawn, place, 'screenful', true) }),
+                action({ id: DOWN, say: this.#words.scrollDown, run: () => this.#scroll(drawn, place, 'screenful', false) }),
               ]
             : []
           : drawn.targets.length === 0
@@ -342,7 +344,7 @@ export class Shell {
     }
     const step = input.kind === 'up' ? -1 : 1
     if (view.kind === 'text') {
-      if (input.kind !== 'tap') return this.#scroll(drawn, place, SCROLL_LINES, step < 0)
+      if (input.kind !== 'tap') return this.#scroll(drawn, place, 'swipe', step < 0)
     } else if (input.kind !== 'tap') place.cursor += step
     else return this.#choose(drawn, place)
     this.redraw()

@@ -109,9 +109,12 @@ describe('the relay of live speech', () => {
     expect(() => fluxLive({ host, secret: PHRASE })).toThrow(/https|address alone/)
   })
 
-  it.each(['https://relay.example', 'http://127.0.0.1:8787', 'http://localhost:8787', 'http://[::1]:8787'])('may be %s', host => {
-    expect(() => fluxLive({ host, secret: PHRASE })).not.toThrow()
-  })
+  it.each(['https://relay.example', 'http://127.0.0.1:8787', 'http://127.0.0.2:8787', 'http://localhost:8787', 'http://[::1]:8787'])(
+    'may be %s',
+    host => {
+      expect(() => fluxLive({ host, secret: PHRASE })).not.toThrow()
+    },
+  )
 })
 
 describe('a relay address that cannot be read', () => {

@@ -491,10 +491,9 @@ The line, as states:
   is left to the app's own listener, when it has one; with no live speech set the server listens for no upgrade at
   all. The upstream of the three calls is used spelled as the developer spelled it, a query of its own
   included, as it always was. For a host that brings its own `fetch` it may be a name on that host (`backend`,
-  `/backend`), as it always could; what could name another host when it is resolved (two slashes or a scheme at the
-  start, a backslash, a control sign, a space in front) is refused. The live upstream is dialled at the address that was checked.
+  `/backend`), as it always could; what could name another host when it is resolved (two slashes or a scheme at the start, a backslash, a control sign) is refused. The name is read as a URL reads it, without the spaces and control signs at its two ends, and that reading is what is passed on, so the name that was checked is the name that is used. The live upstream is dialled at the address that was checked.
   A whole address is written with its scheme and two slashes, and with `https` (`wss` for live speech), or plain
-  `http` (`ws`) on the same machine and no other scheme, so the address that was checked is the one that is used on
+  `http` (`ws`) on the same machine (`localhost`, `[::1]`, anything in 127) and no other scheme, so the address that was checked is the one that is used on
   either host.
 - **An upstream that misbehaves is dropped at once.** When the Node server's socket to the upstream fails (a
   message too large, say), it is destroyed there and then, so the caller hears 4502 as soon as a Worker's would.
