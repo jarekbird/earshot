@@ -223,6 +223,7 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
   if (!forwards && !options.live) throw new Error('A relay needs an upstream: for its calls, for live speech, or for both.')
   if (forwards && options.key === undefined && !options.fetch) throw new Error("The relay's calls need the key of their upstream.")
   const upstream = forwards ? sealed(options.upstream, 'https', "The relay's calls") : ''
+  if (upstream.includes('#')) throw new Error("The relay's calls name their upstream with no fragment.")
   const speech = options.live && checked(options.live)
   const models = new Set(options.models ?? DEFAULT_MODELS)
   const limit = options.maxBytes ?? MAX_BYTES
