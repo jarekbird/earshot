@@ -35,6 +35,7 @@ export interface ShellWords {
   moveDown: string
   choose: string
   selected: string
+  swipe: string
 }
 
 export interface VoiceOptions {
@@ -42,6 +43,7 @@ export interface VoiceOptions {
   model?: NavigatorModel
   agents?: Agent[]
   otherwise?: string
+  instead?: string
   rolling?: Rolling
   timeoutMs?: number
   maxHoldMs?: number
@@ -75,6 +77,7 @@ const WORDS: ShellWords = {
   moveDown: 'Move down',
   choose: 'Choose this one',
   selected: 'Selected',
+  swipe: 'Swipe',
 }
 const NOTICE_MS = 3_000
 const HEARD_MS = 1_500
@@ -89,6 +92,7 @@ const MORE = 'earshot.more'
 const UP = 'earshot.up'
 const DOWN = 'earshot.down'
 const CHOOSE = 'earshot.choose'
+const INSTEAD = 'instead'
 
 const boundTo = (bound: Bound): { action: Action; target?: string } => ('action' in bound ? bound : { action: bound })
 
@@ -125,7 +129,7 @@ export class Shell {
   readonly #own = new WeakSet<Screen>()
   readonly #items = new Map<string, number>()
   #drawn: Drawn | null = null
-  #asking: (() => void) | null = null
+  #asking: { yes: () => void; no?: () => void } | null = null
   #overlaid = false
   #fading: Timer | undefined
   #recording: { chunks: Uint8Array[]; screen: Screen; source: HoldSource; hear: (sound: Sound) => void; end: () => void } | null = null
@@ -324,9 +328,9 @@ export class Shell {
       if (!this.#recording || input.kind === 'double') this.#callOff()
       return
     }
-    const confirmed = this.#asking
+    const asking = this.#asking
     if (this.#overlaid) this.#clear()
-    if (confirmed) return input.kind === 'tap' ? confirmed() : undefined
+    if (asking) return input.kind === 'tap' ? asking.yes() : input.kind === 'up' || input.kind === 'down' ? asking.no?.() : undefined
     if (input.kind === 'double') {
       if (!this.#router.back()) void this.#glasses.leave()
       return
@@ -443,7 +447,7 @@ export class Shell {
     void this.#decide(voice, { pcm, seconds: secondsOf(pcm) })
   }
 
-  async #decide(voice: VoiceOptions, audio: Audio): Promise<void> {
+  async #decide(voice: VoiceOptions, audio: Audio, passed?: string): Promise<void> {
     const turn = ++this.#turn
     const screen = this.#router.current
     const life = this.#life.child()
@@ -459,20 +463,20 @@ export class Shell {
     }
     const slow = this.#life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), voice.timeoutMs ?? VOICE_TIMEOUT_MS)
     this.#deciding = life
-    this.#show(this.#words.thinking)
+    if (passed === undefined) this.#show(this.#words.thinking)
     try {
-      const transcript = await voice.transcribe(audio, life)
+      const transcript = passed ?? (await voice.transcribe(audio, life))
       const words = transcript?.trim() ?? ''
       if (!mine() || moved()) return finish(() => {})
       if (transcript !== null && !words) return finish(() => this.notice(this.#words.missed))
       const heard = words ? `"${words}"` : this.#words.thinking
       this.#show(heard)
-      const verdict = await this.#ask(voice, { words, audio, life }, transcript !== null)
+      const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null)
       finish(() => {
         if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
         if (words) this.#show(heard, HEARD_MS)
         else this.#clear()
-        this.#act(verdict)
+        this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
       })
     } catch (error) {
       finish(() => {
@@ -491,7 +495,11 @@ export class Shell {
     return [current.context?.() ?? '', selected].filter(Boolean).join('\n').slice(-ITEM_LIMIT)
   }
 
-  async #ask(voice: VoiceOptions, said: { words: string; audio: Audio; life: Lifetime }, navigate: boolean): Promise<Verdict> {
+  async #ask(
+    voice: VoiceOptions,
+    said: { words: string; audio: Audio; life: Lifetime },
+    navigate: boolean,
+  ): Promise<{ verdict: Verdict; more: boolean }> {
     const agents = [...(navigate ? [navigator(voice.model ?? matchWords)] : []), ...(voice.agents ?? [])]
     for (const [index, agent] of agents.entries()) {
       if (said.life.ended) throw new LifetimeEnded()
@@ -504,33 +512,37 @@ export class Shell {
         ...(voice.otherwise === undefined ? {} : { otherwise: voice.otherwise }),
         ...(screen ? { screen } : {}),
       })
-      if (verdict.kind !== 'notMine') return verdict
+      if (verdict.kind !== 'notMine') return { verdict, more: navigate && index === 0 && agents.length > 1 }
     }
-    return { kind: 'none' }
+    return { verdict: { kind: 'none' }, more: false }
   }
 
-  #act(verdict: Verdict): void {
+  #act(verdict: Verdict, pass?: () => void): void {
     if (verdict.kind === 'none' || verdict.kind === 'notMine') return this.notice(this.#words.noMatch)
     if (verdict.kind === 'handled') {
       if (verdict.say !== undefined) this.notice(verdict.say)
       return this.redraw()
     }
-    if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target, true)
-    const which = action<Pick>({
+    if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target, true, pass)
+    const instead = pass && this.#voice?.instead
+    const which = action<Pick | null>({
       id: 'earshot.which',
       say: this.#words.which,
-      targets: () => verdict.candidates.map((candidate, index) => ({ id: String(index), say: candidate.say, value: candidate })),
-      run: candidate => this.#do(candidate.action, candidate.target, this.#said),
+      targets: () => [
+        ...verdict.candidates.map((candidate, index) => ({ id: String(index), say: candidate.say, value: candidate })),
+        ...(instead ? [{ id: INSTEAD, say: instead, value: null }] : []),
+      ],
+      run: candidate => (candidate ? this.#do(candidate.action, candidate.target, this.#said) : pass?.()),
     })
     this.#clear()
     this.#openOwn({ id: 'earshot.which', view: () => list({ title: this.#words.which, action: which }) })
   }
 
-  #do(id: string, targetId: string | undefined, said: boolean): void {
+  #do(id: string, targetId: string | undefined, said: boolean, pass?: () => void): void {
     const rolled = this.#voice?.rolling?.items().find(item => item.action.id === id && item.target === targetId)?.action
     const found = this.#reachable().find(a => a.id === id) ?? rolled
     if (!found) return this.notice(this.#words.unavailable)
-    void this.#start(found, targetId, said)
+    void this.#start(found, targetId, said, pass)
   }
 
   #jumps(chosen: Action, targetId?: string): boolean {
@@ -552,7 +564,7 @@ export class Shell {
     void this.#start(found)
   }
 
-  async #start(chosen: Action, targetId?: string, said = false): Promise<void> {
+  async #start(chosen: Action, targetId?: string, said = false, pass?: () => void): Promise<void> {
     const why = chosen.blocked()
     if (why !== null) return this.notice(why)
     const targets = chosen.targets()
@@ -563,8 +575,14 @@ export class Shell {
     const target = targets?.find(candidate => candidate.id === targetId)
     const risk = target?.risk ?? chosen.risk
     if (risk === 'safe' || (risk === 'voice' && !said)) return this.#run(chosen, targetId, said)
-    this.#show(`${chosen.say}${target ? `: ${target.say}` : ''}?\n${this.#words.confirm}`)
-    this.#asking = () => void this.#run(chosen, targetId)
+    const instead = pass && this.#voice?.instead
+    const asked = [
+      `${chosen.say}${target ? `: ${target.say}` : ''}?`,
+      this.#words.confirm,
+      ...(instead ? [`${this.#words.swipe}: ${instead}`] : []),
+    ]
+    this.#show(asked.join('\n'))
+    this.#asking = { yes: () => void this.#run(chosen, targetId), ...(instead ? { no: pass } : {}) }
   }
 
   // An action the shell made (choose, More, which one) starts another: it has to know the words chose it.
