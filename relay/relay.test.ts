@@ -280,6 +280,27 @@ describe('the calls, when the upstream answers with another address', () => {
   })
 })
 
+describe('the upstream of the calls, named with a query of its own', () => {
+  it('is called as it always was: the path follows the query', async () => {
+    const urls: string[] = []
+    const handle = relay({
+      key: 'sk-developer',
+      upstream: 'https://upstream.example/dispatch?route=',
+      fetch: async url => {
+        urls.push(String(url))
+        return new Response('{}')
+      },
+    })
+    await handle(
+      new Request('https://relay.example/api/v1/audio/transcriptions', {
+        method: 'POST',
+        body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
+      }),
+    )
+    expect(urls).toEqual(['https://upstream.example/dispatch?route=/api/v1/audio/transcriptions'])
+  })
+})
+
 describe('reaching the upstream of live speech', () => {
   const PHRASE = 'what only this phone was told'
 
@@ -334,5 +355,24 @@ describe('reaching the upstream of live speech', () => {
     expect(up.closedWith).toBe(1000)
     up.says('{"type":"Connected"}')
     expect(caller.sent).toEqual([])
+  })
+
+  it('asks the host for the upstream through the host itself, so a host that keeps state in its sockets works', async () => {
+    const caller = new Wire()
+    class Host implements Sockets {
+      readonly asked: string[] = []
+      accept = async () => ({ line: caller as Line, response: new Response(null) })
+      async dial(url: string) {
+        this.asked.push(url)
+      }
+    }
+    const host = new Host()
+    const handle = relay({ live: { upstream: 'wss://speech.example/v1', key: 'live-developer', secret: PHRASE } })
+    await handle(new Request(`https://relay.example${LIVE_PATH}`, { headers: { upgrade: 'websocket' } }), host)
+    caller.says(JSON.stringify({ model: '@cf/deepgram/flux', secret: PHRASE }))
+    await Promise.resolve()
+    expect(host.asked).toHaveLength(1)
+    expect(caller.closedWith).toBeUndefined()
+    caller.goes()
   })
 })

@@ -36,6 +36,7 @@ export interface Line {
 export interface Sockets {
   accept(request: Request): Promise<{ line: Line; response: Response }>
   dial(url: string, headers: Record<string, string>, stop: AbortSignal, opened: (line: Line) => void): Promise<void>
+  closing?: AbortSignal
 }
 
 export const MIN_SECRET = 16
@@ -59,7 +60,7 @@ export function relayOptions({ key, upstream, models, liveUpstream, liveKey, liv
 export const DEFAULT_MODELS = ['openai/whisper-large-v3-turbo', 'typesafe/jev-1.14', 'mistralai/mistral-nemo']
 export const DEFAULT_LIVE_MODELS = ['@cf/deepgram/flux']
 export const LIVE_PATH = '/api/v1/live'
-export const CLOSES = { hello: 4400, secret: 4401, model: 4403, upstream: 4502, big: 1009, stalled: 1013 }
+export const CLOSES = { hello: 4400, secret: 4401, model: 4403, upstream: 4502, big: 1009, stalled: 1013, going: 1001 }
 export const HELLO_MS = 3_000
 export const DIAL_MS = 5_000
 export const MAX_FRAME = 65_536
@@ -128,7 +129,6 @@ function sealed(address: string | undefined, scheme: string, what: string): stri
   }
   if (url.protocol !== `${scheme}:` && !THIS_MACHINE.has(url.hostname))
     throw new Error(`${what} sends a key, so its upstream is named with ${scheme}.`)
-  if (url.search || url.hash) throw new Error(`${what} names its upstream with no query.`)
   return url.href.replace(/\/+$/, '')
 }
 
@@ -136,18 +136,29 @@ function checked(live: LiveOptions): LiveOptions {
   if (!live.key) throw new Error('Live speech needs the key of its upstream.')
   if (typeof live.secret !== 'string' || live.secret.length < MIN_SECRET)
     throw new Error(`Live speech needs a secret of ${MIN_SECRET} characters or more.`)
-  return { ...live, upstream: sealed(live.upstream, 'wss', 'Live speech') }
+  const upstream = sealed(live.upstream, 'wss', 'Live speech')
+  if (/[?#]/.test(upstream)) throw new Error('Live speech names its upstream with no query.')
+  return { ...live, upstream }
 }
 
-function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models }: LiveOptions): void {
+function sizeOf(data: unknown): number {
+  if (typeof data === 'string') return BYTES.encode(data).length
+  if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return data.byteLength
+  const { size } = (data ?? {}) as { size?: unknown }
+  return typeof size === 'number' ? size : 0
+}
+
+function live(line: Line, sockets: Sockets, { upstream, key, secret, models }: LiveOptions): void {
   const allowed = new Set(models ?? DEFAULT_LIVE_MODELS)
   const reaching = new AbortController()
   let up: Line | undefined
   let greeted = false
   let over = false
+  const going = () => end(CLOSES.going)
   const leave = () => {
     over = true
     clearTimeout(waiting)
+    sockets.closing?.removeEventListener('abort', going)
     reaching.abort()
     up?.close(1000)
   }
@@ -163,14 +174,14 @@ function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models
   const reach = async (url: string) => {
     waiting = setTimeout(() => end(CLOSES.upstream), DIAL_MS)
     try {
-      await dial(url, { 'cf-aig-authorization': `Bearer ${key}` }, reaching.signal, opened => {
+      await sockets.dial(url, { 'cf-aig-authorization': `Bearer ${key}` }, reaching.signal, opened => {
         if (over) return opened.close(1000)
         clearTimeout(waiting)
         up = opened
         up.addEventListener('message', ({ data }) => {
-          if (over || typeof data !== 'string') return
-          if (BYTES.encode(data).length > MAX_FRAME) return end(CLOSES.upstream)
-          pass(line, data)
+          if (over) return
+          if (sizeOf(data) > MAX_FRAME) return end(CLOSES.upstream)
+          if (typeof data === 'string') pass(line, data)
         })
         up.addEventListener('close', () => end(CLOSES.upstream))
       })
@@ -181,10 +192,11 @@ function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models
 
   line.binaryType = 'arraybuffer'
   line.addEventListener('close', leave)
+  sockets.closing?.addEventListener('abort', going)
+  if (sockets.closing?.aborted) going()
   line.addEventListener('message', ({ data }) => {
     if (over) return
-    const size = typeof data === 'string' ? BYTES.encode(data).length : data instanceof ArrayBuffer ? data.byteLength : 0
-    if (size > MAX_FRAME) return end(CLOSES.big)
+    if (sizeOf(data) > MAX_FRAME) return end(CLOSES.big)
     if (greeted) return void (data instanceof ArrayBuffer && up && pass(up, data))
     greeted = true
     clearTimeout(waiting)
@@ -223,7 +235,7 @@ export function relay(options: RelayOptions): (request: Request, sockets?: Socke
       const asksForOne = request.method === 'GET' && request.headers.get('upgrade')?.toLowerCase() === 'websocket'
       if (!asksForOne || !sockets) return refuse(426, 'Only a WebSocket.')
       const { line, response } = await sockets.accept(request)
-      live(line, sockets.dial, speech)
+      live(line, sockets, speech)
       return response
     }
     const fields = forwards ? FIELDS.get(pathname) : undefined

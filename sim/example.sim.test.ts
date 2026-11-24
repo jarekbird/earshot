@@ -152,8 +152,14 @@ describe('the example app in the real Even Hub simulator', () => {
     const sim = await start('&live=hello%20there|how%20are%20you', true)
     await sim.pick('Listen')
     await sim.shows('Listening')
-    await sim.shows('Someone: hello there', 30_000)
+    await sim.logged(/Someone: hello \.\.\./, 30_000)
     await sim.shows('Someone: how are you', 30_000)
+    await sim.until(
+      'both turns to be shown as finished',
+      () => (sim.shown().some(line => line.endsWith('how are you')) ? true : undefined),
+      30_000,
+    )
+    expect(sim.shown().filter(line => line.startsWith('Someone:'))).toEqual(['Someone: hello there', 'Someone: how are you'])
   })
 
   it.runIf(process.platform === 'linux')("says that words are off when the secret typed on the phone is not the relay's", async () => {
