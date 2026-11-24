@@ -361,7 +361,7 @@ describe('the upstream of the calls, named by a host that brings its own fetch',
     expect(() => relay({ key: 'sk-developer', upstream, fetch: async () => new Response('{}') })).toThrow('needs the address')
   })
 
-  it.each(['backend', '/backend', './backend/v1', 'backend?route=', '/local models', 'back end'])(
+  it.each(['backend', '/backend', './backend/v1', 'backend?route=', '/local models', 'back end', ' /backend'])(
     'is taken when it is a name on the host itself, %j, and resolves to that host and no other',
     async upstream => {
       const urls: string[] = []

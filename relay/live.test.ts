@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { connect, type AddressInfo, type Socket } from 'node:net'
+import { Duplex } from 'node:stream'
 import { join } from 'node:path'
 import { build } from 'esbuild'
 import { Miniflare } from 'miniflare'
@@ -496,6 +497,23 @@ describe('E13: live speech through the relay, on the Node server and on the Work
     expect(answer).toBe('HTTP/1.1 404 Not Found')
     const connections = () => new Promise<number>(count => server.getConnections((_error, open) => count(open)))
     await vi.waitFor(async () => expect(await connections()).toBe(0), { timeout: 2_000, interval: 20 })
+  })
+
+  it('the Node server outlives a socket that fails while its upgrade is being refused, and goes on serving', async () => {
+    const up = await gateway()
+    const server = await serve({ live: { upstream: up.at, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
+    onTestFinished(() => void server.close())
+    const failing = new Duplex({
+      read() {},
+      write(_chunk, _encoding, done) {
+        done(new Error('the caller reset the connection'))
+      },
+    })
+    server.emit('upgrade', { url: '/elsewhere', method: 'GET', headers: { host: 'relay', upgrade: 'websocket' } }, failing, Buffer.alloc(0))
+    await vi.waitFor(() => expect(failing.destroyed).toBe(true), WAIT)
+    const { got, say } = call(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
+    await say(greeting())
+    await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
   })
 
   it("the Node server leaves a WebSocket on a path of the app's own to the app", async () => {

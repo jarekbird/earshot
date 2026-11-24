@@ -80,7 +80,9 @@ const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_t
 const KEPT_OUT_OF_TRAINING = ['mip_opt_out', 'true']
 const BYTES = new TextEncoder()
 const THIS_MACHINE = new Set(['localhost', '127.0.0.1', '[::1]'])
-const STAYS_ON_ITS_HOST = /^(?!\s)(?!\/\/)(?![a-z][a-z0-9+.-]*:)[^\\\u0000-\u001f\u007f]+$/i
+// Fact: a URL is read with the spaces and control signs at its two ends taken off.
+const EDGES = /^[\u0000-\u0020]+|[\u0000-\u0020]+$/g
+const STAYS_ON_ITS_HOST = /^(?!\/\/)(?![a-z][a-z0-9+.-]*:)[^\\\u0000-\u001f\u007f]+$/i
 const WHOLE = /^\s*[a-z][a-z0-9+.-]*:\/\//i
 const MAX_BYTES = 4_000_000
 const WAIT_MS = 10_000
@@ -131,7 +133,8 @@ function sealed(address: string | undefined, scheme: 'https' | 'wss', what: stri
   try {
     url = new URL(address ?? '')
   } catch {
-    if (own && address !== undefined && (address === '' || STAYS_ON_ITS_HOST.test(address))) return address.replace(/\/+$/, '')
+    if (own && address !== undefined && (address === '' || STAYS_ON_ITS_HOST.test(address.replace(EDGES, ''))))
+      return address.replace(/\/+$/, '')
     throw new Error(`${what} needs the address of its upstream.`)
   }
   if (!WHOLE.test(address ?? '')) throw new Error(`${what} needs the address of its upstream.`)

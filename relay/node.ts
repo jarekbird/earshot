@@ -85,6 +85,7 @@ export function serve({ port = PORT, hostname, ...options }: ServeOptions): Prom
     const others = server.listenerCount('upgrade') > 1
     if (others && (incoming.url ?? '').split('?')[0] !== LIVE_PATH) return
     const upgrade = { incoming, socket, head, taken: false }
+    socket.on('error', () => socket.destroy())
     try {
       const request = requestOf(incoming)
       upgrades.set(request, upgrade)
