@@ -489,6 +489,26 @@ describe('live speech from Flux, through the relay', () => {
     expect(lines).toHaveLength(1)
   })
 
+  it.each([
+    { held: [8_000, 10_000], connects: 9_000, staleMs: 3_000, sent: [1] },
+    { held: [1_000, 10_000], connects: 2_000, staleMs: 3_000, sent: [1] },
+    { held: [100, 200], connects: 150, staleMs: 100, sent: [1] },
+    { held: [100, 200, 300], connects: 250, staleMs: 100, sent: [2] },
+  ])(
+    'checks every piece it holds against one reading of the clock: held at $held, connected at $connects',
+    ({ held, connects, staleMs, sent }) => {
+      let at = 0
+      const { lines, hear } = listening({ staleMs, now: () => at })
+      held.forEach((when, index) => {
+        at = when
+        hear(sound(100, 'unknown', index + 1))
+      })
+      at = connects
+      lines[0].connects()
+      expect(lines[0].marks).toEqual(sent)
+    },
+  )
+
   it('sends no held sound whose age it cannot tell because the clock went back', () => {
     let at = 10_000
     const { lines, hear } = listening({ staleMs: 3_000, now: () => at })

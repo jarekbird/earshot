@@ -24,7 +24,8 @@ export interface FluxWiring {
   now: () => number
 }
 
-const BROWSER: FluxWiring = { open: address => new WebSocket(address) as unknown as FluxSocket, now: Date.now }
+// Fact: performance.now never goes back, as the wall clock can, so it is what the age of held sound is told by.
+const BROWSER: FluxWiring = { open: address => new WebSocket(address) as unknown as FluxSocket, now: () => performance.now() }
 
 export const fluxLive = (options: FluxOptions): LiveSpeech => fluxOver(options, BROWSER)
 
@@ -145,8 +146,10 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
       }
 
       const expire = () => {
-        const stale = (at: number) => staleMs !== Infinity && !(now() >= at && now() - at <= staleMs)
-        while (held.length && stale(held[0].at)) heldBytes -= held.shift()!.pcm.length
+        if (staleMs === Infinity) return
+        const at = now()
+        held = held.filter(piece => at >= piece.at && at - piece.at <= staleMs)
+        heldBytes = held.reduce((bytes, piece) => bytes + piece.pcm.length, 0)
       }
 
       const leave = (code?: number) => {

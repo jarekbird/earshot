@@ -219,7 +219,7 @@ function live(line: Line, sockets: Sockets, { upstream, key, secret, models }: L
 export function relay(options: RelayOptions, sockets?: Sockets): (request: Request) => Promise<Response> {
   const forwards = options.key !== undefined || options.upstream !== undefined
   if (!forwards && !options.live) throw new Error('A relay needs an upstream: for its calls, for live speech, or for both.')
-  if (forwards && !options.key) throw new Error("The relay's calls need the key of their upstream.")
+  if (forwards && !options.key && !options.fetch) throw new Error("The relay's calls need the key of their upstream.")
   const upstream = forwards ? sealed(options.upstream, 'https', "The relay's calls", Boolean(options.fetch)) : ''
   const speech = options.live && checked(options.live)
   const models = new Set(options.models ?? DEFAULT_MODELS)
