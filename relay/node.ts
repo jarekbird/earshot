@@ -30,7 +30,10 @@ const dial: Sockets['dial'] = (url, headers, stop, opened) =>
     const line = new Upstream(url, { headers, maxPayload: MAX_FRAME })
     const drop = () => line.terminate()
     stop.addEventListener('abort', drop)
-    line.on('error', () => failed(new Error('The upstream could not be reached.')))
+    line.on('error', () => {
+      failed(new Error('The upstream could not be reached.'))
+      line.terminate()
+    })
     line.once('close', () => failed(new Error('The upstream closed.')))
     // Fact: ws hands on what came with the opening before a promise made at the opening is read, so the line is handed on here.
     line.once('open', () => {

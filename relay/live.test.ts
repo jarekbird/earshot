@@ -358,6 +358,15 @@ describe('E13: live speech through the relay, on the Node server and on the Work
     expect(code).toBe(CLOSES.big)
   })
 
+  it('both hang up on the caller at once when the upstream sends too much and then answers no goodbye', async () => {
+    const code = await both({ long: 'sound', deaf: true }, async ({ at }) => {
+      const { ended, say } = call(at)
+      await say(greeting())
+      return Promise.race([ended, new Promise<string>(late => setTimeout(() => late('still open after two seconds'), 2_000))])
+    })
+    expect(code).toBe(CLOSES.upstream)
+  })
+
   it.each(['text', 'sound'] as const)(
     'both hang up on the caller when the upstream sends more %s in one message than the relay takes',
     async long => {
@@ -678,12 +687,17 @@ describe('the settings of live speech', () => {
     expect(() => relay({ ...calls, live: { ...live, key: '' } })).toThrow('needs the key')
   })
 
-  it.each(['ws://speech.example/v1', 'https://speech.example/v1', 'speech.example', ''])(
-    'no relay is made with the live upstream %j: the key and the sound would be readable, or go nowhere',
-    upstream => {
-      expect(() => relay({ ...calls, live: { ...live, upstream } })).toThrow(/wss|address/)
-    },
-  )
+  it.each([
+    'ws://speech.example/v1',
+    'https://speech.example/v1',
+    'speech.example',
+    '',
+    'ws+unix://localhost/v1',
+    'http://localhost:9/v1',
+    'wss:speech.example',
+  ])('no relay is made with the live upstream %j: the key and the sound would be readable, or go nowhere', upstream => {
+    expect(() => relay({ ...calls, live: { ...live, upstream } })).toThrow(/wss|address/)
+  })
 
   it('no relay is made with a live upstream that carries a query of its own', () => {
     expect(() => relay({ ...calls, live: { ...live, upstream: `${live.upstream}?model=x` } })).toThrow('no query')

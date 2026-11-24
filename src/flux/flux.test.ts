@@ -489,6 +489,16 @@ describe('live speech from Flux, through the relay', () => {
     expect(lines).toHaveLength(1)
   })
 
+  it('sends no held sound whose age it cannot tell because the clock went back', () => {
+    let at = 10_000
+    const { lines, hear } = listening({ staleMs: 3_000, now: () => at })
+    hear(sound(100, 'unknown', 1))
+    at = 9_000
+    hear(sound(100, 'unknown', 2))
+    lines[0].connects()
+    expect(lines[0].marks).toEqual([2])
+  })
+
   it('opens no line again for sound that has gone stale while the line was away', () => {
     let at = 0
     const { lines, hear } = listening({ staleMs: 100, now: () => at })

@@ -93,15 +93,32 @@ describe('layoutText', () => {
     expect(shown(body).at(-1)).toBe('Line 29')
     expect(shown(body)).toHaveLength(9)
     expect(shown(`${body}\nLine 30`).at(-1)).toBe('Line 30')
-    expect(layoutText({ title: 'Ana', body, end: true }, { top: 0 }).state).toEqual({ top: 0 })
+    expect(layoutText({ title: 'Ana', body, end: true }, { top: 0 }).state).toEqual({ top: 0, away: false })
   })
 
-  it('asked to stay at its end, keeps the place a swipe up took it to, counted from the end', () => {
+  it('asked to stay at its end, holds the place a swipe up took it to while more lines come, so the wearer can read back', () => {
     const up = layoutText({ title: 'Ana', body, end: true }, { top: -2 })
     expect(by(up.boxes, 'body').text.split('\n').at(-1)).toBe('Line 27')
-    expect(up.state).toEqual({ top: -2 })
-    expect(layoutText({ title: 'Ana', body, end: true }, { top: 5 }).state).toEqual({ top: 0 })
-    expect(layoutText({ title: 'Ana', body, end: true }, { top: -99 }).state).toEqual({ top: -21 })
+    const grown = layoutText({ title: 'Ana', body: `${body}\nLine 30\nLine 31`, end: true }, up.state)
+    expect(by(grown.boxes, 'body').text.split('\n').at(-1)).toBe('Line 27')
+    const further = layoutText({ title: 'Ana', body: `${body}\nLine 30\nLine 31`, end: true }, { ...grown.state, top: grown.state.top - 2 })
+    expect(by(further.boxes, 'body').text.split('\n').at(-1)).toBe('Line 25')
+  })
+
+  it('asked to stay at its end, follows the end again once the wearer has swiped back down to it', () => {
+    const up = layoutText({ title: 'Ana', body, end: true }, { top: -2 })
+    const back = layoutText({ title: 'Ana', body, end: true }, { ...up.state, top: up.state.top + 2 })
+    expect(back.state).toEqual({ top: 0, away: false })
+    const grown = layoutText({ title: 'Ana', body: `${body}\nLine 30`, end: true }, back.state)
+    expect(by(grown.boxes, 'body').text.split('\n').at(-1)).toBe('Line 30')
+  })
+
+  it('asked to stay at its end, lets go of its oldest lines rather than its newest when they are too many bytes for the glasses', () => {
+    const long = Array.from({ length: 12 }, () => 'i'.repeat(115)).join('\n')
+    const { boxes } = layoutText({ body: `${long}\nLATEST`, end: true }, { top: 0 })
+    const text = by(boxes, 'body').text
+    expect(text.split('\n').at(-1)).toBe('LATEST')
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(999)
   })
 
   it('asked to stay at its end, shows a short text from its first line', () => {

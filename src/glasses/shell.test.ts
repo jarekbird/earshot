@@ -114,6 +114,24 @@ describe('drawing', () => {
   })
 })
 
+describe('a text that stays at its end', () => {
+  it('draws its newest line on the glasses also when the lines before it are long, and holds its place once swiped up', async () => {
+    const { fake, router, shell } = world()
+    const log = [...Array.from({ length: 12 }, () => 'i'.repeat(115)), 'LATEST']
+    router.open({ id: 'log', view: () => text({ body: log.join('\n'), end: true }) })
+    await settle()
+    expect(fake.lines().at(-1)).toBe('LATEST')
+    fake.up()
+    await settle()
+    expect(fake.lines()).not.toContain('LATEST')
+    const held = fake.lines()
+    log.push('NEWER')
+    shell.redraw()
+    await settle()
+    expect(fake.lines()).toEqual(held)
+  })
+})
+
 describe('a list', () => {
   it('moves the cursor with a swipe, in place, and stops at each end', async () => {
     const { fake, cursor } = world()

@@ -172,7 +172,7 @@ export class Shell {
       boxes = laid.boxes
     } else if (view.kind === 'text') {
       const laid = layoutText(view, place)
-      place.top = laid.state.top
+      Object.assign(place, laid.state)
       scrolls = laid.scrolls
       boxes = laid.boxes
     } else {

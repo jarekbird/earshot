@@ -125,7 +125,7 @@ const shell = new Shell(life, glasses, router)
 ```
 
 - `list({ title, action, empty })` shows the targets of one action as lines of text. A swipe moves the cursor and a tap runs the action on that item.
-- `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines. With `end: true` it shows its last lines and goes on showing the last as the text grows, for a log or a transcript; a swipe up still reads back.
+- `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines. With `end: true` it shows its last lines and goes on showing the last as the text grows, for a log or a transcript. A swipe up reads back and the view holds that place while more comes; swiped back down to the end, it follows again. When the last lines are more than the glasses take in one box, the oldest of them give way, never the newest.
 - `boxes(boxes, { on, pictures })` places each box yourself. `on` says which action a tap, a swipe up and a swipe down run: `{ tap: open, up: older, down: { action: open, target: 'next' } }`. A screen gets no raw touches, so whatever touch can do, voice can do too. A screen with no `view` lists its actions.
 - By voice, a long text scrolls a screenful ("scroll down"), a list's cursor moves ("move down") and "choose this one" runs the row it is on. The model is told which row that is, unless the row is private.
 - A double tap goes up, to the screen the current one was opened from. From the home screen it asks Even to close the app.
@@ -270,7 +270,7 @@ new Shell(life, glasses, router, { voice: { transcribe: service.transcribe, mode
 
 A glasses app is web files on the user's phone, and anyone can read a key out of them. So your OpenRouter key stays on a small server of yours, the relay, and the app calls that. Earshot ships it: one function that takes a request and gives a response.
 
-On Node, on any host that keeps a process running:
+On Node 22 or later, on any host that keeps a process running:
 
 ```sh
 EARSHOT_RELAY_KEY=sk-or-... EARSHOT_RELAY_UPSTREAM=https://openrouter.ai npx earshot-relay
