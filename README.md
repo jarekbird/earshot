@@ -4,7 +4,7 @@ A voice-first app framework for [Even Realities G2](https://www.evenrealities.co
 
 An Earshot app declares what it can do as **actions**. The menu, the touchpad and your voice all run those same actions. Hold the touchpad, say what you want, and a navigator picks the action and its target. Because the app's abilities are data, an agent can pilot it.
 
-**Status: early.** Only the first slice exists. The API will change until two apps run on it.
+**Status: early.** Every slice below is built. The API will change until two apps run on it.
 
 | Slice | What                                                                                                                                   | State |
 | ----- | -------------------------------------------------------------------------------------------------------------------------------------- | ----- |
@@ -22,7 +22,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.12
+npm install github:jarekbird/earshot#v0.0.37
 ```
 
 ## Actions
@@ -81,11 +81,16 @@ The stack is the path from home to the screen on show, not a history, so going b
 A screen's lifetime ends when the screen leaves the stack, and takes with it everything started through it. A screen covered by another keeps running.
 
 ```ts
-enter: life => {
-  life.own(subscribe(thread)) // any cleanup function
-  life.interval(refresh, 30_000) // also timeout; both return { cancel }
-  life.listen(window, 'online', reconnect)
-  void load(life)
+import type { Lifetime, Screen } from 'earshot'
+
+const screen: Screen = {
+  id: 'thread',
+  enter: life => {
+    life.own(subscribe(thread)) // any cleanup function
+    life.interval(reload, 30_000) // also timeout; both return { cancel }
+    life.listen(window, 'online', reconnect)
+    void load(life)
+  },
 }
 
 async function load(life: Lifetime) {
@@ -115,7 +120,7 @@ const open = action({
   run: note => router.open({ id: 'note', view: () => text({ title: note.title, body: note.body }) }),
 })
 
-const router = new Router({
+const router: Router = new Router({
   home: { id: 'notes', actions: () => [open, refresh], view: () => list({ title: 'Notes', action: open }) },
 })
 
@@ -126,7 +131,7 @@ const shell = new Shell(life, glasses, router)
 
 - `list({ title, action, empty })` shows the targets of one action as lines of text. A swipe moves the cursor and a tap runs the action on that item.
 - `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines. With `end: true` it shows its last lines and goes on showing the last as the text grows, for a log or a transcript. A swipe up reads back, counted from the page the wearer is looking at (a second swipe before the first is drawn goes on from the first), and the view holds that place while more comes at the end (a text that also loses lines at its start shifts under it); swiped back down to the end, it follows again. A page never holds more than the glasses take in one box: at the end the oldest lines give way, never the newest, and a swipe, or a spoken "scroll up", moves by no more than the page holds, so every line is reached.
-- `boxes(boxes, { on, pictures })` places each box yourself. `on` says which action a tap, a swipe up and a swipe down run: `{ tap: open, up: older, down: { action: open, target: 'next' } }`. A screen gets no raw touches, so whatever touch can do, voice can do too. A screen with no `view` lists its actions.
+- `boxes(boxes, { on, pictures })` places each box yourself. `on` says which action a tap, a swipe up and a swipe down run: `{ tap: open, up: older, down: { action: open, target: 'next' } }`. A screen gets no raw touches, so whatever touch can do, voice can do too. The other way round is yours where a gesture runs an action on one target only: voice is offered every target of that action, so give touch a way to each, with a gesture for the action as a whole or a cursor of your own. A screen with no `view` lists its actions.
 - By voice, a long text scrolls a screenful ("scroll down"), a list's cursor moves ("move down") and "choose this one" runs the row it is on. The model is told which row that is, unless the row is private.
 - A double tap goes up, to the screen the current one was opened from. From the home screen it asks Even to close the app.
 - Even's menu lists the screen's and the app's other actions. Over ten, the rest go behind "More…". An action with targets asks which one in a list, or on the app's own screen when the action has `choose`. A target can carry its own `risk`, so only the targets that write ask first.
@@ -157,6 +162,7 @@ new Shell(life, glasses, router, {
 - `transcribe` gets the sound as 16 kHz, 16-bit, one-channel PCM, and the turn's lifetime to end its request with, and gives back the words. Earshot opens no connection itself; where the sound goes is yours to decide. A transcriber that cannot transcribe gives back `null`: no model is asked, and the agents get the recording with no words.
 - The words show over the page, and the navigator picks from what the app can do now: go back, go home, each action, and the items of the rolling set.
 - When it is sure, the action runs, and one marked `confirm` still asks first. Mark an action `voice` to ask first only when the words chose it: a touch is the person's own act, the model's choice is a guess. A question is dropped when the screen changes before the tap. When it is unsure, the few candidates are listed to tap. When nothing fits, it says "No match". With `instead` (below), the person can turn the navigator's choice down and hand the words to your agents.
+- One hold is one command. The navigator picks one action and one target, so "open the shopping list and delete it" is not carried out as two steps. Its pick is a guess, least sure among items whose names are much alike: give those items text that tells them apart (below), and mark an action that is costly to get wrong `voice` or `confirm`.
 - `agents` get the words the navigator passes on, in order, with the recording (`audio`) and the turn's lifetime (`life`). An agent answers `{ kind: 'handled', say }`, `{ kind: 'notMine' }`, or with an action to run.
 - An agent that waits before it acts waits through `life`. Any touch while a command is being decided calls it off and does nothing else; a hold calls it off and listens again. Both end `life`.
 - `model` is what the navigator asks. It gets the question, and the turn's lifetime to end its request with, and gives each option a chance. Over 0.7 the navigator is sure; under that it lists the options over 0.15. The default matches the words against the labels and calls no service.
@@ -169,10 +175,15 @@ new Shell(life, glasses, router, {
 An app can hear for as long as it likes: a screen that takes dictation, a meter, a phrase that wakes it.
 
 ```ts
-enter: life => {
-  show(glasses.micOpen ? 'Listening' : 'Not hearing')
-  life.own(glasses.listen(sound => meter.add(sound.pcm, sound.speaker)))
-  life.own(glasses.onMic(open => show(open ? 'Listening' : 'Not hearing')))
+import type { Screen } from 'earshot'
+
+const screen: Screen = {
+  id: 'meter',
+  enter: life => {
+    show(glasses.micOpen ? 'Listening' : 'Not hearing')
+    life.own(glasses.listen(sound => meter.add(sound.pcm, sound.speaker)))
+    life.own(glasses.onMic(open => show(open ? 'Listening' : 'Not hearing')))
+  },
 }
 ```
 
@@ -191,12 +202,15 @@ enter: life => {
 Words while they are said, for an app that listens: captions, dictation, a transcript.
 
 ```ts
-import { scriptedLive, type LiveSpeech } from 'earshot'
+import { scriptedLive, type LiveSpeech, type Screen } from 'earshot'
 
 const speech: LiveSpeech = scriptedLive(['good morning', 'how are you'])
-enter: life => {
-  const hear = speech.start(life, turn => show(turn.id, turn.speaker, turn.words, turn.final))
-  life.own(glasses.listen(hear))
+const screen: Screen = {
+  id: 'captions',
+  enter: life => {
+    const hear = speech.start(life, turn => show(turn.id, turn.speaker, turn.words, turn.final))
+    life.own(glasses.listen(hear))
+  },
 }
 ```
 
@@ -233,7 +247,7 @@ const hear = speech.start(life, showTurn, state => showWhetherWordsCome(state))
 One question, with everything the user could mean:
 
 ```ts
-import { action, Rolling } from 'earshot'
+import { action, Rolling, Shell } from 'earshot'
 
 const open = action({ id: 'open', say: 'Open thread', hint: 'Shows one conversation', targets, run })
 
@@ -334,6 +348,8 @@ What it does not do: tell one user from another. Anyone who finds the address ca
 Under the shell, `Glasses` draws frames of text boxes and tells you what the user did. It is the only part of Earshot that talks to Even's SDK, which your app installs.
 
 ```ts
+import { LINE_HEIGHT, SCREEN_WIDTH } from 'earshot'
+
 glasses.draw({
   boxes: [
     { id: 'title', x: 0, y: 0, w: SCREEN_WIDTH, h: LINE_HEIGHT, text: 'Threads' },
@@ -361,7 +377,9 @@ glasses.onInput(input => {
 ### Test without the glasses
 
 ```ts
+import { Glasses, Shell } from 'earshot'
 import { fakeBridge } from 'earshot/testing'
+import { expect, vi } from 'vitest'
 
 const fake = fakeBridge()
 const glasses = new Glasses(life, fake.bridge)
@@ -420,6 +438,8 @@ const forTests = createStore([memoryPlace()])
 
 ## Develop
 
+To send a report or a change from outside, start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ```sh
 npm install
 npm ci --prefix workerd   # Cloudflare's runtime, for the tests of the relay's Worker host
@@ -430,7 +450,7 @@ npm run example:pack   # build, check and pack the example app in example/
 
 The Worker's runtime is installed apart, in `workerd/`, because it runs on fewer machines than the rest: an app that installs Earshot from Git builds it with the tools in `package.json`, and must never need this one. `npm run check` says so when it is missing.
 
-A change goes through a pull request. Run `npm run check` yourself before every commit; the whole simulator suite (`npm run check:sim`, the job `sim`) runs on the pull request, not on your machine. No test may call an outside service (E4): a guard refuses the usual ways on your machine, and CI runs the tests with no network but its own. The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
+A change goes through a pull request. Run `npm run check` yourself before every commit. It also builds the package as an app gets it and compiles every example on this page against it, so an example that no longer compiles fails. The whole simulator suite (`npm run check:sim`, the job `sim`) runs on the pull request, not on your machine. No test may call an outside service (E4): a guard refuses the usual ways on your machine, and CI runs the tests with no network but its own. The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
 
 MIT licensed.
 

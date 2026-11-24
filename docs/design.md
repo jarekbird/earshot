@@ -324,15 +324,18 @@ and one check can prove it for any screen.
   menu and to voice.
 
 Built: a `boxes` view binds a tap and each swipe to an action (`on`), and takes no raw input; those actions go to the
-model and stay out of Even's menu. The shell adds its own for what its views do by touch: scroll a long text, move a
-list's cursor, choose the row under it. The row under the cursor goes to the model as context unless it is private.
-A pick from Even's menu is ignored while the glasses still show another screen's menu. While a command is being
-decided, a touch only calls it off: an agent's pending work ends with the turn's lifetime, and a new hold starts over.
-A submenu is one sentence: an action with targets is offered to the model once for each target that is not private,
-named "action: target", and an action with a single target is offered only as that. Beside its targets the
-action alone is offered as "action (show the list)": against the real model, "use opus" split 54 to 43 between
-"Model" and "Model: Opus" and neither was sure; with the list named, the target wins. A target that is also a
-rolling item is offered once, with the item's context.
+model and stay out of Even's menu. A gesture bound to one target of an action is the screen's own way to that target:
+the model is offered the action's other targets too, and reaching those by touch is the screen's to see to, with a
+gesture for the whole action or a cursor of its own. Everything else a test proves for any screen (E3): touch alone
+runs every action, on each of its targets, through a row, a gesture, Even's menu or the list behind "More…". The shell
+adds its own for what its views do by touch: scroll a long text, move a list's cursor, choose the row under it. The
+row under the cursor goes to the model as context unless it is private. A pick from Even's menu is ignored while the
+glasses still show another screen's menu. While a command is being decided, a touch only calls it off: an agent's
+pending work ends with the turn's lifetime, and a new hold starts over. A submenu is one sentence: an action with
+targets is offered to the model once for each target that is not private, named "action: target", and an action with a
+single target is offered only as that. Beside its targets the action alone is offered as "action (show the list)":
+against the real model, "use opus" split 54 to 43 between "Model" and "Model: Opus" and neither was sure; with the
+list named, the target wins. A target that is also a rolling item is offered once, with the item's context.
 
 ### Double tap goes up (E10)
 

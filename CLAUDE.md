@@ -2,7 +2,8 @@
 
 Voice-first app framework for Even G2 glasses. Design and slices: `docs/design.md`. `AGENTS.md` links here. `src` is the
 framework; `check` is the build-time store check, `sim` drives Even's simulator for tests and `relay` is the server
-that holds the developer's key. `check`, `sim` and the relay's Node server need Node.
+that holds the developer's key. `installed` tests the package as an app gets it, and compiles the README's examples
+against it. `check`, `sim` and the relay's Node server need Node.
 
 ## Rules
 
@@ -41,6 +42,9 @@ Checks cite these IDs. Changing one needs Jarek's OK.
 - **C3** A bug fix comes with a test that fails on the old code.
 
 ## Process
+
+This is the maintainer's own process. A contribution from outside follows `CONTRIBUTING.md`: the rules above bind it,
+and this section and the skills are not its to run.
 
 Follow skill `develop` for every feature and fix; it reviews with skill `review-loop` and ends with skill `release`.
 Write each test first and see it fail. `npm run check` before every commit.

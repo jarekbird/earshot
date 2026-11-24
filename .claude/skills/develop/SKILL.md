@@ -1,9 +1,11 @@
 ---
 name: develop
-description: The development process for Earshot, from a decided change to a tagged version an app can pin. Use for every feature and fix.
+description: The maintainer's development process for Earshot, from a decided change to a tagged version an app can pin. Use for every feature and fix of the maintainer's own. An outside contribution follows CONTRIBUTING.md instead.
 ---
 
 # Develop
+
+The maintainer's process. An outside contribution follows `CONTRIBUTING.md` and runs none of this.
 
 1. **Decided.** Build what Jarek has decided: a slice of `docs/design.md`, or what an app on Earshot needs. A rule
    in CLAUDE.md changes only with his OK.
