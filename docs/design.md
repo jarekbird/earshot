@@ -168,6 +168,18 @@ The words go down a stack of agents; each answers with a verdict:
 - **unsure**: these few candidates. They are shown as a list to tap.
 - **not mine**: the next agent in the stack gets the words.
 
+Built since: the person can turn the navigator's choice down. The model's pick is a guess, and words meant for an
+agent are lost if the only answers to its question are yes and no. When the app names what its agents do with the
+words (`instead`, a few words for the glasses: "Keep as a note") and has an agent after the navigator:
+
+- A question the navigator raised gains a third line, "Swipe: Keep as a note". A tap still confirms and a double tap
+  still drops it; a swipe either way starts a turn of the agents alone, with the same words and recording. Nothing is
+  transcribed or asked of the model again.
+- The list of candidates gains it as the last row.
+- Only the navigator's choices: a question a touch raised has no words, and an agent's own question is the app's.
+  A sure choice that needs no tap has run by then.
+- The card holds three lines, so a question that wraps pushes the swipe's line out; the swipe still works.
+
 The navigator is first in the stack. Apps add their own agents after it, for example one that sends the words as a
 message. A stronger agent gets three tools: read the screen's text, list the actions, run one.
 

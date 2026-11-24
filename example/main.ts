@@ -152,7 +152,9 @@ const shell: Shell = new Shell(
   life,
   glasses,
   router,
-  hears ? { voice: { ...hears, agents: [takeNote], otherwise: 'Something to remember as a new note', rolling } } : {},
+  hears
+    ? { voice: { ...hears, agents: [takeNote], otherwise: 'Something to remember as a new note', instead: 'Keep as a note', rolling } }
+    : {},
 )
 
 document.getElementById('status')!.textContent = hears

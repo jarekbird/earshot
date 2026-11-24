@@ -1563,6 +1563,224 @@ describe('a hold', () => {
     expect(session).toEqual([tone(200).length])
   })
 
+  describe('a choice of the navigator that the person turns down', () => {
+    const noting = (line: string, more: Partial<VoiceOptions> = {}) => {
+      const got: Array<{ words: string; seconds: number | undefined }> = []
+      const { voice, asked } = hearing(line)
+      const choose = vi.fn(matchWords.choose)
+      const all: VoiceOptions = {
+        ...voice,
+        model: { choose },
+        instead: 'Keep as a note',
+        agents: [
+          ({ words, audio }) => {
+            got.push({ words, seconds: audio?.seconds })
+            return { kind: 'handled', say: 'Saved' }
+          },
+        ],
+        ...more,
+      }
+      return { voice: all, got, asked, choose }
+    }
+    const allowing = ({ ran }: Parts): Screen => ({
+      id: 'home',
+      actions: () => [
+        action({
+          id: 'allow',
+          say: 'Allow',
+          risk: 'voice',
+          targets: () => [{ id: 'r1', say: 'Run the migration', value: 'r1' }],
+          run: id => void ran.push(`allow ${id}`),
+        }),
+        action({ id: 'wipe', say: 'Wipe', risk: 'confirm', run: () => void ran.push('wipe') }),
+      ],
+      view: () => text({ title: 'Home', body: 'Hello' }),
+    })
+    const ASKED = 'Allow: Run the migration?\nTap to confirm'
+
+    it("hands the words to the app's agents at a swipe, and does not run what the navigator chose", async () => {
+      const { voice, got, asked, choose } = noting('allow run the migration')
+      const { fake, front, ran } = world({ voice, home: allowing })
+      await settle()
+      await say(fake)
+      expect(front()).toBe(`${ASKED}\nSwipe: Keep as a note`)
+      fake.down()
+      await settle()
+      expect(got).toEqual([{ words: 'allow run the migration', seconds: 0.8 }])
+      expect(ran).toEqual([])
+      expect(front()).toBe('Saved')
+      expect(asked).toEqual([0.8])
+      expect(choose).toHaveBeenCalledTimes(1)
+    })
+
+    it('takes a swipe either way', async () => {
+      const { voice, got } = noting('allow run the migration')
+      const { fake, ran } = world({ voice, home: allowing })
+      await settle()
+      await say(fake)
+      fake.up()
+      await settle()
+      expect(got.map(heard => heard.words)).toEqual(['allow run the migration'])
+      expect(ran).toEqual([])
+    })
+
+    it('still runs the choice at a tap and drops it at a double tap, and neither reaches the agents', async () => {
+      const { voice, got } = noting('allow run the migration')
+      voice.transcribe = async () => 'allow run the migration'
+      const { fake, front, ran } = world({ voice, home: allowing })
+      await settle()
+      await say(fake)
+      fake.double()
+      await settle()
+      expect(front()).toBe('')
+      expect(ran).toEqual([])
+      await say(fake)
+      fake.tap()
+      await settle()
+      expect(ran).toEqual(['allow r1'])
+      expect(got).toEqual([])
+    })
+
+    it('offers no swipe to an app that named nothing to do instead: a swipe only drops the question', async () => {
+      const { voice, got } = noting('allow run the migration', { instead: undefined })
+      const { fake, front, ran } = world({ voice, home: allowing })
+      await settle()
+      await say(fake)
+      expect(front()).toBe(ASKED)
+      fake.down()
+      await settle()
+      expect(front()).toBe('')
+      expect(got).toEqual([])
+      expect(ran).toEqual([])
+    })
+
+    it('offers no swipe when the app has no agent to hand the words to', async () => {
+      const { voice } = noting('allow run the migration', { agents: [] })
+      const { fake, front } = world({ voice, home: allowing })
+      await settle()
+      await say(fake)
+      expect(front()).toBe(ASKED)
+    })
+
+    it('offers no swipe on a question a touch raised: there are no words to hand on', async () => {
+      const { voice, got } = noting('allow run the migration')
+      const { fake, front, ran } = world({ voice, home: allowing })
+      await settle()
+      fake.pick('Wipe')
+      await settle()
+      expect(front()).toBe('Wipe?\nTap to confirm')
+      fake.down()
+      await settle()
+      expect(got).toEqual([])
+      expect(ran).toEqual([])
+    })
+
+    it("offers no swipe on a question one of the app's own agents raised", async () => {
+      const { voice } = noting('note this', {
+        model: { choose: async ({ options }) => ({ [options.find(option => option.role === 'pass')!.id]: 1 }) },
+        agents: [() => ({ kind: 'sure', action: 'allow', target: 'r1' }), () => ({ kind: 'handled', say: 'Saved' })],
+      })
+      const { fake, front } = world({ voice, home: allowing })
+      await settle()
+      await say(fake)
+      expect(front()).toBe(ASKED)
+    })
+
+    it('reads what to do instead when the question is asked, so an app can name it by what the words were for', async () => {
+      let name = 'Keep as a note'
+      const { voice } = noting('allow run the migration')
+      Object.defineProperty(voice, 'instead', { get: () => name })
+      const { fake, front } = world({ voice, home: allowing })
+      await settle()
+      name = 'Send to Ana'
+      await say(fake)
+      expect(front()).toBe(`${ASKED}\nSwipe: Send to Ana`)
+    })
+
+    it('drops the question when the screen changes, so a later swipe hands nothing on', async () => {
+      const { voice, got } = noting('allow run the migration')
+      const { fake, router } = world({ voice, home: allowing })
+      await settle()
+      await say(fake)
+      router.open({ id: 'about', view: () => text({ title: 'About', body: 'Earshot' }) })
+      await settle()
+      fake.down()
+      await settle()
+      expect(got).toEqual([])
+    })
+
+    it('says no match when no agent takes the words that were handed on', async () => {
+      const { voice } = noting('allow run the migration', { agents: [() => ({ kind: 'notMine' })] })
+      const { fake, front, ran } = world({ voice, home: allowing })
+      await settle()
+      await say(fake)
+      fake.down()
+      await settle()
+      expect(front()).toBe('No match')
+      expect(ran).toEqual([])
+    })
+
+    it('gives the agents a turn of their own, which any touch calls off', async () => {
+      const sent: string[] = []
+      let ended = false
+      const { voice } = noting('allow run the migration', {
+        agents: [
+          async ({ words, life }) => {
+            life!.own(() => (ended = true))
+            await life!.guard(new Promise<void>(done => life!.timeout(done, 3_000)))
+            sent.push(words)
+            return { kind: 'handled' }
+          },
+        ],
+      })
+      const { fake, front, ran } = world({ voice, home: allowing })
+      await settle()
+      await say(fake)
+      fake.down()
+      await settle(50)
+      expect(front()).toBe('"allow run the migration"')
+      expect(ended).toBe(false)
+      fake.tap()
+      await settle(5_000)
+      expect(ended).toBe(true)
+      expect(sent).toEqual([])
+      expect(ran).toEqual([])
+    })
+
+    it('adds it as the last row where the navigator lists its candidates, and that row hands the words on', async () => {
+      const { voice, got, choose } = noting('ana ben')
+      const { fake, front, ran } = world({ voice })
+      await settle()
+      await say(fake)
+      expect(fake.lines()).toEqual(['Which one?', '> Open: Ana', 'Open: Ben', 'Keep as a note'])
+      fake.down()
+      fake.down()
+      fake.tap()
+      await settle()
+      expect(got.map(heard => heard.words)).toEqual(['ana ben'])
+      expect(ran).toEqual([])
+      expect(fake.lines()[0]).toBe('People')
+      expect(front()).toBe('Saved')
+      expect(choose).toHaveBeenCalledTimes(1)
+    })
+
+    it('hands on the words that raised the list, not the ones that chose the row, when the row is chosen by voice', async () => {
+      const lines = ['ana ben', 'choose this one']
+      const { voice, got } = noting('')
+      voice.transcribe = async () => lines.shift() ?? ''
+      const { fake, ran } = world({ voice })
+      await settle()
+      await say(fake)
+      fake.down()
+      fake.down()
+      await say(fake)
+      await settle()
+      expect(got.map(heard => heard.words)).toEqual(['ana ben'])
+      expect(ran).toEqual([])
+      expect(fake.lines()[0]).toBe('People')
+    })
+  })
+
   it('counts a touchpad as let go after two days at the most, however long a hold the app allows', async () => {
     const { voice } = hearing('refresh')
     const { fake, glasses } = world({ voice: { ...voice, maxHoldMs: 14 * 86_400_000 } })
