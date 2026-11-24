@@ -26,6 +26,17 @@ Checks cite these IDs. Changing one needs Jarek's OK.
 - **E13** The relay's hosts, the Node server and the example's Worker, are one server: each only hands requests to
   `relay`, and a setting or a feature of one is in the other in the same change. Only where a host listens, and how
   it takes and opens a WebSocket, is its own.
+- **E15** What carries a key, a secret or sound goes to the address that was checked. An address is read once; that
+  reading is what is checked and what is used, never the text a second time. _A test hands the relay's two
+  upstreams and the transport's relay a list of awkward addresses: each is refused, or reached where the check read
+  it (`relay/addresses.test.ts`)._
+- **E16** A stand-in and what it stands in for pass the same tests: where sound is taken and cut, the order in which
+  a listener is told, what it may do from there, and what is said when it fails. _For live speech, one set of tests
+  runs on both (`src/live.contract.test.ts`), and a test fails when a maker of live speech is not in it. For the
+  navigator's model and for speech-to-text it is prose._
+- **E17** A relay host survives any request: it reads a request inside its error handling, hears the errors of every
+  socket it takes, and destroys what it refuses. _A test sends both hosts a list of requests they cannot take, with
+  a caller that resets or waits, and each must go on serving (`relay/live.test.ts`)._
 
 ## Code rules
 
