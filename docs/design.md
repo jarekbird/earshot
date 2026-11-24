@@ -179,6 +179,10 @@ words (`instead`, a few words for the glasses: "Keep as a note") and has an agen
 - Only the navigator's choices: a question a touch raised has no words, and an agent's own question is the app's.
   A sure choice that needs no tap has run by then.
 - The card holds three lines, so a question that wraps pushes the swipe's line out; the swipe still works.
+- A question is answered by touch only: a tap, a swipe or a double tap. A hold calls it off and listens anew, as it
+  always has. The question is there because the model's pick is a guess, so a second guess never answers it, neither
+  to confirm nor to hand the words on, which in an app can be a write as well. It is the shell's question, not an
+  input of a screen (E9), and what a swipe does is what saying the words again does when the navigator passes them.
 
 The navigator is first in the stack. Apps add their own agents after it, for example one that sends the words as a
 message. A stronger agent gets three tools: read the screen's text, list the actions, run one.
