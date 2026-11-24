@@ -95,7 +95,9 @@ const DOWN = 'earshot.down'
 const CHOOSE = 'earshot.choose'
 const INSTEAD = 'instead'
 
-const boundTo = (bound: Bound): { action: Action; target?: string } => ('action' in bound ? bound : { action: bound })
+const boundTo = (bound: Bound): { action: Action; target?: string } => ('action' in bound ? { ...bound } : { action: bound })
+
+type Bindings = Partial<Record<'tap' | 'up' | 'down', { action: Action; target?: string }>>
 
 interface Place {
   cursor: number
@@ -113,6 +115,12 @@ interface Drawn {
 }
 
 const sameText = (one: Read['view'], other: Read['view']) => one.title === other.title && one.body === other.body && one.end === other.end
+
+const bindings = (view: Extract<View, { kind: 'boxes' }>): Bindings => ({
+  ...(view.on?.tap ? { tap: boundTo(view.on.tap) } : {}),
+  ...(view.on?.up ? { up: boundTo(view.on.up) } : {}),
+  ...(view.on?.down ? { down: boundTo(view.on.down) } : {}),
+})
 
 export class Shell {
   readonly #life: Lifetime
@@ -141,7 +149,7 @@ export class Shell {
   #said = false
   #deciding: Lifetime | null = null
   #decidingOn: object | null = null
-  readonly #frames: Frames
+  readonly #frames: Frames<Bindings>
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -242,7 +250,7 @@ export class Shell {
     if (!showings.onPath(showing)) return this.#glasses[PROGRESS].drop(frame)
     if (!this.#drawn || frame > this.#drawn.frame)
       this.#drawn = { frame, screen, showing, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
-    this.#frames.asked(frame, showing, drew, view.kind)
+    this.#frames.asked(frame, showing, drew, view.kind, view.kind === 'boxes' ? bindings(view) : undefined)
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
@@ -379,14 +387,11 @@ export class Shell {
     const place = showing && this.#places.get(showing)
     if (!drawn || drawn.showing !== showing || !place || !this.#router[SHOWINGS].onPath(showing)) return
     const { view } = drawn
-    const seen = view.kind === 'text' ? this.#frames.words : this.#frames.whole
+    const seen = view.kind === 'text' ? this.#frames.words : this.#frames.page
     if (seen && (seen.kind !== view.kind || seen.showing !== showing)) return
-    if (view.kind === 'boxes' && drawn.frame > this.#glasses.shown) return
     if (view.kind === 'boxes') {
-      const bound = view.on?.[input.kind]
-      if (!bound) return
-      const { action: chosen, target } = boundTo(bound)
-      return void this.#start(chosen, target)
+      const bound = (seen?.on ?? bindings(view))[input.kind]
+      return bound ? void this.#start(bound.action, bound.target) : undefined
     }
     const step = input.kind === 'up' ? -1 : 1
     if (view.kind === 'text') {
@@ -400,6 +405,7 @@ export class Shell {
     this.#turn++
     this.#deciding?.end()
     this.#deciding = null
+    this.#decidingOn = null
     this.#recording?.end()
     this.#clear()
   }
@@ -498,6 +504,8 @@ export class Shell {
     const finish = (then: () => void) => {
       if (!mine()) return
       this.#deciding = null
+      this.#decidingOn = null
+      this.#decidingOn = null
       slow.cancel()
       life.end()
       if (moved()) this.#clear()
@@ -544,11 +552,18 @@ export class Shell {
     said: { words: string; audio: Audio; life: Lifetime },
     navigate: boolean,
   ): Promise<{ verdict: Verdict; more: boolean }> {
-    const agents = [...(navigate ? [navigator(voice.model ?? matchWords)] : []), ...(voice.agents ?? [])]
     const showings = this.#router[SHOWINGS]
     const showing = showings.current
+    const gone = () => said.life.ended || showings.current !== showing || !showings.onPath(showing)
+    const model = voice.model ?? matchWords
+    const asked: NavigatorModel = {
+      choose: (question, life) => {
+        if (gone()) throw new LifetimeEnded()
+        return model.choose(question, life)
+      },
+    }
+    const agents = [...(navigate ? [navigator(asked)] : []), ...(voice.agents ?? [])]
     for (const [index, agent] of agents.entries()) {
-      const gone = () => said.life.ended || showings.current !== showing || !showings.onPath(showing)
       if (gone()) throw new LifetimeEnded()
       const screen = this.#context()
       const heard = {
@@ -615,6 +630,8 @@ export class Shell {
   }
 
   async #start(chosen: Action, targetId?: string, said = false, pass?: () => void): Promise<void> {
+    const showings = this.#router[SHOWINGS]
+    const showing = showings.current
     const why = chosen.blocked()
     if (why !== null) return this.notice(why)
     const targets = chosen.targets()
@@ -625,7 +642,7 @@ export class Shell {
     const target = targets?.find(candidate => candidate.id === targetId)
     const risk = target?.risk ?? chosen.risk
     if (risk === 'safe' || (risk === 'voice' && !said)) return this.#run(chosen, targetId, said)
-    if (!this.#router[SHOWINGS].onPath(this.#router[SHOWINGS].current)) return
+    if (showings.current !== showing || !showings.onPath(showing)) return
     const instead = pass && this.#voice?.instead
     const asked = [
       `${chosen.say}${target ? `: ${target.say}` : ''}?`,
@@ -633,7 +650,8 @@ export class Shell {
       ...(instead ? [`${this.#words.swipe}: ${instead}`] : []),
     ]
     this.#show(asked.join('\n'))
-    this.#asking = { yes: () => void this.#run(chosen, targetId), ...(instead ? { no: pass } : {}) }
+    const still = () => showings.current === showing && showings.onPath(showing)
+    this.#asking = { yes: () => void (still() && this.#run(chosen, targetId)), ...(instead ? { no: pass } : {}) }
   }
 
   // An action the shell made (choose, More, which one) starts another: it has to know the words chose it.

@@ -29,17 +29,21 @@ export const PROGRESS = Symbol('how far the glasses are with the frames asked of
 export const copied = (view: Words): Words =>
   text({ ...(view.title === undefined ? {} : { title: view.title }), body: view.body, end: view.end }) as Words
 
-interface Asked {
-  frame: number
+export interface Seen<On> {
   showing: unknown
   kind: View['kind']
+  on: On | undefined
+}
+
+interface Asked<On> extends Seen<On> {
+  frame: number
   drew: Read | null
 }
 
-export class Frames {
+export class Frames<On = never> {
   readonly #progress: Progress
   readonly #swiped = new Map<unknown, { frame: number; to: Read }>()
-  #asked: Asked[] = []
+  #asked: Asked<On>[] = []
   #ended = false
 
   constructor(progress: Progress) {
@@ -59,24 +63,24 @@ export class Frames {
     return this.#asked.findLast(asked => asked.frame <= this.#progress.menu)?.showing
   }
 
-  get words(): { showing: unknown; kind: View['kind'] } | undefined {
+  get words(): Seen<On> | undefined {
     this.forget()
     return this.#asked.findLast(asked => asked.frame <= this.#read())
   }
 
-  get whole(): { showing: unknown; kind: View['kind'] } | undefined {
+  get page(): Seen<On> | undefined {
     this.forget()
-    return this.#asked.findLast(asked => asked.frame <= this.#progress.shown)
+    return this.#asked.findLast(asked => asked.frame <= this.#progress.menu)
   }
 
   swiping(showing: unknown, to: Read): void {
     if (!this.#ended) this.#swiped.set(showing, { frame: Infinity, to })
   }
 
-  asked(frame: number, showing: unknown, drew: Read | null, kind: View['kind'] = 'text'): void {
+  asked(frame: number, showing: unknown, drew: Read | null, kind: View['kind'] = 'text', on?: On): void {
     if (this.#ended) return
     const later = this.#asked.findIndex(asked => asked.frame > frame)
-    this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, showing, kind, drew })
+    this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, showing, kind, drew, on })
     const swiped = this.#swiped.get(showing)
     if (swiped?.frame === Infinity) swiped.frame = frame
     this.forget()
@@ -98,16 +102,13 @@ export class Frames {
   forget(): void {
     const { menu: built, sending } = this.#progress
     const read = this.#read()
-    const whole = this.#asked.findLastIndex(asked => asked.frame <= this.#progress.shown)
     const menu = this.#asked.findLastIndex(asked => asked.frame <= built)
     const words = this.#asked.findLastIndex(asked => asked.frame <= read)
     const newest = this.#asked.length - 1
-    for (const at of [whole, menu]) if (at >= 0 && at < words) this.#asked[at].drew = null
-    this.#asked = this.#asked.filter(
-      (asked, at) => at === whole || at === menu || at === words || at === newest || (at > words && asked.frame === sending),
-    )
+    if (menu >= 0 && menu < words) this.#asked[menu].drew = null
+    this.#asked = this.#asked.filter((asked, at) => at === menu || at === words || at === newest || (at > words && asked.frame === sending))
     for (const [showing, swiped] of this.#swiped) {
-      const drawn = (asked: Asked) => asked.showing === showing && asked.frame >= swiped.frame && asked.frame <= read
+      const drawn = (asked: Asked<On>) => asked.showing === showing && asked.frame >= swiped.frame && asked.frame <= read
       if (this.#asked.some(drawn)) this.#swiped.delete(showing)
     }
   }

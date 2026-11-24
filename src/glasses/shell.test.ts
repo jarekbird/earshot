@@ -792,7 +792,40 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(ran).toEqual([])
   })
 
-  it('takes no tap for controls that changed on the same screen while the glasses still show the old label', async () => {
+  it('runs a control the glasses show, though a picture beside it is refused again and again', async () => {
+    const ran: string[] = []
+    const { fake, router } = world()
+    const pause = action({ id: 'pause', say: 'Pause', run: () => void ran.push('pause') })
+    fake.refuse('picture', 100)
+    router.open({
+      id: 'player',
+      view: () =>
+        boxes([{ id: 'prompt', x: 0, y: 0, w: 200, h: 40, text: 'Tap to pause' }], {
+          on: { tap: pause },
+          pictures: [{ id: 'cover', x: 376, y: 54, w: 200, h: 100, key: 'v1', data: new Uint8Array([1, 2, 3]) }],
+        }),
+    })
+    await settle()
+    expect(fake.lines()).toEqual(['Tap to pause'])
+    fake.tap()
+    await settle(100)
+    expect(ran).toEqual(['pause'])
+  })
+
+  it('runs for a tap what the frame on the glasses bound it to, also when the app changes its own bindings afterwards', async () => {
+    const ran: string[] = []
+    const { fake, router } = world()
+    const act = (id: string) => action({ id, say: id, run: () => void ran.push(id) })
+    const on = { tap: act('keep') }
+    router.open({ id: 'card', view: () => boxes([{ id: 'prompt', x: 0, y: 0, w: 200, h: 40, text: 'Tap: Keep' }], { on }) })
+    await settle()
+    on.tap = act('delete')
+    fake.tap()
+    await settle(100)
+    expect(ran).toEqual(['keep'])
+  })
+
+  it('runs for a tap what the label on the glasses says, while controls that changed on the same screen are not drawn yet', async () => {
     const ran: string[] = []
     const { fake, router, shell } = world()
     let now = 'Pause'
@@ -811,12 +844,12 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(fake.lines()).toEqual(['Tap: Pause'])
     fake.tap()
     await settle(100)
-    expect(ran).toEqual([])
+    expect(ran).toEqual(['Pause'])
     await settle(5_000)
     expect(fake.lines()).toEqual(['Tap: Resume'])
     fake.tap()
     await settle(100)
-    expect(ran).toEqual(['Resume'])
+    expect(ran).toEqual(['Pause', 'Resume'])
   })
 
   it('sends the glasses none of several frames asked for before the router was closed, nor with an overlay after', async () => {
@@ -1508,6 +1541,42 @@ describe('an action that asks first', () => {
     expect(ran).toEqual([])
   })
 
+  it('asks nothing for an action that replaced its own screen as it was asked whether it may run', async () => {
+    const ran: string[] = []
+    const { fake, front, router } = world()
+    let moved = false
+    const risky = action({
+      id: 'risky',
+      say: 'Risky',
+      risk: 'confirm',
+      blocked: () => {
+        if (!moved) {
+          moved = true
+          router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+        }
+        return null
+      },
+      run: () => void ran.push('risky'),
+    })
+    router.open({ id: 'card', actions: () => [risky], view: () => text({ body: 'Card' }) })
+    await settle()
+    fake.pick('Risky')
+    await settle()
+    expect(front()).toBe('')
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([])
+  })
+
+  it('takes the question off the glasses when the router is closed', async () => {
+    const { fake, front, router } = await asked()
+    expect(front()).toBe('Delete: Ben?\nTap to confirm')
+    router.close()
+    await settle()
+    expect(front()).toBe('')
+    expect(fake.lines()).toContain('Hello')
+  })
+
   it('asks nothing for an action that closed the router as it was asked whether it may run', async () => {
     const ran: string[] = []
     const { fake, front, router } = world()
@@ -1748,6 +1817,48 @@ describe('a hold', () => {
     router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
     expect(vi.getTimerCount()).toBeLessThan(waiting)
     life.end()
+  })
+
+  it('asks the model nothing when the screen moved on as the app was asked for the rows of an action', async () => {
+    const asked: string[] = []
+    const { voice } = hearing('open ben')
+    voice.model = {
+      choose: async question => {
+        asked.push(question.screen ?? 'asked')
+        return matchWords.choose(question)
+      },
+    }
+    const { fake, router } = world({ voice })
+    let moved = false
+    const rows = action({
+      id: 'rows',
+      say: 'Rows',
+      targets: () => {
+        if (!moved) {
+          moved = true
+          router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+        }
+        return [{ id: 'a', say: 'Row', value: 'a' }]
+      },
+      run: () => {},
+    })
+    router.open({ id: 'card', actions: () => [rows], view: () => text({ body: 'Card' }) })
+    await settle()
+    moved = false
+    await say(fake)
+    await settle()
+    expect(asked).toEqual([])
+  })
+
+  it('keeps a notice that a screen gives as it leaves, after a turn said on that screen is over', async () => {
+    const { voice } = hearing('go back')
+    const { fake, front, router, shell } = world({ voice })
+    router.open({ id: 'child', enter: life => void life.own(() => shell.notice('Saved')), view: () => text({ body: 'Child' }) })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect(router.current.id).toBe('people')
+    expect(front()).toBe('Saved')
   })
 
   it('goes back when asked to', async () => {

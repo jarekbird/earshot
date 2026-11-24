@@ -1856,6 +1856,43 @@ describe('watching the draws', () => {
     expect(fake.lines()).toEqual(['Shown'])
   })
 
+  it('goes on counting the frame the glasses show as shown after a newer one was taken back and an overlay came and went', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    const shown = glasses.draw(frame(box('title', 'Shown')))
+    await settle()
+    const newest = glasses.draw(frame(box('title', 'Newest')))
+    glasses[PROGRESS].drop(newest)
+    glasses.overlay('Status')
+    await settle()
+    glasses.overlay(null)
+    await settle()
+    expect(fake.lines()).toEqual(['Shown'])
+    expect(glasses.shown).toBe(shown)
+  })
+
+  it('sends nothing more of a frame that was taken back while its words were being written in place', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    const cover = (key: string) => ({ id: 'cover', x: 376, y: 54, w: 200, h: 100, key, data: new Uint8Array([1, 2, 3]) })
+    glasses.draw({ ...frame(box('title', 'One')), menu: [{ id: 1, name: 'A' }], pictures: [cover('v1')] })
+    await settle()
+    let held = () => {}
+    glasses.holdRebuilds(new Promise<void>(go => (held = go)))
+    let write = () => {}
+    const writing = new Promise<void>(go => (write = go))
+    const real = fake.bridge.textContainerUpgrade
+    fake.bridge.textContainerUpgrade = async upgrade => (await writing, real(upgrade))
+    const before = fake.calls.length
+    const second = glasses.draw({ ...frame(box('title', 'Two')), menu: [{ id: 2, name: 'B' }], pictures: [cover('v2')] })
+    await settle(0)
+    glasses[PROGRESS].drop(second)
+    write()
+    held()
+    await settle(1_000)
+    expect(fake.calls.slice(before).filter(call => call === 'rebuild' || call.startsWith('picture'))).toEqual([])
+  })
+
   it('tells of a frame from its start to its end, with each call to the glasses and its answer', async () => {
     const { glasses, seen, told } = watched()
     glasses.draw(frame(box('title', 'Threads')))
