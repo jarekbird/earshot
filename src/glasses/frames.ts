@@ -38,7 +38,7 @@ interface Asked {
 
 export class Frames {
   readonly #progress: Progress
-  readonly #swiped = new Map<Screen, { frame: number; to: Read; showing: unknown }>()
+  readonly #swiped = new Map<unknown, { frame: number; to: Read }>()
   #asked: Asked[] = []
   #ended = false
 
@@ -54,34 +54,34 @@ export class Frames {
     return this.#asked.filter(asked => asked.drew).length + this.#swiped.size
   }
 
-  get screen(): Screen | undefined {
+  get menu(): { screen: Screen; showing: unknown } | undefined {
     this.forget()
-    return this.#asked.findLast(asked => asked.frame <= this.#progress.menu)?.screen
+    return this.#asked.findLast(asked => asked.frame <= this.#progress.menu)
   }
 
-  swiping(screen: Screen, to: Read, showing?: unknown): void {
-    if (!this.#ended) this.#swiped.set(screen, { frame: Infinity, to, showing })
+  swiping(showing: unknown, to: Read): void {
+    if (!this.#ended) this.#swiped.set(showing, { frame: Infinity, to })
   }
 
-  asked(frame: number, screen: Screen, drew: Read | null, showing?: unknown): void {
+  asked(frame: number, screen: Screen, drew: Read | null, showing: unknown = screen): void {
     if (this.#ended) return
     const later = this.#asked.findIndex(asked => asked.frame > frame)
     this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, screen, drew, showing })
-    const swiped = this.#swiped.get(screen)
+    const swiped = this.#swiped.get(showing)
     if (swiped?.frame === Infinity) swiped.frame = frame
     this.forget()
   }
 
-  left(showing: (screen: Screen) => unknown): void {
-    for (const [screen, swiped] of [...this.#swiped]) if (showing(screen) !== swiped.showing) this.#swiped.delete(screen)
-    for (const asked of this.#asked) if (showing(asked.screen) !== asked.showing) asked.drew = null
+  left(onPath: (showing: unknown) => boolean): void {
+    for (const showing of [...this.#swiped.keys()]) if (!onPath(showing)) this.#swiped.delete(showing)
+    for (const asked of this.#asked) if (!onPath(asked.showing)) asked.drew = null
   }
 
-  read(screen: Screen): Read | null {
+  read(showing: unknown): Read | null {
     this.forget()
-    const swiped = this.#swiped.get(screen)
+    const swiped = this.#swiped.get(showing)
     if (swiped) return swiped.to
-    const mine = this.#asked.filter(asked => asked.screen === screen && asked.drew)
+    const mine = this.#asked.filter(asked => asked.showing === showing && asked.drew)
     return (mine.findLast(asked => asked.frame <= this.#read()) ?? mine.at(-1))?.drew ?? null
   }
 
@@ -93,7 +93,7 @@ export class Frames {
     const newest = this.#asked.length - 1
     if (menu >= 0 && menu < words) this.#asked[menu].drew = null
     this.#asked = this.#asked.filter((asked, at) => at === menu || at === words || at === newest || (at > words && asked.frame === sending))
-    for (const [screen, swiped] of this.#swiped) if (swiped.frame <= read) this.#swiped.delete(screen)
+    for (const [showing, swiped] of this.#swiped) if (swiped.frame <= read) this.#swiped.delete(showing)
   }
 
   end(): void {

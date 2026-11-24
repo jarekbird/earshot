@@ -25,10 +25,17 @@ interface Jump {
   moved: boolean
 }
 
-export const SHOWING = Symbol('which showing of a screen is on the path from home to the one on show, if any')
+export const SHOWINGS = Symbol('the showings of screens on the path from home to the one on show')
+
+export interface Showings {
+  readonly current: object
+  onPath(showing: unknown): boolean
+  onLeave(told: () => void): () => void
+}
 
 export class Router {
   readonly #stack: Entry[]
+  readonly #left = new Set<() => void>()
   readonly #appActions: () => readonly Action[]
   readonly #listeners = new Set<(current: Screen) => void>()
   #jump: Jump | null = null
@@ -60,8 +67,19 @@ export class Router {
     return this.#stack.length
   }
 
-  [SHOWING](screen: Screen): object | undefined {
-    return this.#stack.findLast(entry => entry.screen === screen)?.life
+  get [SHOWINGS](): Showings {
+    const stack = this.#stack
+    const left = this.#left
+    return {
+      get current() {
+        return stack[stack.length - 1].life
+      },
+      onPath: showing => stack.some(entry => entry.life === showing && !entry.life.ended),
+      onLeave: told => {
+        left.add(told)
+        return () => void left.delete(told)
+      },
+    }
   }
 
   onChange(listener: (current: Screen) => void): () => void {
@@ -166,6 +184,13 @@ export class Router {
     for (const entry of [...entries].reverse()) {
       try {
         entry.life.end()
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    for (const told of [...this.#left]) {
+      try {
+        told()
       } catch (error) {
         errors.push(error)
       }

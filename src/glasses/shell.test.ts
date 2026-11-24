@@ -646,6 +646,65 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(fake.lines()[1]).toBe('Line 40')
   })
 
+  it('keeps the swipes and the words of a screen that stays on the path while the very same screen is opened over it and left', async () => {
+    const { fake, router, shell } = world()
+    const lines = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    const log = { id: 'log', view: () => text({ title: 'Log', body: lines.join('\n'), end: true }) }
+    router.open(log)
+    await settle()
+    const release = held(fake)
+    fake.up()
+    fake.down()
+    router.open(log)
+    router.back()
+    for (let at = 31; at <= 50; at++) lines.push(`Line ${at}`)
+    shell.redraw()
+    fake.up()
+    release()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 20')
+  })
+
+  it('keeps a swipe not yet drawn on a screen lower on the path while screens above it come and go', async () => {
+    const { fake, router } = world()
+    const log = {
+      id: 'log',
+      view: () => text({ title: 'Log', body: Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join('\n'), end: true }),
+    }
+    router.open(log)
+    await settle()
+    const release = held(fake)
+    fake.up()
+    router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })
+    router.replace({ id: 'more', view: () => text({ body: 'More' }) })
+    router.back()
+    fake.up()
+    release()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 18')
+  })
+
+  it('runs no pick from the menu of an earlier showing of a screen once that screen has been shown anew', async () => {
+    const ran: string[] = []
+    const { fake, router } = world()
+    let record = 'old'
+    const go = action({ id: 'go', say: 'Go', run: () => void ran.push(record) })
+    const card = { id: 'card', actions: () => [go], view: () => text({ title: 'Card', body: record }) }
+    router.open(card)
+    await settle()
+    const release = held(fake)
+    record = 'new'
+    router.replace(card)
+    fake.pick('Go')
+    await settle(0)
+    expect(ran).toEqual([])
+    release()
+    await settle()
+    fake.pick('Go')
+    await settle(100)
+    expect(ran).toEqual(['new'])
+  })
+
   it('counts a swipe on the page the wearer saw when the screen has meanwhile turned to following its end', async () => {
     const { fake, router, shell } = world()
     const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)

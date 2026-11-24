@@ -60,7 +60,7 @@ describe('the frames a shell asked for', () => {
     frames.asked(2, log, read('written, its menu still to come'))
     progress.text = 2
     expect(body(frames, log)).toBe('written, its menu still to come')
-    expect(frames.screen).toBe(log)
+    expect(frames.menu?.screen).toBe(log)
     expect(frames.kept).toBe(2)
   })
 
@@ -116,10 +116,10 @@ describe('the frames a shell asked for', () => {
     frames.asked(3, log, read('after the swipe'))
     frames.asked(4, home, null)
     expect(frames.texts).toBe(2)
-    frames.left(of => (of === log ? 'a later showing, or none' : undefined))
+    frames.left(showing => showing !== log)
     expect(frames.texts).toBe(0)
     expect(frames.read(log)).toBeNull()
-    expect(frames.screen).toBe(log)
+    expect(frames.menu?.screen).toBe(log)
   })
 
   it('keeps of the frame whose menu shows only which screen it was, once newer words are on the glasses', () => {
@@ -130,7 +130,7 @@ describe('the frames a shell asked for', () => {
     frames.asked(2, log, read('the words written in place'))
     progress.text = 2
     frames.forget()
-    expect(frames.screen).toBe(log)
+    expect(frames.menu?.screen).toBe(log)
     expect(frames.texts).toBe(1)
     expect(body(frames, log)).toBe('the words written in place')
   })
@@ -152,8 +152,8 @@ describe('the frames a shell asked for', () => {
     const frames = new Frames(progress)
     const home = screen('home')
     frames.asked(1, home, null)
-    expect(frames.screen).toBeUndefined()
+    expect(frames.menu).toBeUndefined()
     Object.assign(progress, { shown: 1, menu: 1 })
-    expect(frames.screen).toBe(home)
+    expect(frames.menu?.screen).toBe(home)
   })
 })

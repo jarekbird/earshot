@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { action } from './action.js'
 import type { Lifetime } from './lifetime.js'
-import { Router, type Screen } from './router.js'
+import { Router, SHOWINGS, type Screen } from './router.js'
 
 const screen = (id: string, more: Partial<Screen> = {}): Screen => ({ id, ...more })
 
@@ -315,5 +315,36 @@ describe('the actions possible now', () => {
     router.back()
     expect(await router.run('stop')).toEqual({ done: false, why: 'unknown' })
     expect(run).not.toHaveBeenCalled()
+  })
+})
+
+describe('what the shell is told of the showings on the path', () => {
+  const screen = (id: string): Screen => ({ id })
+
+  it('tells one showing of a screen from another, and counts each for as long as it is on the path, top or not', () => {
+    const log = screen('log')
+    const router = new Router({ home: screen('home') })
+    router.open(log)
+    const first = router[SHOWINGS].current
+    router.open(log)
+    const second = router[SHOWINGS].current
+    expect(second).not.toBe(first)
+    expect([first, second].map(router[SHOWINGS].onPath)).toEqual([true, true])
+    router.back()
+    expect([first, second].map(router[SHOWINGS].onPath)).toEqual([true, false])
+    router.replace(log)
+    expect(router[SHOWINGS].onPath(first)).toBe(false)
+  })
+
+  it('tells of every leaving, also when the router is closed, and then counts no showing as on the path', () => {
+    const router = new Router({ home: screen('home') })
+    router.open(screen('log'))
+    const showing = router[SHOWINGS].current
+    let told = 0
+    const stop = router[SHOWINGS].onLeave(() => void told++)
+    router.close()
+    expect(told).toBe(1)
+    expect(router[SHOWINGS].onPath(showing)).toBe(false)
+    stop()
   })
 })

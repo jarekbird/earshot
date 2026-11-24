@@ -4,7 +4,7 @@ import { LifetimeEnded, type Lifetime, type Timer } from '../lifetime.js'
 import { ITEM_LIMIT } from '../context.js'
 import { matchWords, navigator, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
 import type { Rolling } from '../rolling.js'
-import { SHOWING, type Router, type Screen } from '../router.js'
+import { SHOWINGS, type Router, type Screen } from '../router.js'
 import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
@@ -155,6 +155,7 @@ export class Shell {
     })
     this.#life.own(sent.onChange(() => this.#frames.forget()))
     this.#life.own(() => this.#frames.end())
+    this.#life.own(router[SHOWINGS].onLeave(() => this.#frames.left(showing => router[SHOWINGS].onPath(showing))))
     this.#router = router
     this.#words = { ...WORDS, ...options.words }
     this.#noticeMs = options.noticeMs ?? NOTICE_MS
@@ -168,7 +169,6 @@ export class Shell {
     this.#life.own(
       router.onChange(() => {
         if (this.#asking) this.#clear()
-        this.#frames.left(screen => router[SHOWING](screen))
         this.redraw()
       }),
     )
@@ -219,11 +219,12 @@ export class Shell {
     const frame = this.#glasses.draw({ boxes, pictures, menu })
     if (!this.#drawn || frame > this.#drawn.frame)
       this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
-    this.#frames.asked(frame, screen, drew, this.#router[SHOWING](screen))
+    this.#frames.asked(frame, screen, drew, this.#router[SHOWINGS].current)
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
-    const read = this.#frames.read(drawn.screen)
+    const showing = this.#router[SHOWINGS].current
+    const read = this.#frames.read(showing)
     if (!read) return
     const { view, state } = read
     const text = layoutText(view)
@@ -234,7 +235,7 @@ export class Shell {
     const ends = drawn.view.kind === 'text' && drawn.view.end === true
     const follows = ends && view.end === true && to.atEnd
     Object.assign(place, follows ? { top: 0, away: false } : { top: to.at, away: ends })
-    this.#frames.swiping(drawn.screen, { view, state: to.state }, this.#router[SHOWING](drawn.screen))
+    this.#frames.swiping(showing, { view, state: to.state })
     this.#draw({ view, laid: text })
   }
 
@@ -566,8 +567,8 @@ export class Shell {
   }
 
   #picked(item: number): void {
-    const shown = this.#frames.screen
-    if (shown && shown !== this.#router.current) return
+    const shown = this.#frames.menu
+    if (shown && shown.showing !== this.#router[SHOWINGS].current) return
     const id = [...this.#items].find(([, number]) => number === item)?.[0]
     const folded = this.#drawn?.folded ?? []
     if (id === MORE && folded.length) {

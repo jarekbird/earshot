@@ -435,6 +435,7 @@ export class Glasses {
     box?: string,
     taken?: () => void,
   ): Promise<boolean> {
+    if (this.#life.ended) return false
     const named = box === undefined ? {} : { box }
     const started = this.#now()
     this.#watch({ at: 'call', frame, op, ...named })

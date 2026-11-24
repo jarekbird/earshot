@@ -1814,6 +1814,20 @@ describe('watching the draws', () => {
     expect(fake.calls.filter(call => call.includes('picture'))).toEqual([])
   })
 
+  it('sends no picture when its lifetime ends between the page being taken and the picture going out', async () => {
+    const fake = fakeBridge()
+    const life = new Lifetime()
+    const glasses = new Glasses(life, fake.bridge, {
+      watch: event => {
+        if (event.at === 'answer' && event.op === 'create') queueMicrotask(() => queueMicrotask(() => life.end()))
+      },
+    })
+    const icon = { id: 'icon', x: 376, y: 54, w: 200, h: 100, key: 'v1', data: new Uint8Array([1, 2, 3]) }
+    glasses.draw({ ...frame(box('title', 'One')), pictures: [icon] })
+    await settle()
+    expect(fake.calls.filter(call => call.includes('picture'))).toEqual([])
+  })
+
   it('tells of a frame from its start to its end, with each call to the glasses and its answer', async () => {
     const { glasses, seen, told } = watched()
     glasses.draw(frame(box('title', 'Threads')))
