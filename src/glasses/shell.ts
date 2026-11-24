@@ -381,6 +381,7 @@ export class Shell {
     const { view } = drawn
     const seen = view.kind === 'text' ? this.#frames.words : this.#frames.whole
     if (seen && (seen.kind !== view.kind || seen.showing !== showing)) return
+    if (view.kind === 'boxes' && drawn.frame > this.#glasses.shown) return
     if (view.kind === 'boxes') {
       const bound = view.on?.[input.kind]
       if (!bound) return
@@ -502,7 +503,7 @@ export class Shell {
       if (moved()) this.#clear()
       else then()
     }
-    const slow = this.#life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), voice.timeoutMs ?? VOICE_TIMEOUT_MS)
+    const slow = life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), voice.timeoutMs ?? VOICE_TIMEOUT_MS)
     this.#deciding = life
     this.#decidingOn = showing ?? null
     if (passed === undefined) this.#show(this.#words.thinking)
@@ -624,6 +625,7 @@ export class Shell {
     const target = targets?.find(candidate => candidate.id === targetId)
     const risk = target?.risk ?? chosen.risk
     if (risk === 'safe' || (risk === 'voice' && !said)) return this.#run(chosen, targetId, said)
+    if (!this.#router[SHOWINGS].onPath(this.#router[SHOWINGS].current)) return
     const instead = pass && this.#voice?.instead
     const asked = [
       `${chosen.say}${target ? `: ${target.say}` : ''}?`,

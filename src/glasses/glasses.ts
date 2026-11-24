@@ -104,12 +104,13 @@ interface Hung {
 
 interface Page {
   frame: number
+  from: Frame
   boxes: Placed[]
   pictures: Hung[]
   menu: MenuItem[]
 }
 
-const layoutOf = ({ boxes, pictures }: Page) =>
+const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
     boxes.map(({ box }) => [box.id, box.x, box.y, box.w, box.h]),
     pictures.map(({ picture }) => [picture.id, picture.x, picture.y, picture.w, picture.h]),
@@ -193,7 +194,7 @@ export class Glasses {
   readonly #mic: Mic
   #frame: Frame = { boxes: [] }
   #whole: Frame = { boxes: [] }
-  #askedFor: Array<{ number: number; frame: Frame }> = []
+  #going: Frame | null = null
   #overlay: string | null = null
   #wanted: Page | null = null
   #shape = ''
@@ -219,7 +220,13 @@ export class Glasses {
     this.#trace = options.trace === true ? line => console.info(line) : options.trace || undefined
     this.#watch = options.watch ?? (() => {})
     this.#life.own(bridge.onEvenHubEvent(event => this.#hear(event)))
-    this.#life.own(() => void (this.#progress.sending = 0))
+    this.#life.own(() => {
+      this.#progress.sending = 0
+      this.#going = null
+      this.#whole = { boxes: [] }
+      this.#frame = { boxes: [] }
+      this.#wanted = null
+    })
     const open = () => {
       const opening = bridge.audioControl(true, AudioInputSource.Glasses)
       this.holdRebuilds(opening)
@@ -250,9 +257,8 @@ export class Glasses {
         return () => void this.#following.delete(told)
       },
       drop: frame => {
-        if (progress.sending === frame || !this.#askedFor.some(asked => asked.number === frame)) return
-        this.#askedFor = this.#askedFor.filter(asked => asked.number !== frame)
-        this.#frame = this.#askedFor.at(-1)?.frame ?? this.#whole
+        if (progress.sending === frame || frame !== this.#frames) return
+        this.#frame = this.#going ?? this.#whole
         if (this.#wanted?.frame === frame) this.#wanted = null
       },
     }
@@ -301,7 +307,6 @@ export class Glasses {
       console.error(`Earshot: the glasses take ${MAX_IMAGE_BOXES} pictures. The last ${pictures} of this frame are left out.`)
     this.#frame = frame
     const number = ++this.#frames
-    this.#askedFor.push({ number, frame })
     this.#watch({ at: 'ask', frame: number, page: frame })
     if (number === this.#frames) this.#place()
     return number
@@ -339,7 +344,7 @@ export class Glasses {
       .filter(fits)
       .slice(0, MAX_IMAGE_BOXES)
       .map((picture, index) => ({ id: FIRST_PICTURE + index, name: picture.id.slice(0, MAX_NAME_CHARS), picture }))
-    this.#wanted = { frame: this.#frames, boxes, pictures, menu }
+    this.#wanted = { frame: this.#frames, from: this.#frame, boxes, pictures, menu }
     void this.#run()
   }
 
@@ -401,16 +406,15 @@ export class Glasses {
           if (this.#holds > 0 && this.#wanted === page) return
           continue
         }
+        this.#going = page.from
         this.#progressed({ sending: frame })
         this.#watch({ at: 'begin', frame, rebuild })
         const written = rebuild ? await this.#build(page, shape) : await this.#update(page, true)
         if (written && !rebuild && !this.#life.ended && this.#progress.menu !== frame) this.#progressed({ menu: frame })
         const drawn = written && (await this.#hang(page))
         if (this.#life.ended) return void (this.#progress.sending = 0)
-        if (drawn) {
-          this.#whole = this.#askedFor.find(asked => asked.number === frame)?.frame ?? this.#whole
-          this.#askedFor = this.#askedFor.filter(asked => asked.number > frame)
-        }
+        this.#going = null
+        if (drawn) this.#whole = page.from
         this.#progressed(drawn ? { shown: frame, menu: frame, sending: 0 } : { sending: 0 })
         if (!drawn) {
           const inMs = retryDelay(++this.#failures)
@@ -481,7 +485,7 @@ export class Glasses {
     const built = () => {
       this.#created = true
       this.#shape = shape
-      this.#layout = layoutOf({ frame, boxes, pictures, menu })
+      this.#layout = layoutOf({ boxes, pictures })
       this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
       this.#from.clear()
       for (const box of boxes) this.#from.set(box.name, frame)

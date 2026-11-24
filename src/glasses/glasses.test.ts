@@ -1842,6 +1842,20 @@ describe('watching the draws', () => {
     expect(fake.calls.filter(call => call.includes('picture'))).toEqual([])
   })
 
+  it('lets a frame that was taken back leave what the glasses show, however many frames were asked for before it', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    glasses.draw(frame(box('title', 'Shown')))
+    await settle()
+    glasses.draw(frame(box('title', 'Stale')))
+    const newest = glasses.draw(frame(box('title', 'Newest')))
+    glasses[PROGRESS].drop(newest)
+    glasses.overlay('Status')
+    glasses.overlay(null)
+    await settle()
+    expect(fake.lines()).toEqual(['Shown'])
+  })
+
   it('tells of a frame from its start to its end, with each call to the glasses and its answer', async () => {
     const { glasses, seen, told } = watched()
     glasses.draw(frame(box('title', 'Threads')))
