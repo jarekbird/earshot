@@ -45,7 +45,7 @@ let taps = 0
 const flags = new URLSearchParams(location.hash.slice(1))
 const scripted = flags.get('say')?.split('|')
 const secret = document.getElementById('secret') as HTMLInputElement
-const STALE_MS = 10_000
+const STALE_MS = 3_000
 const speech = () => {
   if (flags.has('live')) return scriptedLive(flags.get('live')!.split('|'))
   return EARSHOT_RELAY && secret.value ? fluxLive({ host: EARSHOT_RELAY, secret: secret.value, staleMs: STALE_MS }) : undefined

@@ -26,6 +26,7 @@ export interface RelaySettings {
 
 export interface Line {
   binaryType: string
+  readonly bufferedAmount?: number
   send(data: string | ArrayBuffer): void
   close(code?: number, reason?: string): void
   addEventListener(type: 'message', heard: (event: { data: unknown }) => void): void
@@ -58,10 +59,11 @@ export function relayOptions({ key, upstream, models, liveUpstream, liveKey, liv
 export const DEFAULT_MODELS = ['openai/whisper-large-v3-turbo', 'typesafe/jev-1.14', 'mistralai/mistral-nemo']
 export const DEFAULT_LIVE_MODELS = ['@cf/deepgram/flux']
 export const LIVE_PATH = '/api/v1/live'
-export const CLOSES = { hello: 4400, secret: 4401, model: 4403, upstream: 4502, big: 1009 }
+export const CLOSES = { hello: 4400, secret: 4401, model: 4403, upstream: 4502, big: 1009, stalled: 1013 }
 export const HELLO_MS = 3_000
 export const DIAL_MS = 5_000
 export const MAX_FRAME = 65_536
+export const MAX_QUEUED = 1_048_576
 
 const SPEECH = '/api/v1/audio/transcriptions'
 const FIELDS = new Map([
@@ -155,6 +157,8 @@ function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models
     line.close(code)
   }
   let waiting = setTimeout(() => end(CLOSES.hello), HELLO_MS)
+  // Fact: a Worker's WebSocket does not say how much it has queued, so there the runtime's own memory limit is the bound.
+  const pass = (to: Line, data: string | ArrayBuffer) => ((to.bufferedAmount ?? 0) > MAX_QUEUED ? end(CLOSES.stalled) : to.send(data))
 
   const reach = async (url: string) => {
     waiting = setTimeout(() => end(CLOSES.upstream), DIAL_MS)
@@ -163,7 +167,11 @@ function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models
         if (over) return opened.close(1000)
         clearTimeout(waiting)
         up = opened
-        up.addEventListener('message', ({ data }) => void (!over && typeof data === 'string' && line.send(data)))
+        up.addEventListener('message', ({ data }) => {
+          if (over || typeof data !== 'string') return
+          if (BYTES.encode(data).length > MAX_FRAME) return end(CLOSES.upstream)
+          pass(line, data)
+        })
         up.addEventListener('close', () => end(CLOSES.upstream))
       })
     } catch {
@@ -177,7 +185,7 @@ function live(line: Line, dial: Sockets['dial'], { upstream, key, secret, models
     if (over) return
     const size = typeof data === 'string' ? BYTES.encode(data).length : data instanceof ArrayBuffer ? data.byteLength : 0
     if (size > MAX_FRAME) return end(CLOSES.big)
-    if (greeted) return void (data instanceof ArrayBuffer && up?.send(data))
+    if (greeted) return void (data instanceof ArrayBuffer && up && pass(up, data))
     greeted = true
     clearTimeout(waiting)
     const hello = typeof data === 'string' && data.length <= MAX_HELLO ? parse(data) : null

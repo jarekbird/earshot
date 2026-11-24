@@ -82,6 +82,16 @@ describe('scripted live speech, the offline stand-in', () => {
     expect(turns).toEqual(['one'])
   })
 
+  it('has moved on to the next line before it tells of a final turn, so a listener that feeds it sound from there hears the next line', () => {
+    const turns: string[] = []
+    const hear = scriptedLive(['one', 'two']).start(new Lifetime(), turn => {
+      turns.push(`${turn.id} ${turn.words}${turn.final ? '.' : ''}`)
+      if (turn.words === 'one') hear(sound(300))
+    })
+    hear(sound(300))
+    expect(turns).toEqual(['0 one.', '1 two.'])
+  })
+
   it('plays the script from its start for each listener, however their sound is mixed', () => {
     const speech = scriptedLive(['one two', 'three four'])
     const heard = { a: [] as string[], b: [] as string[] }

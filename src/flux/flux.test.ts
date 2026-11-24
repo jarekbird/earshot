@@ -231,7 +231,7 @@ describe('live speech from Flux, through the relay', () => {
     expect(states).toEqual([])
   })
 
-  it('opens no new line at a break when the listener ended the lifetime as it was told of the cut turn', () => {
+  it('leaves no line open, and sends no greeting, when the listener ends the lifetime as it is told of a turn cut at a break', () => {
     const life = new Lifetime()
     const lines: Line[] = []
     const open = (url: string) => lines[lines.push(new Line(url)) - 1]
@@ -240,8 +240,75 @@ describe('live speech from Flux, through the relay', () => {
     lines[0].connects()
     lines[0].says(info(0, 'before the'))
     hear(sound(100, 'unknown', 2, true))
+    for (const line of lines.slice(1)) line.opens()
+    expect(lines.map(line => line.closedWith)).toEqual(lines.map(() => 1000))
+    expect(lines.slice(1).flatMap(line => line.sent)).toEqual([])
+  })
+
+  it('opens one line, not two, when the listener feeds it sound as it is told of the turn a drop cut', () => {
+    const life = new Lifetime()
+    const lines: Line[] = []
+    const open = (url: string) => lines[lines.push(new Line(url)) - 1]
+    const hear = fluxLive({ host: 'https://relay.example', open }).start(life, turn => void (turn.cut && hear(sound(100))))
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(0, 'half a'))
+    lines[0].drops()
     expect(lines).toHaveLength(1)
-    expect(lines[0].closedWith).toBe(1000)
+    vi.advanceTimersByTime(retryDelay(1))
+    expect(lines).toHaveLength(2)
+    life.end()
+    lines[1].opens()
+    expect(lines.map(line => line.closedWith !== undefined)).toEqual([true, true])
+    expect(lines[1].sent).toEqual([])
+  })
+
+  it('tells the listener of a turn only after it has settled what the turn changed, so the listener sees the new state', () => {
+    const seen: number[] = []
+    const life = new Lifetime()
+    const lines: Line[] = []
+    const open = (url: string) => lines[lines.push(new Line(url)) - 1]
+    const hear = fluxLive({ host: 'https://relay.example', open }).start(life, () => void seen.push(lines.length))
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(0, 'before the'))
+    hear(sound(100, 'unknown', 2, true))
+    expect(seen).toEqual([1, 2])
+  })
+
+  it('sends at once, and whole, a piece of sound of any length while the line is up', () => {
+    const { lines, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    hear(sound(12_000, 'unknown', 6))
+    expect(lines[0].sound).toBe(3_200 + 384_000)
+  })
+
+  it('at a break lets go of sound it still held from before it, so that no line carries both sides', () => {
+    const { lines, hear } = listening()
+    hear(sound(100, 'unknown', 1))
+    hear(sound(100, 'unknown', 2, true))
+    lines[0].connects()
+    expect(lines[0].marks).toEqual([2])
+    expect(lines).toHaveLength(1)
+  })
+
+  it('opens no line again for sound that has gone stale while the line was away', () => {
+    let at = 0
+    const { lines, hear } = listening({ staleMs: 100, now: () => at })
+    hear(sound(100))
+    lines[0].drops()
+    at = 500
+    vi.advanceTimersByTime(60_000)
+    expect(lines).toHaveLength(1)
+  })
+
+  it('keeps no more of a long piece than it holds: the rest is not left behind in memory', () => {
+    const { lines, hear } = listening()
+    hear(sound(12_000, 'unknown', 4))
+    lines[0].connects()
+    const first = lines[0].sent[1] as Uint8Array
+    expect(first.buffer.byteLength).toBe(HELD_BYTES)
   })
 
   it('opens one line, not two, when the app feeds it sound as it is told the line is down', () => {
