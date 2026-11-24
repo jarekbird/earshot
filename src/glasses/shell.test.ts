@@ -6,7 +6,7 @@ import { Rolling } from '../rolling.js'
 import { Router, type Screen } from '../router.js'
 import { boxes, list, text } from '../view.js'
 import { fakeBridge } from './fake.js'
-import { Glasses, MIC_SILENT_MS, OVERLAY_DIM } from './glasses.js'
+import { Glasses, MIC_SILENT_MS, OVERLAY_DIM, type Drawing } from './glasses.js'
 import { SayError } from '../say.js'
 import { Shell, type VoiceOptions } from './shell.js'
 
@@ -24,11 +24,13 @@ const tone = (ms: number, loudness = 8_000) => {
   return new Uint8Array(samples.buffer)
 }
 
-function world(more: { home?: (parts: Parts) => Screen; appActions?: () => Action[]; voice?: VoiceOptions } = {}) {
+function world(
+  more: { home?: (parts: Parts) => Screen; appActions?: () => Action[]; voice?: VoiceOptions; watch?: (event: Drawing) => void } = {},
+) {
   const ran: string[] = []
   const life = new Lifetime()
   const fake = fakeBridge()
-  const glasses = new Glasses(life, fake.bridge)
+  const glasses = new Glasses(life, fake.bridge, { watch: more.watch })
   const people = [...names]
   const open: Action = action({
     id: 'open',
@@ -420,6 +422,75 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     second()
     await settle()
     expect(fake.lines()[1]).toBe('Line 30')
+  })
+
+  it.each(['begin', 'end'] as const)(
+    'counts a swipe from the frame the glasses show, also when the app drew again as it was told of the %s of that frame',
+    async moment => {
+      const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+      let again = false
+      let hold = false
+      const watch = (event: Drawing) => {
+        if (again && event.at === moment) {
+          again = false
+          hold = true
+          for (let at = 41; at <= 50; at++) log.push(`Line ${at}`)
+          shell.redraw()
+        }
+        if (hold && event.at === 'end') {
+          hold = false
+          release = held(fake)
+        }
+      }
+      const { fake, router, shell } = world({ watch })
+      let release = () => {}
+      router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+      await settle()
+      for (let at = 31; at <= 40; at++) log.push(`Line ${at}`)
+      again = true
+      shell.redraw()
+      await settle(0)
+      expect(fake.lines().at(-1)).toBe('Line 40')
+      fake.up()
+      release()
+      await settle()
+      expect(fake.lines()[1]).toBe('Line 30')
+    },
+  )
+
+  it('counts a swipe from text the glasses wrote in place while a rebuild of the page was held back', async () => {
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    const { fake, glasses, router, shell } = world()
+    const offered = [action({ id: 'mark', say: 'Mark', run: () => {} })]
+    router.open({ id: 'log', actions: () => offered, view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    let done = () => {}
+    glasses.holdRebuilds(new Promise<void>(go => (done = go)))
+    for (let at = 31; at <= 40; at++) log.push(`Line ${at}`)
+    offered[0] = action({ id: 'clear', say: 'Clear', run: () => {} })
+    shell.redraw()
+    await settle()
+    expect(fake.lines().at(-1)).toBe('Line 40')
+    fake.up()
+    done()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 30')
+  })
+
+  it('counts a swipe on the page the wearer saw when the screen has meanwhile turned to following its end', async () => {
+    const { fake, router, shell } = world()
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    let end = false
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end }) })
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 1')
+    const release = held(fake)
+    end = true
+    shell.redraw()
+    fake.down()
+    release()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 3')
   })
 
   it('counts the first from the page the wearer saw and the second on from there, while more text is on its way too', async () => {

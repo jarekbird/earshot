@@ -8,10 +8,10 @@ import type { Router, Screen } from '../router.js'
 import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
-import { Frames, type Read } from './frames.js'
+import { Frames, PROGRESS, type Read } from './frames.js'
 import type { Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
-import { layoutList, layoutText, type TextState } from './layout.js'
+import { layoutList, wrapped, type LaidText, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
 import { HOLD, type Held } from './mic.js'
 
@@ -111,6 +111,8 @@ interface Drawn {
   scrolls: boolean
 }
 
+const sameText = (one: Read['view'], other: Read['view']) => one.title === other.title && one.body === other.body && one.end === other.end
+
 export class Shell {
   readonly #life: Lifetime
   readonly #glasses: Glasses
@@ -136,7 +138,7 @@ export class Shell {
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
     this.#glasses = glasses
-    this.#frames = new Frames(glasses)
+    this.#frames = new Frames(glasses[PROGRESS])
     this.#router = router
     this.#words = { ...WORDS, ...options.words }
     this.#noticeMs = options.noticeMs ?? NOTICE_MS
@@ -164,7 +166,7 @@ export class Shell {
     this.#draw()
   }
 
-  #draw(swipedTo: Read | null = null): void {
+  #draw(swipedTo: Read | null = null, read?: { view: Read['view']; laid: (state: TextState) => LaidText }): void {
     if (this.#life.ended) return
     const screen = this.#router.current
     const actions = this.#router.actions()
@@ -182,7 +184,7 @@ export class Shell {
       Object.assign(place, laid.state)
       boxes = laid.boxes
     } else if (view.kind === 'text') {
-      const laid = layoutText(view, place)
+      const laid = (read && sameText(read.view, view) ? read.laid : wrapped(view))(place)
       Object.assign(place, laid.state)
       scrolls = laid.scrolls
       drew = { view: { ...view }, state: { ...laid.state } }
@@ -206,12 +208,14 @@ export class Shell {
     const read = this.#frames.read(drawn.screen)
     if (!read) return
     const { view, state } = read
-    const from = layoutText(view, { ...state })
+    const text = wrapped(view)
+    const from = text({ ...state })
     const stride = from.stride(by === 'swipe' ? SCROLL_LINES : SCREENFUL)
     const top = from.at + (up ? -stride.up : stride.down)
-    const to = layoutText(view, view.end && !up && from.atEnd ? { top: 0, away: false } : { top, away: true }).state
-    Object.assign(place, to)
-    this.#draw({ view, state: to })
+    const to = text(view.end && !up && from.atEnd ? { top: 0, away: false } : { top, away: true })
+    const follows = view.end === true && to.atEnd && drawn.view.kind === 'text' && drawn.view.end === true
+    Object.assign(place, follows ? { top: 0, away: false } : { top: to.at, away: true })
+    this.#draw({ view, state: to.state }, { view, laid: text })
   }
 
   #bound(view: View): Action[] {

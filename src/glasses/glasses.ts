@@ -16,6 +16,7 @@ import {
 import type { Sound, Speaker } from '../audio.js'
 import type { Lifetime, Timer } from '../lifetime.js'
 import { clipBytes, linesOf, type Box, type Brightness, type Frame, type MenuItem, type Picture } from './frame.js'
+import { PROGRESS, type Progress } from './frames.js'
 import { decode, type GlassesEvent, type Input } from './input.js'
 import { serve } from '../serve.js'
 import { HOLD, Mic, MIC_SILENT_MS, retryDelay, type Held, type ListenOptions } from './mic.js'
@@ -205,8 +206,7 @@ export class Glasses {
   #retry: Timer | undefined
   #retryAt = 0
   #traced = ''
-  #shown = 0
-  #sending = 0
+  readonly #progress = { shown: 0, text: 0, sending: 0 }
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
@@ -224,11 +224,11 @@ export class Glasses {
   }
 
   get shown(): number {
-    return this.#shown
+    return this.#progress.shown
   }
 
-  get sending(): number {
-    return this.#sending
+  get [PROGRESS](): Progress {
+    return this.#progress
   }
 
   get micOpen(): boolean {
@@ -362,18 +362,21 @@ export class Glasses {
         if (rebuild && this.#holds > 0) {
           this.#watch({ at: 'wait', frame })
           if (this.#created && layoutOf(page) === this.#layout) {
+            this.#progress.sending = frame
             this.#watch({ at: 'begin', frame, rebuild: false })
-            await this.#update(page)
+            if (await this.#update(page)) this.#progress.text = frame
+            this.#progress.sending = 0
             if (this.#life.ended) return
             this.#watch({ at: 'end', frame, drawn: false })
           }
           if (this.#holds > 0 && this.#wanted === page) return
           continue
         }
+        this.#progress.sending = frame
         this.#watch({ at: 'begin', frame, rebuild })
-        this.#sending = frame
         const drawn = (rebuild ? await this.#build(page, shape) : await this.#update(page)) && (await this.#hang(page))
-        this.#sending = 0
+        if (drawn) Object.assign(this.#progress, { shown: frame, text: frame })
+        this.#progress.sending = 0
         if (this.#life.ended) return
         if (!drawn) {
           const inMs = retryDelay(++this.#failures)
@@ -382,7 +385,6 @@ export class Glasses {
           return this.#later(inMs)
         }
         this.#watch({ at: 'end', frame, drawn })
-        this.#shown = frame
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
         this.#report(page)

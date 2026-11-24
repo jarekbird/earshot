@@ -102,13 +102,17 @@ containers change, and maps the touchpad to actions: swipe moves, tap runs, doub
 - A blocked action says why in the overlay for three seconds. A `confirm` action asks there first, and only a tap
   confirms. An action that needs a target and has none opens a list of its targets.
 - A swipe on a text counts from what the wearer has read, since the glasses draw later than the app asks. `Frames`
-  keeps a copy of the text and the place of each frame that can still matter: the one the glasses show, the one
-  being sent (`glasses.sending`), and the newest. Every other frame can never be shown, so it is let go at once,
-  and a stalled display holds three texts at most. For each screen it also keeps where the newest swipe not yet
-  drawn reached on the text the wearer was reading. A swipe goes on from that place; with none, it counts from the
-  frame the glasses show. So swipes land where they would had each been drawn before the next, and text that came
-  in the meantime is laid out after them. A test holds that over random orders of swipes, new text, other screens
-  and draws.
+  keeps a copy of the text and the place of each frame that can still matter: the one whose menu the glasses show,
+  the one whose text they show (text is written in place while a rebuild is held back), the one being sent, and the
+  newest. Every other frame can never be shown, so it is let go at once. For each screen it also keeps where the
+  newest swipe not yet drawn reached on the text the wearer was reading, until a frame as new is on the glasses.
+  So a stalled display holds four texts and one per screen that was swiped. A swipe goes on from where the last
+  one reached; with none, it counts from the text the glasses show. So swipes land where they would had each been
+  drawn before the next, and text that came in the meantime is laid out after them. A test holds that over random
+  orders of swipes, new text, other screens and draws.
+- `Glasses` tells `Frames` how far it is through a key the package does not export (`PROGRESS`), as it does the
+  microphone of a hold: no app has a use for it. It sets what is being sent and what is shown before it tells
+  whoever watches, so a redraw from there finds the frames as they are.
 - Holds are handed on untouched; slice 3 takes them.
 
 `earshot/testing` is a stand-in bridge for tests, and a traced frame is what `earshot/sim` reads back as the glasses'

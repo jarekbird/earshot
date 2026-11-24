@@ -5,6 +5,7 @@ import type { Box, Frame, Picture } from './frame.js'
 import type { Sound } from '../audio.js'
 import { HOLD } from './mic.js'
 import { FRAME_TAG, Glasses, INPUT_TAG, MIC_SILENT_MS, OVERLAY_DIM, REBUILD_GAP_MS, type Drawing, type ListenOptions } from './glasses.js'
+import { PROGRESS } from './frames.js'
 import type { Input } from './input.js'
 import { textWidth } from './text.js'
 
@@ -1635,12 +1636,12 @@ describe('watching the draws', () => {
     expect(glasses.shown).toBe(1)
   })
 
-  it('knows the frame that is on its way to the glasses, which a newer one waits behind and cannot replace', async () => {
+  it('says how far it is with the frames asked of it: the one shown, and the one on its way that a newer one waits behind', async () => {
     const fake = fakeBridge()
     const glasses = new Glasses(new Lifetime(), fake.bridge)
     glasses.draw(frame(box('title', 'One')))
     await settle()
-    expect(glasses.sending).toBe(0)
+    expect({ ...glasses[PROGRESS] }).toEqual({ shown: 1, text: 1, sending: 0 })
     let release = () => {}
     const waiting = new Promise<void>(go => (release = go))
     const real = fake.bridge.textContainerUpgrade
@@ -1652,10 +1653,25 @@ describe('watching the draws', () => {
     await settle(0)
     glasses.draw(frame(box('title', 'Three')))
     glasses.draw(frame(box('title', 'Four')))
-    expect([glasses.shown, glasses.sending]).toEqual([1, 2])
+    expect({ ...glasses[PROGRESS] }).toEqual({ shown: 1, text: 1, sending: 2 })
     release()
     await settle()
-    expect([glasses.shown, glasses.sending]).toEqual([4, 0])
+    expect({ ...glasses[PROGRESS] }).toEqual({ shown: 4, text: 4, sending: 0 })
+  })
+
+  it('has said which frame is on its way, and which is shown, before it tells whoever watches of the begin and the end', async () => {
+    const seen: Array<[string, number, number]> = []
+    const glasses: Glasses = new Glasses(new Lifetime(), fakeBridge().bridge, {
+      watch: event => {
+        if (event.at === 'begin' || event.at === 'end') seen.push([event.at, glasses[PROGRESS].sending, glasses[PROGRESS].shown])
+      },
+    })
+    glasses.draw(frame(box('title', 'One')))
+    await settle()
+    expect(seen).toEqual([
+      ['begin', 1, 0],
+      ['end', 0, 1],
+    ])
   })
 
   it('tells of a frame from its start to its end, with each call to the glasses and its answer', async () => {
