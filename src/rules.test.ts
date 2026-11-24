@@ -78,6 +78,53 @@ it('E4: only the simulator driver and this file use what the guard does not reac
   expect(code).toEqual(['sim/real.sim.test.ts', 'sim/simulator.ts', 'src/rules.test.ts'])
 })
 
+const NOT_IN_THE_EXAMPLE = [
+  'toWav',
+  'cleanText',
+  'fitText',
+  'hasGlyph',
+  'oneLine',
+  'textWidth',
+  'wrapText',
+  'FRAME_TAG',
+  'SCREEN_HEIGHT',
+  'LifetimeEnded',
+  'matchWords',
+  'navigator',
+  'RelayError',
+  'SayError',
+  'createStore',
+  'evenPlace',
+  'memoryPlace',
+  'StoreError',
+  'webPlace',
+]
+
+it('E8: the example app uses every value the framework exports, but for a list that only gets shorter', () => {
+  const parsed = (file: string) => ts.createSourceFile(file, readFileSync(join(root, file), 'utf8'), ts.ScriptTarget.ES2023).statements
+  const index = parsed('src/index.ts')
+  const unnamed = index.filter(one => !ts.isExportDeclaration(one) || !one.exportClause || !ts.isNamedExports(one.exportClause))
+  expect(unnamed.length, 'src/index.ts exports by name only, so that this check can read every export').toBe(0)
+  const exported = index.flatMap(one =>
+    ts.isExportDeclaration(one) && !one.isTypeOnly && one.exportClause && ts.isNamedExports(one.exportClause)
+      ? one.exportClause.elements.filter(name => !name.isTypeOnly).map(name => name.name.text)
+      : [],
+  )
+  const used = parsed('example/main.ts').flatMap(one => {
+    if (!ts.isImportDeclaration(one) || !ts.isStringLiteral(one.moduleSpecifier) || one.moduleSpecifier.text !== '../src/index.js')
+      return []
+    const names = one.importClause?.isTypeOnly ? undefined : one.importClause?.namedBindings
+    return names && ts.isNamedImports(names)
+      ? names.elements.filter(name => !name.isTypeOnly).map(name => (name.propertyName ?? name.name).text)
+      : []
+  })
+  expect(used.length).toBeGreaterThan(0)
+  expect(
+    exported.filter(name => !used.includes(name)),
+    'E8: a new export comes with the example app using it. One the example now uses leaves this list. Nothing joins it.',
+  ).toEqual(NOT_IN_THE_EXAMPLE)
+})
+
 it('E9: a view hands a screen no raw input, only actions', () => {
   const view = sources.find(s => s.file === 'view.ts')!.text
   expect(view).not.toMatch(/input/i)
