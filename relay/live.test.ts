@@ -10,7 +10,7 @@ import { fluxLive, FLUX, LIVE_PATH as APP_PATH, REFUSALS } from '../src/flux/flu
 import { Lifetime } from '../src/lifetime.js'
 import type { LiveState, Turn } from '../src/live.js'
 import { serve, settings } from './node.js'
-import { CLOSES, HELLO_MS, LIVE_PATH, MAX_FRAME, MAX_QUEUED, MAX_SECRET, MIN_SECRET } from './limits.js'
+import { CLOSES, GOODBYE_MS, HELLO_MS, LIVE_PATH, MAX_FRAME, MAX_QUEUED, MAX_SECRET, MIN_SECRET } from './limits.js'
 import { relay, relayOptions } from './relay.js'
 
 const ROOT = join(import.meta.dirname, '..')
@@ -646,6 +646,33 @@ describe('the settings of live speech', () => {
   it('counts a secret as long as a greeting must write it, so one of signs that take six letters each is refused too', () => {
     expect(() => relay({ ...calls, live: { ...live, secret: '\u0001'.repeat(MAX_SECRET / 6 + 1) } })).toThrow('needs a secret')
   })
+
+  it('reaches the live upstream at the address that was checked, not at the text that was typed', async () => {
+    const up = await gateway()
+    const server = await serve({ live: { upstream: `${up.at} `, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
+    onTestFinished(() => void server.close())
+    const { got, say } = call(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
+    await say(greeting())
+    await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
+    expect(up.seen.urls[0]).toMatch(/^\/v1\/account\/gateway\/workers-ai\?model=/)
+  })
+
+  it('the Node server lets go of a caller who neither greets nor answers its goodbye, a second after the goodbye', async () => {
+    const up = await gateway()
+    const server = await serve({ live: { upstream: up.at, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
+    onTestFinished(() => void server.close())
+    const { port } = server.address() as AddressInfo
+    const silent = connect(port, '127.0.0.1', () =>
+      silent.write(
+        `GET ${LIVE_PATH} HTTP/1.1\r\nhost: relay\r\nconnection: upgrade\r\nupgrade: websocket\r\nsec-websocket-version: 13\r\nsec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`,
+      ),
+    )
+    onTestFinished(() => void silent.destroy())
+    silent.on('error', () => {})
+    const connections = () => new Promise<number>(count => server.getConnections((_error, open) => count(open)))
+    await vi.waitFor(async () => expect(await connections()).toBe(1), WAIT)
+    await vi.waitFor(async () => expect(await connections()).toBe(0), { timeout: HELLO_MS + GOODBYE_MS + 1_500, interval: 50 })
+  }, 15_000)
 
   it('no relay is made with a live upstream and no key for it', () => {
     expect(() => relay({ ...calls, live: { ...live, key: '' } })).toThrow('needs the key')

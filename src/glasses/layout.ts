@@ -56,13 +56,18 @@ export function layoutList(
   }
 }
 
-export function layoutText(view: { title?: string; body: string }, state: TextState): { boxes: Box[]; state: TextState; scrolls: boolean } {
+export function layoutText(
+  view: { title?: string; body: string; end?: boolean },
+  state: TextState,
+): { boxes: Box[]; state: TextState; scrolls: boolean } {
   const { rows, y, h, titleBox } = areas(view.title)
   const lines = wrapText(cleanText(view.body), SCREEN_WIDTH)
-  const top = clamp(state.top, 0, Math.max(0, lines.length - rows))
+  const last = Math.max(0, lines.length - rows)
+  const from = view.end ? last : 0
+  const top = clamp(from + state.top, 0, last)
   const more = `${top > 0 ? '▲' : ''}${top + rows < lines.length ? '▼' : ''}`
   return {
-    state: { top },
+    state: { top: top - from },
     scrolls: lines.length > rows,
     boxes: [
       ...titleBox(more ? `  ${more}` : ''),

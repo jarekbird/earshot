@@ -88,6 +88,26 @@ describe('layoutText', () => {
     expect(by(layoutText({ body }, { top: 0 }).boxes, 'body').text.split('\n').length).toBe(10)
   })
 
+  it('asked to stay at its end, shows the last lines, and goes on showing the last as more come', () => {
+    const shown = (text: string) => by(layoutText({ title: 'Ana', body: text, end: true }, { top: 0 }).boxes, 'body').text.split('\n')
+    expect(shown(body).at(-1)).toBe('Line 29')
+    expect(shown(body)).toHaveLength(9)
+    expect(shown(`${body}\nLine 30`).at(-1)).toBe('Line 30')
+    expect(layoutText({ title: 'Ana', body, end: true }, { top: 0 }).state).toEqual({ top: 0 })
+  })
+
+  it('asked to stay at its end, keeps the place a swipe up took it to, counted from the end', () => {
+    const up = layoutText({ title: 'Ana', body, end: true }, { top: -2 })
+    expect(by(up.boxes, 'body').text.split('\n').at(-1)).toBe('Line 27')
+    expect(up.state).toEqual({ top: -2 })
+    expect(layoutText({ title: 'Ana', body, end: true }, { top: 5 }).state).toEqual({ top: 0 })
+    expect(layoutText({ title: 'Ana', body, end: true }, { top: -99 }).state).toEqual({ top: -21 })
+  })
+
+  it('asked to stay at its end, shows a short text from its first line', () => {
+    expect(by(layoutText({ body: 'one\ntwo', end: true }, { top: 0 }).boxes, 'body').text).toBe('one\ntwo')
+  })
+
   it('does not scroll past either end', () => {
     expect(layoutText({ title: 'Ana', body }, { top: -3 }).state).toEqual({ top: 0 })
     expect(layoutText({ title: 'Ana', body }, { top: 99 }).state).toEqual({ top: 21 })

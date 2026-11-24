@@ -80,6 +80,7 @@ const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_t
 const KEPT_OUT_OF_TRAINING = ['mip_opt_out', 'true']
 const BYTES = new TextEncoder()
 const THIS_MACHINE = new Set(['localhost', '127.0.0.1', '[::1]'])
+const STAYS_ON_ITS_HOST = /^(?!\/\/)[^\\\s\u0000-\u001f]+$/
 const MAX_BYTES = 4_000_000
 const WAIT_MS = 10_000
 const SPEECH_WAIT_MS = 28_000
@@ -128,7 +129,7 @@ function sealed(address: string | undefined, scheme: string, what: string, own =
   try {
     url = new URL(address ?? '')
   } catch {
-    if (own && /^\/(?!\/)/.test(address ?? '')) return (address ?? '').replace(/\/+$/, '')
+    if (own && address && STAYS_ON_ITS_HOST.test(address)) return address.replace(/\/+$/, '')
     throw new Error(`${what} needs the address of its upstream.`)
   }
   if (url.protocol !== `${scheme}:` && !THIS_MACHINE.has(url.hostname))
@@ -140,9 +141,8 @@ function checked(live: LiveOptions): LiveOptions {
   if (!live.key) throw new Error('Live speech needs the key of its upstream.')
   if (typeof live.secret !== 'string' || live.secret.length < MIN_SECRET || JSON.stringify(live.secret).length - 2 > MAX_SECRET)
     throw new Error(`Live speech needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters.`)
-  const upstream = sealed(live.upstream, 'wss', 'Live speech')
-  if (/[?#]/.test(upstream)) throw new Error('Live speech names its upstream with no query.')
-  return { ...live, upstream }
+  if (/[?#]/.test(sealed(live.upstream, 'wss', 'Live speech'))) throw new Error('Live speech names its upstream with no query.')
+  return { ...live, upstream: new URL(live.upstream).href.replace(/\/+$/, '') }
 }
 
 function sizeOf(data: unknown): number {
