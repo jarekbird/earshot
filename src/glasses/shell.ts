@@ -139,6 +139,7 @@ export class Shell {
   #said = false
   #deciding: Lifetime | null = null
   #asked: Array<{ frame: number; screen: Screen; page: Page }> = []
+  #scrolled: { screen: Screen; frame: number } | null = null
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -209,12 +210,14 @@ export class Shell {
     this.#shown()
     const seen = this.#asked[0]
     const onGlasses = seen && seen.frame <= this.#glasses.shown && seen.screen === drawn.screen ? seen.page : drawn.page
-    const from = place.away ? drawn.page : onGlasses
+    const asked = this.#scrolled?.screen === drawn.screen && this.#scrolled.frame > this.#glasses.shown
+    const from = asked ? drawn.page : onGlasses
     const lines = up ? -from[by].up : from[by].down
     if (drawn.view.kind !== 'text' || !drawn.view.end) place.top += lines
     else if (!up && from.atEnd) Object.assign(place, { top: 0, away: false })
     else Object.assign(place, { top: from.at + lines, away: true })
     this.redraw()
+    if (this.#drawn) this.#scrolled = { screen: drawn.screen, frame: this.#drawn.frame }
   }
 
   #shown(): Screen | undefined {

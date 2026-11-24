@@ -817,6 +817,39 @@ describe('live speech from Flux, through the relay', () => {
     },
   )
 
+  it('numbers its turns itself, so a turn the upstream numbers as high as a number goes hides none on the next line', () => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(Number.MAX_SAFE_INTEGER, 'far', 'EndOfTurn'))
+    lines[0].drops()
+    hear(sound(100))
+    vi.advanceTimersByTime(retryDelay(1))
+    lines[1].connects()
+    lines[1].says(info(0, 'near', 'EndOfTurn'))
+    lines[1].says(info(1, 'nearer', 'EndOfTurn'))
+    expect(turns.map(turn => [turn.id, turn.words])).toEqual([
+      [0, 'far'],
+      [1, 'near'],
+      [2, 'nearer'],
+    ])
+  })
+
+  it('counts its own turns one by one, also where the upstream leaves numbers out', () => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(3, 'one', 'EndOfTurn'))
+    lines[0].says(info(7, 'two'))
+    lines[0].says(info(7, 'two more', 'EndOfTurn'))
+    lines[0].says(info(5, 'late', 'EndOfTurn'))
+    expect(turns.map(turn => [turn.id, turn.words, turn.final])).toEqual([
+      [0, 'one', true],
+      [1, 'two', false],
+      [1, 'two more', true],
+    ])
+  })
+
   it.each([['not json'], [{ type: 'Other' }], [{ type: 'TurnInfo', turn_index: 'x', transcript: 'a' }], [info(0, '   ')], [null], [[1]]])(
     'tells nothing for a message that is not a turn with words: %j',
     message => {
