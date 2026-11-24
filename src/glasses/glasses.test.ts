@@ -1641,7 +1641,7 @@ describe('watching the draws', () => {
     const glasses = new Glasses(new Lifetime(), fake.bridge)
     glasses.draw(frame(box('title', 'One')))
     await settle()
-    expect({ ...glasses[PROGRESS] }).toEqual({ shown: 1, text: 1, sending: 0 })
+    expect([glasses[PROGRESS].shown, glasses[PROGRESS].sending]).toEqual([1, 0])
     let release = () => {}
     const waiting = new Promise<void>(go => (release = go))
     const real = fake.bridge.textContainerUpgrade
@@ -1653,10 +1653,10 @@ describe('watching the draws', () => {
     await settle(0)
     glasses.draw(frame(box('title', 'Three')))
     glasses.draw(frame(box('title', 'Four')))
-    expect({ ...glasses[PROGRESS] }).toEqual({ shown: 1, text: 1, sending: 2 })
+    expect([glasses[PROGRESS].shown, glasses[PROGRESS].sending]).toEqual([1, 2])
     release()
     await settle()
-    expect({ ...glasses[PROGRESS] }).toEqual({ shown: 4, text: 4, sending: 0 })
+    expect([glasses[PROGRESS].shown, glasses[PROGRESS].sending]).toEqual([4, 0])
   })
 
   it('has said which frame is on its way, and which is shown, before it tells whoever watches of the begin and the end', async () => {
@@ -1672,6 +1672,72 @@ describe('watching the draws', () => {
       ['begin', 1, 0],
       ['end', 0, 1],
     ])
+  })
+
+  it('gives each draw its own number, also one asked for from inside the telling of another', () => {
+    let nested = 0
+    const glasses: Glasses = new Glasses(new Lifetime(), fakeBridge().bridge, {
+      watch: event => {
+        if (event.at === 'ask' && event.frame === 1) nested = glasses.draw(frame(box('title', 'Inner')))
+      },
+    })
+    expect([glasses.draw(frame(box('title', 'Outer'))), nested]).toEqual([1, 2])
+  })
+
+  it('draws the newer of two frames when the second was asked for from inside the telling of the first', async () => {
+    const fake = fakeBridge()
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (event.at === 'ask' && event.frame === 1) glasses.draw(frame(box('title', 'Inner')))
+      },
+    })
+    glasses.draw(frame(box('title', 'Outer')))
+    await settle()
+    expect(fake.lines()).toEqual(['Inner'])
+    expect(glasses.shown).toBe(2)
+  })
+
+  it('does not count a frame as shown when its lifetime ended while the glasses were still taking it', async () => {
+    const fake = fakeBridge()
+    const life = new Lifetime()
+    const glasses = new Glasses(life, fake.bridge)
+    let answer = () => {}
+    const waiting = new Promise<void>(go => (answer = go))
+    const real = fake.bridge.createStartUpPageContainer
+    fake.bridge.createStartUpPageContainer = async page => {
+      await waiting
+      return real(page)
+    }
+    glasses.draw(frame(box('title', 'One')))
+    await settle(0)
+    life.end()
+    answer()
+    await settle()
+    expect(glasses.shown).toBe(0)
+  })
+
+  it('tells whoever follows its progress each time a frame is on its way or on the glasses', async () => {
+    const glasses = new Glasses(new Lifetime(), fakeBridge().bridge)
+    const seen: Array<[number, number]> = []
+    glasses[PROGRESS].onChange(() => void seen.push([glasses[PROGRESS].sending, glasses[PROGRESS].shown]))
+    glasses.draw(frame(box('title', 'One')))
+    await settle()
+    expect(seen).toEqual([
+      [1, 0],
+      [0, 1],
+    ])
+  })
+
+  it('knows which frame a box of text is from, also when another box of the same frame was refused', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    glasses.draw(frame(box('title', 'One'), box('body', 'first')))
+    await settle()
+    fake.refuse('update', 1)
+    glasses.draw(frame(box('title', 'Two'), box('body', 'second')))
+    await settle(0)
+    expect(glasses.shown).toBe(1)
+    expect([glasses[PROGRESS].has('title'), glasses[PROGRESS].has('body')]).toEqual([1, 2])
   })
 
   it('tells of a frame from its start to its end, with each call to the glasses and its answer', async () => {

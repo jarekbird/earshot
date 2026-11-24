@@ -477,6 +477,79 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(fake.lines()[1]).toBe('Line 30')
   })
 
+  it('takes swipes on the screen an app opened from inside the telling of a draw of the screen before', async () => {
+    let jump = false
+    const watch = (event: Drawing) => {
+      if (!jump || event.at !== 'ask') return
+      jump = false
+      router.open({
+        id: 'log',
+        view: () => text({ title: 'Log', body: Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join('\n') }),
+      })
+    }
+    const { fake, router, shell } = world({ watch })
+    await settle()
+    jump = true
+    shell.redraw()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 1')
+    fake.down()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 3')
+  })
+
+  it('counts a swipe from text written in place during a held rebuild, also when the app drew again as it was told the frame waits', async () => {
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    let again = false
+    let release = () => {}
+    const watch = (event: Drawing) => {
+      if (!again || event.at !== 'wait') return
+      again = false
+      for (let at = 41; at <= 50; at++) log.push(`Line ${at}`)
+      shell.redraw()
+    }
+    const { fake, glasses, router, shell } = world({ watch })
+    const offered = [action({ id: 'mark', say: 'Mark', run: () => {} })]
+    router.open({ id: 'log', actions: () => offered, view: () => text({ title: 'Log', body: log.join('\n'), end: true }) })
+    await settle()
+    let done = () => {}
+    glasses.holdRebuilds(new Promise<void>(go => (done = go)))
+    for (let at = 31; at <= 40; at++) log.push(`Line ${at}`)
+    offered[0] = action({ id: 'clear', say: 'Clear', run: () => {} })
+    again = true
+    const real = fake.bridge.textContainerUpgrade
+    let writes = 0
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      if (++writes > 1) await new Promise<void>(go => (release = go))
+      return real(upgrade)
+    }
+    shell.redraw()
+    await settle(0)
+    expect(fake.lines().at(-1)).toBe('Line 40')
+    fake.up()
+    release()
+    done()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 30')
+  })
+
+  it('counts a swipe from the words the glasses took, also when they refused the title that came with them', async () => {
+    const { fake, router, shell } = world()
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    let title = 'Log'
+    router.open({ id: 'log', view: () => text({ title, body: log.join('\n'), end: true }) })
+    await settle()
+    title = 'Log, later'
+    for (let at = 31; at <= 40; at++) log.push(`Line ${at}`)
+    fake.refuse('update', 1)
+    shell.redraw()
+    await settle(0)
+    expect(fake.lines().at(-1)).toBe('Line 40')
+    fake.up()
+    await settle(5_000)
+    expect(fake.lines()[1]).toBe('Line 30')
+  })
+
   it('counts a swipe on the page the wearer saw when the screen has meanwhile turned to following its end', async () => {
     const { fake, router, shell } = world()
     const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)

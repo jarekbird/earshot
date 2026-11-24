@@ -16,7 +16,7 @@ import {
 import type { Sound, Speaker } from '../audio.js'
 import type { Lifetime, Timer } from '../lifetime.js'
 import { clipBytes, linesOf, type Box, type Brightness, type Frame, type MenuItem, type Picture } from './frame.js'
-import { PROGRESS, type Progress } from './frames.js'
+import { PROGRESS, type Sent } from './frames.js'
 import { decode, type GlassesEvent, type Input } from './input.js'
 import { serve } from '../serve.js'
 import { HOLD, Mic, MIC_SILENT_MS, retryDelay, type Held, type ListenOptions } from './mic.js'
@@ -206,7 +206,9 @@ export class Glasses {
   #retry: Timer | undefined
   #retryAt = 0
   #traced = ''
-  readonly #progress = { shown: 0, text: 0, sending: 0 }
+  readonly #progress = { shown: 0, sending: 0 }
+  readonly #from = new Map<string, number>()
+  readonly #following = new Set<() => void>()
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
@@ -227,8 +229,21 @@ export class Glasses {
     return this.#progress.shown
   }
 
-  get [PROGRESS](): Progress {
-    return this.#progress
+  get [PROGRESS](): Sent {
+    const progress = this.#progress
+    return {
+      get shown() {
+        return progress.shown
+      },
+      get sending() {
+        return progress.sending
+      },
+      has: box => this.#from.get(box) ?? 0,
+      onChange: told => {
+        this.#following.add(told)
+        return () => void this.#following.delete(told)
+      },
+    }
   }
 
   get micOpen(): boolean {
@@ -273,10 +288,10 @@ export class Glasses {
     if (pictures > 0)
       console.error(`Earshot: the glasses take ${MAX_IMAGE_BOXES} pictures. The last ${pictures} of this frame are left out.`)
     this.#frame = frame
-    this.#frames++
-    this.#watch({ at: 'ask', frame: this.#frames, page: frame })
-    this.#place()
-    return this.#frames
+    const number = ++this.#frames
+    this.#watch({ at: 'ask', frame: number, page: frame })
+    if (number === this.#frames) this.#place()
+    return number
   }
 
   overlay(text: string | null): void {
@@ -360,24 +375,24 @@ export class Glasses {
         }
         const { frame } = page
         if (rebuild && this.#holds > 0) {
+          const inPlace = this.#created && layoutOf(page) === this.#layout
+          if (inPlace) this.#progressed({ sending: frame })
           this.#watch({ at: 'wait', frame })
-          if (this.#created && layoutOf(page) === this.#layout) {
-            this.#progress.sending = frame
+          if (inPlace) {
             this.#watch({ at: 'begin', frame, rebuild: false })
-            if (await this.#update(page)) this.#progress.text = frame
-            this.#progress.sending = 0
+            await this.#update(page)
+            this.#progressed({ sending: 0 })
             if (this.#life.ended) return
             this.#watch({ at: 'end', frame, drawn: false })
           }
           if (this.#holds > 0 && this.#wanted === page) return
           continue
         }
-        this.#progress.sending = frame
+        this.#progressed({ sending: frame })
         this.#watch({ at: 'begin', frame, rebuild })
         const drawn = (rebuild ? await this.#build(page, shape) : await this.#update(page)) && (await this.#hang(page))
-        if (drawn) Object.assign(this.#progress, { shown: frame, text: frame })
-        this.#progress.sending = 0
         if (this.#life.ended) return
+        this.#progressed(drawn ? { shown: frame, sending: 0 } : { sending: 0 })
         if (!drawn) {
           const inMs = retryDelay(++this.#failures)
           this.#watch({ at: 'retry', frame, failures: this.#failures, inMs })
@@ -392,6 +407,11 @@ export class Glasses {
     } finally {
       this.#drawing = false
     }
+  }
+
+  #progressed(now: Partial<{ shown: number; sending: number }>): void {
+    Object.assign(this.#progress, now)
+    for (const told of [...this.#following]) if (this.#following.has(told)) serve(told)
   }
 
   #later(ms: number): void {
@@ -436,6 +456,7 @@ export class Glasses {
     this.#shape = shape
     this.#layout = layoutOf({ frame, boxes, pictures, menu })
     this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
+    for (const box of boxes) this.#from.set(box.name, frame)
     this.#hung = new Map()
     this.#rebuildAt = this.#now() + REBUILD_GAP_MS
     return true
@@ -444,7 +465,10 @@ export class Glasses {
   async #update({ frame, boxes }: Page): Promise<boolean> {
     let drawn = true
     for (const box of boxes) {
-      if (this.#sent.get(box.id) === stateOf(box)) continue
+      if (this.#sent.get(box.id) === stateOf(box)) {
+        this.#from.set(box.name, frame)
+        continue
+      }
       const upgrade = new TextContainerUpgrade({
         containerID: box.id,
         containerName: box.name,
@@ -453,8 +477,10 @@ export class Glasses {
       })
       const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name)
       if (this.#life.ended) return false
-      if (accepted) this.#sent.set(box.id, stateOf(box))
-      else drawn = false
+      if (accepted) {
+        this.#sent.set(box.id, stateOf(box))
+        this.#from.set(box.name, frame)
+      } else drawn = false
     }
     return drawn
   }

@@ -63,6 +63,8 @@ export interface Stride {
   down: number
 }
 
+export const BODY = 'body'
+
 export interface LaidText {
   boxes: Box[]
   state: TextState
@@ -72,9 +74,7 @@ export interface LaidText {
   stride: (wanted: number) => Stride
 }
 
-export const layoutText = (view: { title?: string; body: string; end?: boolean }, state: TextState): LaidText => wrapped(view)(state)
-
-export function wrapped(view: { title?: string; body: string; end?: boolean }): (state: TextState) => LaidText {
+export function layoutText(view: { title?: string; body: string; end?: boolean }): (state: TextState) => LaidText {
   const { rows, y, h, titleBox } = areas(view.title)
   const lines = wrapText(cleanText(view.body), SCREEN_WIDTH)
   const fits = (from: number, to: number) => BYTES.encode(lines.slice(from, to).join('\n')).length <= MAX_TEXT_BYTES
@@ -103,7 +103,7 @@ export function wrapped(view: { title?: string; body: string; end?: boolean }): 
       },
       boxes: [
         ...titleBox(more ? `  ${more}` : ''),
-        { id: 'body', x: 0, y, w: SCREEN_WIDTH, h, text: lines.slice(top, end).join('\n'), brightness: MAX_BRIGHTNESS },
+        { id: BODY, x: 0, y, w: SCREEN_WIDTH, h, text: lines.slice(top, end).join('\n'), brightness: MAX_BRIGHTNESS },
       ],
     }
   }

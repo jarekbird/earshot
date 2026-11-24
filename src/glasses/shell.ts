@@ -8,10 +8,10 @@ import type { Router, Screen } from '../router.js'
 import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
-import { Frames, PROGRESS, type Read } from './frames.js'
+import { copied, Frames, PROGRESS, type Read } from './frames.js'
 import type { Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
-import { layoutList, wrapped, type LaidText, type TextState } from './layout.js'
+import { BODY, layoutList, layoutText, type LaidText, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
 import { HOLD, type Held } from './mic.js'
 
@@ -138,7 +138,20 @@ export class Shell {
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
     this.#glasses = glasses
-    this.#frames = new Frames(glasses[PROGRESS])
+    const sent = glasses[PROGRESS]
+    this.#frames = new Frames({
+      get shown() {
+        return sent.shown
+      },
+      get sending() {
+        return sent.sending
+      },
+      get text() {
+        return sent.has(BODY)
+      },
+    })
+    this.#life.own(sent.onChange(() => this.#frames.forget()))
+    this.#life.own(() => this.#frames.end())
     this.#router = router
     this.#words = { ...WORDS, ...options.words }
     this.#noticeMs = options.noticeMs ?? NOTICE_MS
@@ -184,10 +197,10 @@ export class Shell {
       Object.assign(place, laid.state)
       boxes = laid.boxes
     } else if (view.kind === 'text') {
-      const laid = (read && sameText(read.view, view) ? read.laid : wrapped(view))(place)
+      const laid = (read && sameText(read.view, view) ? read.laid : layoutText(view))(place)
       Object.assign(place, laid.state)
       scrolls = laid.scrolls
-      drew = { view: { ...view }, state: { ...laid.state } }
+      drew = { view: copied(view), state: { ...laid.state } }
       boxes = laid.boxes
     } else {
       boxes = view.boxes
@@ -200,7 +213,8 @@ export class Shell {
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
     const frame = this.#glasses.draw({ boxes, pictures, menu })
-    this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
+    if (!this.#drawn || frame > this.#drawn.frame)
+      this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
     this.#frames.asked(frame, screen, drew, swipedTo)
   }
 
@@ -208,7 +222,7 @@ export class Shell {
     const read = this.#frames.read(drawn.screen)
     if (!read) return
     const { view, state } = read
-    const text = wrapped(view)
+    const text = layoutText(view)
     const from = text({ ...state })
     const stride = from.stride(by === 'swipe' ? SCROLL_LINES : SCREENFUL)
     const top = from.at + (up ? -stride.up : stride.down)

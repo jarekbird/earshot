@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Screen } from '../router.js'
 import { text } from '../view.js'
-import { Frames, type Read } from './frames.js'
+import { copied, Frames, type Read } from './frames.js'
 
 const screen = (id: string): Screen => ({ id })
 const read = (body: string): Read => {
@@ -71,6 +71,35 @@ describe('the frames a shell asked for', () => {
     expect(body(frames, log)).toBe('second')
     Object.assign(progress, { shown: 2, text: 2 })
     expect(body(frames, log)).toBe('second')
+  })
+
+  it('lets go of what the glasses have moved past as soon as it is told so, with no swipe or draw in between', () => {
+    const progress = { shown: 1, text: 1, sending: 0 }
+    const frames = new Frames(progress)
+    const log = screen('log')
+    frames.asked(1, log, read('seen'), null)
+    frames.asked(2, log, read('after the swipe'), read('where the swipe reached'))
+    expect(frames.kept).toBe(3)
+    Object.assign(progress, { shown: 2, text: 2 })
+    frames.forget()
+    expect(frames.kept).toBe(1)
+  })
+
+  it('keeps nothing once it is ended', () => {
+    const frames = new Frames({ shown: 1, text: 1, sending: 0 })
+    const log = screen('log')
+    frames.asked(1, log, read('seen'), null)
+    frames.asked(2, log, read('after the swipe'), read('where the swipe reached'))
+    frames.end()
+    expect(frames.kept).toBe(0)
+    expect(frames.read(log)).toBeNull()
+  })
+
+  it('copies of a view only what is drawn, so nothing else an app hung on it is kept', () => {
+    const view = Object.assign(text({ title: 'Log', body: 'words', end: true }), { record: { private: true } })
+    if (view.kind !== 'text') throw new Error('not a text')
+    expect(copied(view)).toStrictEqual({ kind: 'text', title: 'Log', body: 'words', end: true })
+    expect(copied(text({ body: 'words' }) as Read['view'])).toStrictEqual({ kind: 'text', body: 'words' })
   })
 
   it('says which screen the glasses show, and none before they show any', () => {
