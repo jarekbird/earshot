@@ -115,6 +115,7 @@ let worker = ''
 beforeAll(async () => {
   const built = await build({
     entryPoints: [join(ROOT, 'example/worker.ts')],
+    tsconfig: join(ROOT, 'tsconfig.json'),
     bundle: true,
     format: 'esm',
     write: false,
