@@ -105,6 +105,7 @@ interface Place {
 interface Drawn {
   frame: number
   screen: Screen
+  showing: object
   view: View
   targets: readonly TargetInfo[]
   folded: readonly Action[]
@@ -120,7 +121,7 @@ export class Shell {
   readonly #words: ShellWords
   readonly #noticeMs: number
   readonly #voice: VoiceOptions | undefined
-  readonly #places = new WeakMap<Screen, Place>()
+  readonly #places = new WeakMap<object, Place>()
   readonly #own = new WeakSet<Screen>()
   readonly #items = new Map<string, number>()
   #drawn: Drawn | null = null
@@ -185,11 +186,14 @@ export class Shell {
 
   #draw(read?: { view: Read['view']; laid: (state: TextState) => LaidText }): void {
     if (this.#life.ended) return
+    const showings = this.#router[SHOWINGS]
+    const showing = showings.current
     const screen = this.#router.current
     const actions = this.#router.actions()
     const view = screen.view?.() ?? list({ action: this.#chooser(actions) })
-    const place = this.#places.get(screen) ?? { cursor: 0, top: 0 }
-    this.#places.set(screen, place)
+    if (showings.current !== showing || !showings.onPath(showing)) return
+    const place = this.#places.get(showing) ?? { cursor: 0, top: 0 }
+    this.#places.set(showing, place)
     let boxes: Box[]
     let pictures: Picture[] = []
     let scrolls = false
@@ -218,13 +222,13 @@ export class Shell {
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
     const frame = this.#glasses.draw({ boxes, pictures, menu })
     if (!this.#drawn || frame > this.#drawn.frame)
-      this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
-    this.#frames.asked(frame, screen, drew, this.#router[SHOWINGS].current)
+      this.#drawn = { frame, screen, showing, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
+    this.#frames.asked(frame, screen, showings.onPath(showing) ? drew : null, showing)
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
     const showing = this.#router[SHOWINGS].current
-    const read = this.#frames.read(showing)
+    const read = this.#router[SHOWINGS].onPath(showing) ? this.#frames.read(showing) : null
     if (!read) return
     const { view, state } = read
     const text = layoutText(view)
@@ -246,10 +250,10 @@ export class Shell {
 
   #reachable(): Action[] {
     const drawn = this.#drawn
-    const screen = this.#router.current
-    const place = this.#places.get(screen)
+    const showing = this.#router[SHOWINGS].current
+    const place = this.#places.get(showing)
     const actions = [...this.#router.actions()]
-    if (!drawn || drawn.screen !== screen || !place) return actions
+    if (!drawn || drawn.showing !== showing || !place) return actions
     const { view } = drawn
     const move = (id: string, say: string, by: number, field: 'cursor' | 'top') =>
       action({
@@ -352,9 +356,9 @@ export class Shell {
     }
     if (input.kind === 'menu') return this.#picked(input.item)
     const drawn = this.#drawn
-    const screen = this.#router.current
-    const place = this.#places.get(screen)
-    if (!drawn || drawn.screen !== screen || !place) return
+    const showing = this.#router[SHOWINGS].current
+    const place = this.#places.get(showing)
+    if (!drawn || drawn.showing !== showing || !place) return
     const { view } = drawn
     if (view.kind === 'boxes') {
       const bound = view.on?.[input.kind]
@@ -505,7 +509,8 @@ export class Shell {
   #context(): string {
     const current = this.#router.current
     const drawn = this.#drawn
-    const under = drawn && drawn.screen === current ? drawn.targets[this.#places.get(current)?.cursor ?? 0] : undefined
+    const showing = this.#router[SHOWINGS].current
+    const under = drawn && drawn.showing === showing ? drawn.targets[this.#places.get(showing)?.cursor ?? 0] : undefined
     const selected = under && !under.private ? `${this.#words.selected}: ${under.say}` : ''
     return [current.context?.() ?? '', selected].filter(Boolean).join('\n').slice(-ITEM_LIMIT)
   }
@@ -568,7 +573,8 @@ export class Shell {
 
   #picked(item: number): void {
     const shown = this.#frames.menu
-    if (shown && shown.showing !== this.#router[SHOWINGS].current) return
+    const showing = this.#router[SHOWINGS].current
+    if (!this.#router[SHOWINGS].onPath(showing) || (shown && shown.showing !== showing)) return
     const id = [...this.#items].find(([, number]) => number === item)?.[0]
     const folded = this.#drawn?.folded ?? []
     if (id === MORE && folded.length) {

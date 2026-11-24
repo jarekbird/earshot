@@ -93,7 +93,10 @@ export class Frames {
     const newest = this.#asked.length - 1
     if (menu >= 0 && menu < words) this.#asked[menu].drew = null
     this.#asked = this.#asked.filter((asked, at) => at === menu || at === words || at === newest || (at > words && asked.frame === sending))
-    for (const [showing, swiped] of this.#swiped) if (swiped.frame <= read) this.#swiped.delete(showing)
+    for (const [showing, swiped] of this.#swiped) {
+      const drawn = (asked: Asked) => asked.showing === showing && asked.frame >= swiped.frame && asked.frame <= read
+      if (this.#asked.some(drawn)) this.#swiped.delete(showing)
+    }
   }
 
   end(): void {

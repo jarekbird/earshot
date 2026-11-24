@@ -439,6 +439,7 @@ export class Glasses {
     const named = box === undefined ? {} : { box }
     const started = this.#now()
     this.#watch({ at: 'call', frame, op, ...named })
+    if (this.#life.ended) return false
     let got: unknown
     try {
       got = await call()

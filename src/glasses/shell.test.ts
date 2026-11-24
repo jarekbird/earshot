@@ -684,6 +684,130 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(fake.lines()[1]).toBe('Line 18')
   })
 
+  it('keeps a swipe not yet drawn on a screen while a screen opened over it is drawn and left', async () => {
+    const { fake, router } = world()
+    const lines = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: lines.join('\n'), end: true }) })
+    await settle()
+    const first = held(fake)
+    fake.up()
+    fake.down()
+    router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })
+    first()
+    await settle()
+    expect(fake.lines()).toEqual(['Earshot'])
+    const second = held(fake)
+    for (let at = 31; at <= 50; at++) lines.push(`Line ${at}`)
+    router.back()
+    fake.up()
+    second()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 20')
+  })
+
+  it('gives each showing of a screen a place of its own, so a swipe on one opened over itself leaves the one below where it was', async () => {
+    const { fake, router } = world()
+    const log = {
+      id: 'log',
+      view: () => text({ title: 'Log', body: Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join('\n'), end: true }),
+    }
+    router.open(log)
+    await settle()
+    router.open(log)
+    await settle()
+    fake.up()
+    router.back()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 22')
+  })
+
+  it('keeps a swipe not yet drawn on a screen while a shorter showing of that very screen comes and goes over it', async () => {
+    const { fake, router } = world()
+    let lines = 30
+    const log = {
+      id: 'log',
+      view: () => text({ title: 'Log', body: Array.from({ length: lines }, (_, at) => `Line ${at + 1}`).join('\n'), end: true }),
+    }
+    router.open(log)
+    await settle()
+    const release = held(fake)
+    fake.up()
+    lines = 3
+    router.open(log)
+    lines = 30
+    router.back()
+    release()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 20')
+  })
+
+  it('runs no pick once the router is closed', async () => {
+    const ran: string[] = []
+    const { fake, router } = world()
+    router.open({
+      id: 'card',
+      actions: () => [action({ id: 'go', say: 'Go', run: () => void ran.push('go') })],
+      view: () => text({ body: 'Card' }),
+    })
+    await settle()
+    const go = fake.menuItems().find(item => item.name === 'Go')?.id ?? NaN
+    router.close()
+    fake.menu(go)
+    await settle()
+    expect(ran).toEqual([])
+  })
+
+  it('draws the screen an app moved on to while it was asked for the view of the one before, and takes picks for that one', async () => {
+    const ran: string[] = []
+    const { fake, menu, router } = world()
+    const index = {
+      id: 'index',
+      actions: () => [action({ id: 'preview', say: 'Preview index', run: () => void ran.push('index') })],
+      view: () => text({ body: 'Index' }),
+    }
+    let moved = false
+    const recipe: Screen = {
+      id: 'recipe',
+      actions: () => [action({ id: 'preview', say: 'Preview recipe', run: () => void ran.push('recipe') })],
+      view: () => {
+        if (!moved) {
+          moved = true
+          router.replace(index)
+        }
+        return text({ body: 'Recipe' })
+      },
+    }
+    router.open(recipe)
+    await settle()
+    expect(fake.lines()).toEqual(['Index'])
+    expect(menu()).toContain('Preview index')
+    fake.pick('Preview index')
+    await settle(100)
+    expect(ran).toEqual(['index'])
+  })
+
+  it('draws nothing more for a swipe once the router was closed from inside a draw', async () => {
+    let close = false
+    const watch = (event: Drawing) => {
+      if (!close || event.at !== 'ask') return
+      close = false
+      router.close()
+    }
+    const { fake, glasses, router, shell } = world({ watch })
+    router.open({
+      id: 'log',
+      view: () => text({ title: 'Log', body: Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join('\n'), end: true }),
+    })
+    await settle()
+    close = true
+    shell.redraw()
+    await settle()
+    const before = glasses.shown
+    fake.up()
+    await settle()
+    expect(glasses.shown).toBe(before)
+  })
+
   it('runs no pick from the menu of an earlier showing of a screen once that screen has been shown anew', async () => {
     const ran: string[] = []
     const { fake, router } = world()
