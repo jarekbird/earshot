@@ -111,8 +111,7 @@ it('E8: the example app uses every value the framework exports, but for a list t
       : [],
   )
   const used = parsed('example/main.ts').flatMap(one => {
-    if (!ts.isImportDeclaration(one) || !ts.isStringLiteral(one.moduleSpecifier) || one.moduleSpecifier.text !== '../src/index.js')
-      return []
+    if (!ts.isImportDeclaration(one) || !ts.isStringLiteral(one.moduleSpecifier) || one.moduleSpecifier.text !== 'earshot') return []
     const names = one.importClause?.isTypeOnly ? undefined : one.importClause?.namedBindings
     return names && ts.isNamedImports(names)
       ? names.elements.filter(name => !name.isTypeOnly).map(name => (name.propertyName ?? name.name).text)
@@ -266,7 +265,25 @@ it.runIf(process.env.CI || process.env.GITHUB_ACTIONS)('E4: CI never runs the te
   expect(process.env.EARSHOT_OFFLINE).toBe('1')
 })
 
+it('asks for no older Node than the one CI runs the tests on, so that the least it takes is one that is tried', () => {
+  const { engines } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const tried = [...readFileSync(join(root, '.github/workflows/check.yml'), 'utf8').matchAll(/node-version: (\d+)/g)]
+  expect(tried.length).toBeGreaterThan(0)
+  expect(engines.node).toBe(`>=${Math.min(...tried.map(([, version]) => Number(version)))}`)
+})
+
+it('the example asks for this version of Earshot, and for the tools Earshot itself is tested with', () => {
+  const own = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const example = JSON.parse(readFileSync(join(root, 'example/package.json'), 'utf8'))
+  expect(example.version).toBe(own.version)
+  const { earshot, ...tools } = { ...example.dependencies, ...example.devDependencies }
+  expect(earshot).toBe(`github:jarekbird/earshot#v${own.version}`)
+  expect(tools).toEqual(Object.fromEntries(Object.keys(tools).map(name => [name, own.devDependencies[name]])))
+})
+
 it("the README's install line pins this version: a stale one installs an Earshot the README does not describe", () => {
   const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-  expect(readFileSync(join(root, 'README.md'), 'utf8').match(/earshot#v[\d.]+/g)).toEqual([`earshot#v${version}`])
+  const readme = readFileSync(join(root, 'README.md'), 'utf8')
+  expect(readme.match(/earshot#v[\d.]+/g)).toEqual([`earshot#v${version}`])
+  expect(readme.match(/--branch v[\d.]+/g)).toEqual([`--branch v${version}`])
 })

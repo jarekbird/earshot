@@ -22,8 +22,29 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.38
+npm install github:jarekbird/earshot#v0.0.40
 ```
+
+npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
+
+## Your first app
+
+`example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
+
+```sh
+git clone --depth 1 --branch v0.0.40 https://github.com/jarekbird/earshot
+cp -r earshot/example my-app
+cd my-app
+npm install
+npm start      # builds the app, serves it at http://127.0.0.1:5173 and rebuilds when you save
+npm run sim    # in a second terminal: Even's simulator, on that address
+```
+
+- In the simulator, swipe to move, tap to open, double tap to go back. Even's menu holds the other actions.
+- To try a voice command with no service at all, give the page the words it should hear: open `http://127.0.0.1:5173/#say=open voice|go back` in the simulator, hold, make any sound and let go. Each hold hears the next of those lines.
+- `main.ts` is the app: its actions, its screens and what it does with the words. `app.json` is what the Even Hub reads; give it your own `package_id` and `name`. `package.json` has the version, which the build writes into the app.
+- `npm run typecheck` checks the types, `npm run check` runs the store check below on what was built, and `npm run pack` makes the package for the Even Hub in `build/`, which Even's own `evenhub` command then creates the app from or uploads.
+- For voice from a real service, run the relay below and build with its address: `EARSHOT_RELAY=https://relay.example.com npm run build`. `worker.ts` and `wrangler.toml` are that relay as a Cloudflare Worker.
 
 ## Actions
 
@@ -287,7 +308,7 @@ new Shell(life, glasses, router, { voice: { transcribe: service.transcribe, mode
 
 A glasses app is web files on the user's phone, and anyone can read a key out of them. So your OpenRouter key stays on a small server of yours, the relay, and the app calls that. Earshot ships it: one function that takes a request and gives a response.
 
-On Node 22 or later, on any host that keeps a process running:
+On Node 24 or later, on any host that keeps a process running:
 
 ```sh
 EARSHOT_RELAY_KEY=sk-or-... EARSHOT_RELAY_UPSTREAM=https://openrouter.ai npx earshot-relay
@@ -445,7 +466,6 @@ npm install
 npm ci --prefix workerd   # Cloudflare's runtime, for the tests of the relay's Worker host
 npm run check
 npx vitest run --config vitest.sim.config.ts -t "<test name>"   # one test against the real simulator (Linux, with Xvfb)
-npm run example:pack   # build, check and pack the example app in example/
 ```
 
 The Worker's runtime is installed apart, in `workerd/`, because it runs on fewer machines than the rest: an app that installs Earshot from Git builds it with the tools in `package.json`, and must never need this one. `npm run check` says so when it is missing.
