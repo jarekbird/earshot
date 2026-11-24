@@ -10,7 +10,7 @@ import { fluxLive, FLUX, LIVE_PATH as APP_PATH, REFUSALS } from '../src/flux/flu
 import { Lifetime } from '../src/lifetime.js'
 import type { LiveState, Turn } from '../src/live.js'
 import { serve, settings } from './node.js'
-import { CLOSES, HELLO_MS, LIVE_PATH, MAX_FRAME, MAX_QUEUED, MIN_SECRET, relay, relayOptions } from './relay.js'
+import { CLOSES, HELLO_MS, LIVE_PATH, MAX_FRAME, MAX_QUEUED, MAX_SECRET, MIN_SECRET, relay, relayOptions } from './relay.js'
 
 const ROOT = join(import.meta.dirname, '..')
 const RECORDED = readFileSync(join(ROOT, 'src/flux/recorded.jsonl'), 'utf8').trim().split('\n')
@@ -636,6 +636,11 @@ describe('the settings of live speech', () => {
       expect(() => serve({ ...calls, live: { ...live, secret: secret as string }, port: 0 })).toThrow('needs a secret')
     },
   )
+
+  it('no relay is made with a secret too long to fit in a greeting: no caller could ever say it', () => {
+    expect(() => relay({ ...calls, live: { ...live, secret: 'a'.repeat(MAX_SECRET + 1) } })).toThrow('needs a secret')
+    expect(() => relay({ ...calls, live: { ...live, secret: 'a'.repeat(MAX_SECRET) } })).not.toThrow()
+  })
 
   it('no relay is made with a live upstream and no key for it', () => {
     expect(() => relay({ ...calls, live: { ...live, key: '' } })).toThrow('needs the key')

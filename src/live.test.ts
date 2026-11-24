@@ -1,14 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { Sound, Speaker } from './audio.js'
 import { Lifetime } from './lifetime.js'
 import { scriptedLive, type Turn } from './live.js'
 
 const sound = (ms: number, speaker: Speaker = 'unknown', gap = false): Sound => ({ pcm: new Uint8Array(ms * 32), speaker, gap })
 
-function listening(lines: string[], msPerWord = 300) {
+function listening(lines: string[]) {
   const life = new Lifetime()
   const turns: Turn[] = []
-  const hear = scriptedLive(lines, msPerWord).start(life, turn => turns.push(turn))
+  const hear = scriptedLive(lines).start(life, turn => turns.push(turn))
   return { life, turns, hear }
 }
 
@@ -132,6 +132,17 @@ describe('scripted live speech, the offline stand-in', () => {
     })
     hear(sound(300))
     expect(turns).toEqual(['start'])
+  })
+
+  it('says only that a listener failed, never the words it was handed, as the transport for real speech does', () => {
+    const said: string[] = []
+    vi.stubGlobal('reportError', (error: Error) => void said.push(error.message))
+    onTestFinished(() => void vi.unstubAllGlobals())
+    const hear = scriptedLive(['confidential words']).start(new Lifetime(), turn => {
+      throw new Error(turn.words)
+    })
+    hear(sound(600))
+    expect(said).toEqual(['Earshot: a listener of the live speech threw.', 'Earshot: a listener of the live speech threw.'])
   })
 
   it('takes no more sound in once its last line is said', () => {

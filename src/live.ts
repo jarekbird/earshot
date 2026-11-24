@@ -1,5 +1,6 @@
 import { SAMPLE_RATE, type Sound, type Speaker } from './audio.js'
 import type { Lifetime } from './lifetime.js'
+import { serve } from './serve.js'
 
 export interface Turn {
   id: number
@@ -15,28 +16,27 @@ export interface LiveSpeech {
   start(life: Lifetime, heard: (turn: Turn) => void, told?: (state: LiveState) => void): (sound: Sound) => void
 }
 
-const BYTES_PER_MS = (SAMPLE_RATE * 2) / 1000
+const WORD_BYTES = 300 * ((SAMPLE_RATE * 2) / 1000)
 
 export function most(heard: Record<Speaker, number>): Speaker {
   const [first, second] = (Object.entries(heard) as Array<[Speaker, number]>).sort((a, b) => b[1] - a[1])
   return first[1] > second[1] ? first[0] : 'unknown'
 }
 
-export function scriptedLive(lines: readonly string[], msPerWord = 300): LiveSpeech {
+export function scriptedLive(lines: readonly string[]): LiveSpeech {
   const script = lines.map(line => line.split(/\s+/).filter(Boolean)).filter(words => words.length)
   return {
     start(life, heard) {
       const left = [...script]
       const news: Turn[] = []
-      const word = msPerWord * BYTES_PER_MS
       let id = 0
       let said = 0
       let waiting: Array<[Speaker, number]> = []
       let by: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
       let telling = false
       const takeWord = () => {
-        if (waiting.reduce((bytes, [, part]) => bytes + part, 0) < word) return false
-        for (let needed = word; needed > 0;) {
+        if (waiting.reduce((bytes, [, part]) => bytes + part, 0) < WORD_BYTES) return false
+        for (let needed = WORD_BYTES; needed > 0;) {
           const [speaker, part] = waiting[0]
           const taken = Math.min(part, needed)
           by[speaker] += taken
@@ -68,7 +68,7 @@ export function scriptedLive(lines: readonly string[], msPerWord = 300): LiveSpe
         if (telling) return
         telling = true
         try {
-          for (let told = news.shift(); told && !life.ended; told = news.shift()) heard(told)
+          for (let told = news.shift(); told && !life.ended; told = news.shift()) serve(() => heard(told), 'live speech')
         } finally {
           telling = false
         }

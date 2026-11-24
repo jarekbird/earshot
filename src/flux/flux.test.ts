@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { Sound, Speaker } from '../audio.js'
 import { Lifetime } from '../lifetime.js'
 import type { LiveState, Turn } from '../live.js'
@@ -106,6 +106,8 @@ describe('the relay of live speech', () => {
     'http://127.0.0.2.example',
     'https://relay.example/?tenant=demo',
     'https://relay.example/#x',
+    'https://relay.example/?',
+    'https://relay.example/#',
     'https://someone@relay.example',
     'ws://localhost:8787',
   ])('is refused when named %s: the secret and the sound would be readable', host => {
@@ -367,6 +369,55 @@ describe('live speech from Flux, through the relay', () => {
     lines[0].says(info(0, 'late but said', 'EndOfTurn'))
     expect(turns.map(turn => turn.words)).toEqual(['late but said'])
     expect(lines[0].closedWith).toBeUndefined()
+  })
+
+  it('opens no line and stays no longer awake for a piece of sound with nothing in it', () => {
+    const { lines, hear } = listening()
+    hear({ ...sound(0) })
+    expect(lines).toHaveLength(0)
+    hear(sound(100))
+    lines[0].connects()
+    for (let second = 1; second <= QUIET_MS / 1_000; second++) {
+      vi.advanceTimersByTime(1_000)
+      hear({ ...sound(0) })
+    }
+    expect(lines[0].closedWith).toBe(1000)
+  })
+
+  it('still ends the growing turn as cut for a break that comes with no sound in it', () => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(0, 'before the'))
+    hear({ ...sound(0), gap: true })
+    expect(turns.at(-1)).toMatchObject({ words: 'before the', final: true, cut: true })
+    expect(lines).toHaveLength(1)
+  })
+
+  it.each([
+    [
+      'throws',
+      (words: string): void =>
+        void (() => {
+          throw new Error(words)
+        })(),
+    ],
+    ['answers with a promise that fails', (words: string) => Promise.reject(new Error(words)) as unknown as void],
+  ])('says only that a listener failed, never the words it was handed, when the listener %s', async (_how, fail) => {
+    const said: string[] = []
+    vi.stubGlobal('reportError', (error: Error) => void said.push(error.message))
+    onTestFinished(() => void vi.unstubAllGlobals())
+    const life = new Lifetime()
+    const lines: Line[] = []
+    const open = (url: string) => lines[lines.push(new Line(url)) - 1]
+    const hear = fluxLive({ host: 'https://relay.example', open }).start(life, turn => fail(turn.words))
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(0, 'what was said in confidence'))
+    lines[0].says(info(0, 'what was said in confidence and more'))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(said).toEqual(['Earshot: a listener of the live speech threw.', 'Earshot: a listener of the live speech threw.'])
   })
 
   it('sends at once, and whole, a piece of sound of any length while the line is up', () => {

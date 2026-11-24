@@ -40,6 +40,7 @@ export interface Sockets {
 }
 
 export const MIN_SECRET = 16
+export const MAX_SECRET = 1_024
 
 const listed = (models: string | undefined) => {
   const names = models
@@ -120,11 +121,12 @@ function same(given: string, wanted: string): boolean {
   return differ === 0
 }
 
-function sealed(address: string | undefined, scheme: string, what: string): string {
+function sealed(address: string | undefined, scheme: string, what: string, own = false): string {
   let url: URL | undefined
   try {
     url = new URL(address ?? '')
   } catch {
+    if (own && address) return address.replace(/\/+$/, '')
     throw new Error(`${what} needs the address of its upstream.`)
   }
   if (url.protocol !== `${scheme}:` && !THIS_MACHINE.has(url.hostname))
@@ -134,8 +136,8 @@ function sealed(address: string | undefined, scheme: string, what: string): stri
 
 function checked(live: LiveOptions): LiveOptions {
   if (!live.key) throw new Error('Live speech needs the key of its upstream.')
-  if (typeof live.secret !== 'string' || live.secret.length < MIN_SECRET)
-    throw new Error(`Live speech needs a secret of ${MIN_SECRET} characters or more.`)
+  if (typeof live.secret !== 'string' || live.secret.length < MIN_SECRET || live.secret.length > MAX_SECRET)
+    throw new Error(`Live speech needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters.`)
   const upstream = sealed(live.upstream, 'wss', 'Live speech')
   if (/[?#]/.test(upstream)) throw new Error('Live speech names its upstream with no query.')
   return { ...live, upstream }
@@ -213,7 +215,7 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
   const forwards = options.key !== undefined || options.upstream !== undefined
   if (!forwards && !options.live) throw new Error('A relay needs an upstream: for its calls, for live speech, or for both.')
   if (forwards && !options.key) throw new Error("The relay's calls need the key of their upstream.")
-  const upstream = forwards ? sealed(options.upstream, 'https', "The relay's calls") : ''
+  const upstream = forwards ? sealed(options.upstream, 'https', "The relay's calls", Boolean(options.fetch)) : ''
   const speech = options.live && checked(options.live)
   const models = new Set(options.models ?? DEFAULT_MODELS)
   const limit = options.maxBytes ?? MAX_BYTES

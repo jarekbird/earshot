@@ -17,7 +17,8 @@ import type { Sound, Speaker } from '../audio.js'
 import type { Lifetime, Timer } from '../lifetime.js'
 import { clipBytes, linesOf, type Box, type Brightness, type Frame, type MenuItem, type Picture } from './frame.js'
 import { decode, type GlassesEvent, type Input } from './input.js'
-import { HOLD, Mic, MIC_SILENT_MS, retryDelay, serve, type Held, type ListenOptions } from './mic.js'
+import { serve } from '../serve.js'
+import { HOLD, Mic, MIC_SILENT_MS, retryDelay, type Held, type ListenOptions } from './mic.js'
 
 export { MIC_SILENT_MS }
 export type { ListenOptions }
