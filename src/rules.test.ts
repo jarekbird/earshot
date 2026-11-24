@@ -218,3 +218,68 @@ it.runIf(process.env.EARSHOT_OFFLINE)("E4: in CI the tests see no network but th
 it.runIf(process.env.CI || process.env.GITHUB_ACTIONS)('E4: CI never runs the tests with the network on', () => {
   expect(process.env.EARSHOT_OFFLINE).toBe('1')
 })
+
+function surface() {
+  const pack = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const paths = Object.entries(pack.exports as Record<string, { types: string }>).map(([path, { types }]) => {
+    const file = types.replace('./dist/', '').replace(/\.d\.ts$/, '.ts')
+    return { path, file: tracked.includes(file) ? file : `src/${file}` }
+  })
+  const program = ts.createProgram(
+    paths.map(({ file }) => join(root, file)),
+    {
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      target: ts.ScriptTarget.ES2023,
+      skipLibCheck: true,
+      noEmit: true,
+    },
+  )
+  const checker = program.getTypeChecker()
+  const names = ({ file }: { file: string }) => {
+    const module = checker.getSymbolAtLocation(program.getSourceFile(join(root, file))!)
+    return module
+      ? checker
+          .getExportsOfModule(module)
+          .map(symbol => symbol.name)
+          .sort()
+      : []
+  }
+  return {
+    exports: Object.fromEntries(paths.map(entry => [entry.path, names(entry)])),
+    bin: Object.keys(pack.bin).sort(),
+    node: pack.engines.node,
+    peers: pack.peerDependencies,
+  }
+}
+
+const gone = (was: Record<string, string[]>, is: Record<string, string[]>) =>
+  Object.entries(was).flatMap(([path, names]) =>
+    is[path] ? names.filter(name => !is[path].includes(name)).map(name => `${path}: ${name}`) : [path],
+  )
+
+it('E14: nothing an app could be using has gone, and docs/api.json lists what an app has', () => {
+  const was = JSON.parse(readFileSync(join(root, 'docs/api.json'), 'utf8')) as ReturnType<typeof surface>
+  const is = surface()
+  const broken = [
+    ...gone(was.exports, is.exports),
+    ...was.bin.filter(name => !is.bin.includes(name)).map(name => `bin: ${name}`),
+    ...(was.node === is.node ? [] : [`node: ${was.node} became ${is.node}`]),
+    ...(JSON.stringify(was.peers) === JSON.stringify(is.peers) ? [] : ['peerDependencies changed']),
+  ]
+  expect(
+    broken,
+    'E14: this breaks apps written against the last version. Ask Jarek before going on. With his word, list it in the pull request and bring docs/api.json up to date.',
+  ).toEqual([])
+  expect(
+    is,
+    `E14: what an app has changed. Nothing went, so no app breaks; bring docs/api.json up to date:\n${JSON.stringify(is, null, 2)}`,
+  ).toEqual(was)
+})
+
+it('E14: the check sees a name, a way in or a command that went, and a need that rose', () => {
+  const was = { '.': ['Glasses', 'Shell'], './relay': ['relay'] }
+  expect(gone(was, { '.': ['Glasses', 'Shell', 'fluxLive'], './relay': ['relay'] })).toEqual([])
+  expect(gone(was, { '.': ['Glasses'], './relay': ['relay'] })).toEqual(['.: Shell'])
+  expect(gone(was, { '.': ['Glasses', 'Shell'] })).toEqual(['./relay'])
+})

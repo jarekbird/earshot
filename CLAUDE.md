@@ -27,6 +27,11 @@ Checks cite these IDs. Changing one needs Jarek's OK.
   `relay`, and a setting or a feature of one is in the other in the same change. Only where a host listens, and how
   it takes and opens a WebSocket, is its own.
 
+- **E14** A change that breaks an app written against the last version is Jarek's to allow. He is asked before it is
+  built, or told as soon as it is found, and the pull request lists what an app must change. _A test holds what an
+  app has (`docs/api.json`: each name of each way in, the commands, the Node and the SDK it needs) and fails when
+  something went. A changed shape or behaviour it cannot see: that part is prose._
+
 ## Code rules
 
 - **C1** No comments, except tool directives and one-line notes of external facts the code cannot express.
