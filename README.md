@@ -420,6 +420,8 @@ const forTests = createStore([memoryPlace()])
 
 ## Develop
 
+To send a report or a change from outside, start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ```sh
 npm install
 npm ci --prefix workerd   # Cloudflare's runtime, for the tests of the relay's Worker host

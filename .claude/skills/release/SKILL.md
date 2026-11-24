@@ -1,9 +1,11 @@
 ---
 name: release
-description: How a version of Earshot reaches the apps that use it - a tag on main that an app pins. Use after a pull request merges, or to see what a version holds.
+description: How the maintainer releases a version of Earshot to the apps that use it - a tag on main that an app pins. Use after a pull request merges, or to see what a version holds. An outside contributor tags nothing.
 ---
 
 # Release
+
+The maintainer's process. An outside contribution follows `CONTRIBUTING.md` and runs none of this.
 
 A version is a tag `v<version>` on `main`. Apps pin one (`"earshot": "github:jarekbird/earshot#v0.0.31"`); nothing
 goes to npm, and `dist` is built when the app installs (`prepare`).
