@@ -28,9 +28,11 @@ Checks cite these IDs. Changing one needs Jarek's OK.
   it takes and opens a WebSocket, is its own.
 
 - **E14** A change that breaks an app written against the last version is Jarek's to allow. He is asked before it is
-  built, or told as soon as it is found, and the pull request lists what an app must change. _A test holds what an
-  app has (`docs/api.json`: each name of each way in, the commands, the Node and the SDK it needs) and fails when
-  something went. A changed shape or behaviour it cannot see: that part is prose._
+  built, or told as soon as it is found, and the pull request lists what an app must change. A break is what stops
+  an app that follows the last version's README and types: a removed or renamed name, a newly required setting, a
+  changed default or documented behaviour, a raised Node or SDK need. A new optional setting is not one. _A test
+  holds what an app has (`docs/api.json`: each name of each way in, the commands, the Node and the SDK it needs)
+  and fails when something went. A changed shape or behaviour it cannot see: that part is prose._
 
 ## Code rules
 
