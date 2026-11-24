@@ -81,11 +81,16 @@ The stack is the path from home to the screen on show, not a history, so going b
 A screen's lifetime ends when the screen leaves the stack, and takes with it everything started through it. A screen covered by another keeps running.
 
 ```ts
-enter: life => {
-  life.own(subscribe(thread)) // any cleanup function
-  life.interval(refresh, 30_000) // also timeout; both return { cancel }
-  life.listen(window, 'online', reconnect)
-  void load(life)
+import type { Lifetime, Screen } from 'earshot'
+
+const screen: Screen = {
+  id: 'thread',
+  enter: life => {
+    life.own(subscribe(thread)) // any cleanup function
+    life.interval(reload, 30_000) // also timeout; both return { cancel }
+    life.listen(window, 'online', reconnect)
+    void load(life)
+  },
 }
 
 async function load(life: Lifetime) {
@@ -115,7 +120,7 @@ const open = action({
   run: note => router.open({ id: 'note', view: () => text({ title: note.title, body: note.body }) }),
 })
 
-const router = new Router({
+const router: Router = new Router({
   home: { id: 'notes', actions: () => [open, refresh], view: () => list({ title: 'Notes', action: open }) },
 })
 
@@ -170,10 +175,15 @@ new Shell(life, glasses, router, {
 An app can hear for as long as it likes: a screen that takes dictation, a meter, a phrase that wakes it.
 
 ```ts
-enter: life => {
-  show(glasses.micOpen ? 'Listening' : 'Not hearing')
-  life.own(glasses.listen(sound => meter.add(sound.pcm, sound.speaker)))
-  life.own(glasses.onMic(open => show(open ? 'Listening' : 'Not hearing')))
+import type { Screen } from 'earshot'
+
+const screen: Screen = {
+  id: 'meter',
+  enter: life => {
+    show(glasses.micOpen ? 'Listening' : 'Not hearing')
+    life.own(glasses.listen(sound => meter.add(sound.pcm, sound.speaker)))
+    life.own(glasses.onMic(open => show(open ? 'Listening' : 'Not hearing')))
+  },
 }
 ```
 
@@ -192,12 +202,15 @@ enter: life => {
 Words while they are said, for an app that listens: captions, dictation, a transcript.
 
 ```ts
-import { scriptedLive, type LiveSpeech } from 'earshot'
+import { scriptedLive, type LiveSpeech, type Screen } from 'earshot'
 
 const speech: LiveSpeech = scriptedLive(['good morning', 'how are you'])
-enter: life => {
-  const hear = speech.start(life, turn => show(turn.id, turn.speaker, turn.words, turn.final))
-  life.own(glasses.listen(hear))
+const screen: Screen = {
+  id: 'captions',
+  enter: life => {
+    const hear = speech.start(life, turn => show(turn.id, turn.speaker, turn.words, turn.final))
+    life.own(glasses.listen(hear))
+  },
 }
 ```
 
@@ -234,7 +247,7 @@ const hear = speech.start(life, showTurn, state => showWhetherWordsCome(state))
 One question, with everything the user could mean:
 
 ```ts
-import { action, Rolling } from 'earshot'
+import { action, Rolling, Shell } from 'earshot'
 
 const open = action({ id: 'open', say: 'Open thread', hint: 'Shows one conversation', targets, run })
 
@@ -335,6 +348,8 @@ What it does not do: tell one user from another. Anyone who finds the address ca
 Under the shell, `Glasses` draws frames of text boxes and tells you what the user did. It is the only part of Earshot that talks to Even's SDK, which your app installs.
 
 ```ts
+import { LINE_HEIGHT, SCREEN_WIDTH } from 'earshot'
+
 glasses.draw({
   boxes: [
     { id: 'title', x: 0, y: 0, w: SCREEN_WIDTH, h: LINE_HEIGHT, text: 'Threads' },
@@ -362,7 +377,9 @@ glasses.onInput(input => {
 ### Test without the glasses
 
 ```ts
+import { Glasses, Shell } from 'earshot'
 import { fakeBridge } from 'earshot/testing'
+import { expect, vi } from 'vitest'
 
 const fake = fakeBridge()
 const glasses = new Glasses(life, fake.bridge)
@@ -433,7 +450,7 @@ npm run example:pack   # build, check and pack the example app in example/
 
 The Worker's runtime is installed apart, in `workerd/`, because it runs on fewer machines than the rest: an app that installs Earshot from Git builds it with the tools in `package.json`, and must never need this one. `npm run check` says so when it is missing.
 
-A change goes through a pull request. Run `npm run check` yourself before every commit; the whole simulator suite (`npm run check:sim`, the job `sim`) runs on the pull request, not on your machine. No test may call an outside service (E4): a guard refuses the usual ways on your machine, and CI runs the tests with no network but its own. The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
+A change goes through a pull request. Run `npm run check` yourself before every commit. It also builds the package as an app gets it and compiles every example on this page against it, so an example that no longer compiles fails. The whole simulator suite (`npm run check:sim`, the job `sim`) runs on the pull request, not on your machine. No test may call an outside service (E4): a guard refuses the usual ways on your machine, and CI runs the tests with no network but its own. The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
 
 MIT licensed.
 

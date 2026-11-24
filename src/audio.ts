@@ -80,7 +80,7 @@ export function problemWith(pcm: Uint8Array): 'short' | 'silent' | null {
   return peakOf(pcm) < SILENCE_PEAK ? 'silent' : null
 }
 
-export function toWav(pcm: Uint8Array): Uint8Array {
+export function toWav(pcm: Uint8Array): Uint8Array<ArrayBuffer> {
   const wav = new Uint8Array(44 + pcm.length)
   const view = new DataView(wav.buffer)
   const tag = (at: number, text: string) => [...text].forEach((char, index) => view.setUint8(at + index, char.charCodeAt(0)))
