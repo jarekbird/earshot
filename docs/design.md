@@ -425,8 +425,11 @@ The line, as states:
 | Waiting    | No line, after a loss; sound is held   | Half a second, then double, up to eight: a line, if sound is held   |
 | Refused    | The relay closed with 4400, 4401, 4403 | Never: nothing is sent or held until the app starts again           |
 
+- A line still connecting when quiet comes with nothing left to send (what it held went stale) is lost as well, so
+  the app hears `down`.
 - A line that closes while the lifetime goes on ends the turn that was growing, as final and cut, with the words it
-  had. Turns of the next line are numbered on from there.
+  had. Turns of the next line are numbered on from there. A turn the upstream numbers with anything but a count
+  (a fraction, a negative, a number too large to count with) is not taken, so it cannot hide the turns after it.
 - While the line is up, sound goes out as it comes. Only sound that cannot be sent yet is held: the last ten
   seconds of it, to the sample, in memory of its own (a long piece is copied, not kept whole), and let go of when the
   lifetime ends. It is sent however long the line was away, unless the app set `staleMs`: then sound held longer is
@@ -520,7 +523,9 @@ The line, as states:
   runs against both hosts for real, the Worker in Cloudflare's own runtime on the test machine. The tool that runs it
   is installed apart, from `workerd/package.json`: npm installs every tool in the root `package.json` to build
   Earshot for an app that takes it from Git, and this one runs on fewer machines than the rest (a test holds that).
-- **A relay can be for live speech alone.** With no upstream for the three calls it forwards none of them.
+- **A relay can be for live speech alone.** With no upstream for the three calls it forwards none of them. A
+  host that is handed an upstream for the three calls but no key for it does not start: the example Worker's
+  `wrangler.toml` sets `UPSTREAM`, so a Worker for live speech alone takes that line out.
 - What those runs and the gateway showed, which the docs did not say:
   - The gateway does not answer with a subprotocol when the token is sent as one, the way its docs give for
     browsers. Node's WebSocket then fails the connection; a Worker's does not. So the token goes in a header.

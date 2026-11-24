@@ -180,6 +180,7 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
         const { turn_index: index, transcript, audio_window_start: from, audio_window_end: to } = message
         if (message.type !== 'TurnInfo' || typeof index !== 'number' || typeof transcript !== 'string') return
         const id = first + index
+        if (!Number.isSafeInteger(index) || index < 0 || !Number.isSafeInteger(id)) return
         const words = transcript.trim()
         if (!words || (id < next && growing?.id !== id)) return
         if (growing && growing.id !== id) cutTurn()
