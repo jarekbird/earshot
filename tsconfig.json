@@ -14,5 +14,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "check", "sim", "relay", "example", "workerd"]
+  "include": ["src", "check", "sim", "relay", "example", "workerd", "installed"]
 }

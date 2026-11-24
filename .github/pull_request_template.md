@@ -1,4 +1,5 @@
-<!-- Skill `develop`, step 6. Keep every heading. -->
+<!-- Keep every heading. From outside (CONTRIBUTING.md): fill in What changed, Checks and Not verified, and leave
+     App-agnostic and Review to the maintainer. The maintainer's agents: skill `develop`, step 6, every section. -->
 
 ## What changed
 
