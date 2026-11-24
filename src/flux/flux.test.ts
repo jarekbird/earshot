@@ -100,12 +100,17 @@ beforeEach(() => void vi.useFakeTimers())
 afterEach(() => void vi.useRealTimers())
 
 describe('the relay of live speech', () => {
-  it.each(['http://relay.example', 'ws://relay.example', 'http://127.0.0.2.example'])(
-    'is refused when named %s: the secret and the sound would be readable',
-    host => {
-      expect(() => fluxLive({ host })).toThrow('https')
-    },
-  )
+  it.each([
+    'http://relay.example',
+    'ws://relay.example',
+    'http://127.0.0.2.example',
+    'https://relay.example/?tenant=demo',
+    'https://relay.example/#x',
+    'https://someone@relay.example',
+    'ws://localhost:8787',
+  ])('is refused when named %s: the secret and the sound would be readable', host => {
+    expect(() => fluxLive({ host })).toThrow(/https|address alone/)
+  })
 
   it.each(['https://relay.example', 'http://127.0.0.1:8787', 'http://localhost:8787', 'http://[::1]:8787'])('may be %s', host => {
     expect(() => fluxLive({ host })).not.toThrow()
@@ -162,11 +167,32 @@ describe('live speech from Flux, through the relay', () => {
     expect(lines[0].sent).toEqual([JSON.stringify({ model: FLUX, encoding: 'linear16', sample_rate: '16000', secret: PHRASE })])
   })
 
-  it('asks for the model the app named, and sends no secret when the app has none', () => {
-    const { lines, hear } = listening({ model: 'other/model' })
+  it('sends no secret when the app has none', () => {
+    const { lines, hear } = listening()
     hear(sound(100))
     lines[0].opens()
-    expect(lines[0].sent).toEqual([JSON.stringify({ model: 'other/model', encoding: 'linear16', sample_rate: '16000' })])
+    expect(lines[0].sent).toEqual([JSON.stringify({ model: FLUX, encoding: 'linear16', sample_rate: '16000' })])
+  })
+
+  it.each([
+    ['https://relay.example/base/', 'wss://relay.example/base/api/v1/live'],
+    ['HTTPS:relay.example', 'wss://relay.example/api/v1/live'],
+    ['http://localhost:8787', 'ws://localhost:8787/api/v1/live'],
+  ])('opens the line where the checked address says, however it was written: %s', (host, line) => {
+    const { lines, hear } = listening({ host })
+    hear(sound(100))
+    expect(lines.map(one => one.url)).toEqual([line])
+  })
+
+  it('does not say the line is up when sending what it held has just cost it that line', () => {
+    const { lines, states, hear } = listening()
+    hear(sound(100))
+    lines[0].drops()
+    vi.advanceTimersByTime(retryDelay(1))
+    lines[1].bufferedAmount = STALLED_BYTES + 1
+    lines[1].connects()
+    expect(lines[1].closedWith).toBeDefined()
+    expect(states).toEqual(['down'])
   })
 
   it('holds the sound that comes while it connects, and sends it in order once Flux says it is connected', () => {

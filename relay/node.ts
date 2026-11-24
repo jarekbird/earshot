@@ -78,10 +78,10 @@ export function serve({ port = PORT, hostname, ...options }: ServeOptions): Prom
   const upgraded = async (incoming: IncomingMessage, socket: Duplex, head: Buffer) => {
     const others = server.listenerCount('upgrade') > 1
     if (others && (incoming.url ?? '').split('?')[0] !== LIVE_PATH) return
-    const request = requestOf(incoming)
     const upgrade = { incoming, socket, head, taken: false }
-    upgrades.set(request, upgrade)
     try {
+      const request = requestOf(incoming)
+      upgrades.set(request, upgrade)
       const response = await handle(request)
       if (upgrade.taken) return
       const body = await response.text()

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
-import type { AddressInfo, Socket } from 'node:net'
+import { connect, type AddressInfo, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { build } from 'esbuild'
 import { Miniflare } from 'miniflare'
@@ -449,6 +449,25 @@ describe('E13: live speech through the relay, on the Node server and on the Work
     await vi.waitFor(() => expect(up.seen.asked).toBe(1), WAIT)
     server.close()
     await vi.waitFor(() => expect(up.seen.abandoned).toBe(1), { timeout: 2_000, interval: 10 })
+  })
+
+  it('the Node server outlives an upgrade it cannot even read as a request, and goes on serving', async () => {
+    const up = await gateway()
+    const server = await serve({ live: { upstream: up.at, key: LIVE_KEY, secret: PHRASE }, port: 0, hostname: '127.0.0.1' })
+    onTestFinished(() => void server.close())
+    const { port } = server.address() as AddressInfo
+    const ended = await new Promise<boolean>(done => {
+      const raw = connect(port, '127.0.0.1', () =>
+        raw.write(`TRACE ${LIVE_PATH} HTTP/1.1\r\nhost: relay\r\nconnection: upgrade\r\nupgrade: websocket\r\n\r\n`),
+      )
+      raw.on('close', () => done(true))
+      raw.on('error', () => done(true))
+      raw.resume()
+    })
+    expect(ended).toBe(true)
+    const { got, say } = call(`http://127.0.0.1:${port}`)
+    await say(greeting())
+    await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
   })
 
   it("the Node server leaves a WebSocket on a path of the app's own to the app", async () => {

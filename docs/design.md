@@ -428,7 +428,8 @@ words as they come.
   its turns, a growing one with three dots after it.
 - `fluxLive` (`src/flux`, the second folder that may open a connection, E2) is the transport: sound to the
   developer's relay over one WebSocket, and Deepgram Flux's turns back. Flux decides where a turn ends, so Earshot
-  cuts nothing by pauses. The relay is named with `https`, or is on the same device: the line carries the secret.
+  cuts nothing by pauses. The relay is named with `https`, or is on the same device, and by its address alone: the
+  line carries the secret, so it is opened at the address that was checked, never at the text that was given.
 
 The line, as states:
 

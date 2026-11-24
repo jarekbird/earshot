@@ -15,7 +15,6 @@ export interface FluxSocket {
 export interface FluxOptions {
   host: string
   secret?: string
-  model?: string
   staleMs?: number
   open?: (url: string) => FluxSocket
   now?: () => number
@@ -61,9 +60,13 @@ function parse(data: unknown): Record<string, unknown> | null {
 
 function lineTo(host: string): string {
   const relay = new URL(host)
-  if (relay.protocol !== 'https:' && !THIS_DEVICE.has(relay.hostname))
+  if (relay.protocol !== 'https:' && !(relay.protocol === 'http:' && THIS_DEVICE.has(relay.hostname)))
     throw new Error('Live speech carries a secret and sound, so its relay is named with https.')
-  return `${host.replace(/\/+$/, '').replace(/^http/, 'ws')}${LIVE_PATH}`
+  if (relay.search || relay.hash || relay.username || relay.password)
+    throw new Error('The relay of live speech is named by its address alone: no query, no fragment, no name or password.')
+  relay.protocol = relay.protocol === 'https:' ? 'wss:' : 'ws:'
+  relay.pathname = `${relay.pathname.replace(/\/+$/, '')}${LIVE_PATH}`
+  return relay.href
 }
 
 export function fluxLive(options: FluxOptions): LiveSpeech {
@@ -72,7 +75,7 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
   const now = options.now ?? Date.now
   const staleMs = options.staleMs ?? Infinity
   const hello = JSON.stringify({
-    model: options.model ?? FLUX,
+    model: FLUX,
     encoding: 'linear16',
     sample_rate: String(SAMPLE_RATE),
     ...(options.secret ? { secret: options.secret } : {}),
@@ -245,7 +248,7 @@ export function fluxLive(options: FluxOptions): LiveSpeech {
           mine.life.end()
           failures = 0
           sendHeld()
-          tell('on')
+          if (line === mine) tell('on')
         })
       }
 

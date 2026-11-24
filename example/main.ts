@@ -47,7 +47,7 @@ const scripted = flags.get('say')?.split('|')
 const secret = document.getElementById('secret') as HTMLInputElement
 const STALE_MS = 3_000
 const speech = () => {
-  if (flags.has('live')) return scriptedLive(flags.get('live')!.split('|'))
+  if (flags.has('live')) return scriptedLive(flags.get('live')!.split('|'), Number(flags.get('pace')) || undefined)
   return EARSHOT_RELAY && secret.value ? fluxLive({ host: EARSHOT_RELAY, secret: secret.value, staleMs: STALE_MS }) : undefined
 }
 
@@ -151,6 +151,7 @@ const listen = action({
           }),
         )
         life.own(glasses.onMic(show))
+        life.own(() => void (said = []))
       },
     }),
 })

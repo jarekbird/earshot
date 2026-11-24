@@ -33,6 +33,7 @@ export function scriptedLive(lines: readonly string[], msPerWord = 300): LiveSpe
       let said = 0
       let waiting: Array<[Speaker, number]> = []
       let by: Record<Speaker, number> = { self: 0, other: 0, unknown: 0 }
+      let telling = false
       const takeWord = () => {
         if (waiting.reduce((bytes, [, part]) => bytes + part, 0) < word) return false
         for (let needed = word; needed > 0;) {
@@ -64,7 +65,13 @@ export function scriptedLive(lines: readonly string[], msPerWord = 300): LiveSpe
           said++
           turn(said === left[0].length, false)
         }
-        for (let told = news.shift(); told && !life.ended; told = news.shift()) heard(told)
+        if (telling) return
+        telling = true
+        try {
+          for (let told = news.shift(); told && !life.ended; told = news.shift()) heard(told)
+        } finally {
+          telling = false
+        }
       }
     },
   }
