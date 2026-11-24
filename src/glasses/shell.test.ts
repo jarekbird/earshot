@@ -606,6 +606,46 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(ran).toEqual(['go'])
   })
 
+  it('follows its end from the moment an app turns that on, also on a screen that was swiped before', async () => {
+    const { fake, router, shell } = world()
+    const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)
+    let end = false
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: log.join('\n'), end }) })
+    await settle()
+    fake.down()
+    await settle()
+    fake.up()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 1')
+    end = true
+    shell.redraw()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 22')
+    log.push('Line 31')
+    shell.redraw()
+    await settle()
+    expect(fake.lines().at(-1)).toBe('Line 31')
+  })
+
+  it('drops a swipe not yet drawn when its screen is replaced, also by a new showing of the very same screen', async () => {
+    const { fake, router, shell } = world()
+    let lines = 30
+    const body = () => Array.from({ length: lines }, (_, at) => `Line ${at + 1}`).join('\n')
+    const log = { id: 'log', view: () => text({ title: 'Log', body: body(), end: true }) }
+    router.open(log)
+    await settle()
+    const release = held(fake)
+    fake.up()
+    lines = 3
+    router.replace(log)
+    lines = 50
+    shell.redraw()
+    fake.up()
+    release()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 40')
+  })
+
   it('counts a swipe on the page the wearer saw when the screen has meanwhile turned to following its end', async () => {
     const { fake, router, shell } = world()
     const log = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`)

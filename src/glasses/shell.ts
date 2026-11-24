@@ -4,7 +4,7 @@ import { LifetimeEnded, type Lifetime, type Timer } from '../lifetime.js'
 import { ITEM_LIMIT } from '../context.js'
 import { matchWords, navigator, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
 import type { Rolling } from '../rolling.js'
-import { ON_PATH, type Router, type Screen } from '../router.js'
+import { SHOWING, type Router, type Screen } from '../router.js'
 import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
@@ -168,7 +168,7 @@ export class Shell {
     this.#life.own(
       router.onChange(() => {
         if (this.#asking) this.#clear()
-        this.#frames.left(screen => !router[ON_PATH](screen))
+        this.#frames.left(screen => router[SHOWING](screen))
         this.redraw()
       }),
     )
@@ -219,7 +219,7 @@ export class Shell {
     const frame = this.#glasses.draw({ boxes, pictures, menu })
     if (!this.#drawn || frame > this.#drawn.frame)
       this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
-    this.#frames.asked(frame, screen, drew)
+    this.#frames.asked(frame, screen, drew, this.#router[SHOWING](screen))
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
@@ -231,9 +231,10 @@ export class Shell {
     const stride = from.stride(by === 'swipe' ? SCROLL_LINES : SCREENFUL)
     const top = from.at + (up ? -stride.up : stride.down)
     const to = text(view.end && !up && from.atEnd ? { top: 0, away: false } : { top, away: true })
-    const follows = view.end === true && to.atEnd && drawn.view.kind === 'text' && drawn.view.end === true
-    Object.assign(place, follows ? { top: 0, away: false } : { top: to.at, away: true })
-    this.#frames.swiping(drawn.screen, { view, state: to.state })
+    const ends = drawn.view.kind === 'text' && drawn.view.end === true
+    const follows = ends && view.end === true && to.atEnd
+    Object.assign(place, follows ? { top: 0, away: false } : { top: to.at, away: ends })
+    this.#frames.swiping(drawn.screen, { view, state: to.state }, this.#router[SHOWING](drawn.screen))
     this.#draw({ view, laid: text })
   }
 

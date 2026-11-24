@@ -107,7 +107,7 @@ describe('the frames a shell asked for', () => {
   })
 
   it('lets go of where a swipe reached on a screen that has left the path, though the glasses have drawn nothing since', () => {
-    const frames = new Frames({ shown: 1, menu: 1, text: 1, sending: 0 })
+    const frames = new Frames({ shown: 2, menu: 2, text: 2, sending: 0 })
     const home = screen('home')
     const log = screen('log')
     frames.asked(1, home, null)
@@ -115,10 +115,11 @@ describe('the frames a shell asked for', () => {
     frames.swiping(log, read('where the swipe reached'))
     frames.asked(3, log, read('after the swipe'))
     frames.asked(4, home, null)
-    const before = frames.kept
-    frames.left(gone => gone === log)
-    expect(frames.kept).toBe(before - 1)
-    expect(body(frames, log)).not.toBe('where the swipe reached')
+    expect(frames.texts).toBe(2)
+    frames.left(of => (of === log ? 'a later showing, or none' : undefined))
+    expect(frames.texts).toBe(0)
+    expect(frames.read(log)).toBeNull()
+    expect(frames.screen).toBe(log)
   })
 
   it('keeps of the frame whose menu shows only which screen it was, once newer words are on the glasses', () => {

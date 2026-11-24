@@ -118,7 +118,7 @@ containers change, and maps the touchpad to actions: swipe moves, tap runs, doub
   be taken while another of the same frame is refused. It notes each of these before it tells whoever watches, and
   tells `Frames` at each change until its lifetime ends, so nothing is kept past its use and a redraw or a swipe
   from an observer finds the frames as they are. Each draw has its own number, also one asked for from inside the
-  telling of another. The router tells the shell whether a screen is still on the path the same way (`ON_PATH`).
+  telling of another. The router tells the shell which showing of a screen is on the path the same way (`SHOWING`), so a screen that was closed, or replaced by a new showing of itself, keeps neither a swipe nor its words.
 - Holds are handed on untouched; slice 3 takes them.
 
 `earshot/testing` is a stand-in bridge for tests, and a traced frame is what `earshot/sim` reads back as the glasses'

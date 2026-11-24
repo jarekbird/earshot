@@ -33,11 +33,12 @@ interface Asked {
   frame: number
   screen: Screen
   drew: Read | null
+  showing: unknown
 }
 
 export class Frames {
   readonly #progress: Progress
-  readonly #swiped = new Map<Screen, { frame: number; to: Read }>()
+  readonly #swiped = new Map<Screen, { frame: number; to: Read; showing: unknown }>()
   #asked: Asked[] = []
   #ended = false
 
@@ -58,21 +59,22 @@ export class Frames {
     return this.#asked.findLast(asked => asked.frame <= this.#progress.menu)?.screen
   }
 
-  swiping(screen: Screen, to: Read): void {
-    if (!this.#ended) this.#swiped.set(screen, { frame: Infinity, to })
+  swiping(screen: Screen, to: Read, showing?: unknown): void {
+    if (!this.#ended) this.#swiped.set(screen, { frame: Infinity, to, showing })
   }
 
-  asked(frame: number, screen: Screen, drew: Read | null): void {
+  asked(frame: number, screen: Screen, drew: Read | null, showing?: unknown): void {
     if (this.#ended) return
     const later = this.#asked.findIndex(asked => asked.frame > frame)
-    this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, screen, drew })
+    this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, screen, drew, showing })
     const swiped = this.#swiped.get(screen)
     if (swiped?.frame === Infinity) swiped.frame = frame
     this.forget()
   }
 
-  left(gone: (screen: Screen) => boolean): void {
-    for (const screen of [...this.#swiped.keys()]) if (gone(screen)) this.#swiped.delete(screen)
+  left(showing: (screen: Screen) => unknown): void {
+    for (const [screen, swiped] of [...this.#swiped]) if (showing(screen) !== swiped.showing) this.#swiped.delete(screen)
+    for (const asked of this.#asked) if (showing(asked.screen) !== asked.showing) asked.drew = null
   }
 
   read(screen: Screen): Read | null {

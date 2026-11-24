@@ -217,6 +217,7 @@ export class Glasses {
     this.#trace = options.trace === true ? line => console.info(line) : options.trace || undefined
     this.#watch = options.watch ?? (() => {})
     this.#life.own(bridge.onEvenHubEvent(event => this.#hear(event)))
+    this.#life.own(() => void (this.#progress.sending = 0))
     const open = () => {
       const opening = bridge.audioControl(true, AudioInputSource.Glasses)
       this.holdRebuilds(opening)
@@ -474,7 +475,7 @@ export class Glasses {
     let drawn = !this.#created && (await this.#ask(frame, 'create', shown, create, StartUpPageCreateResult.success, undefined, built))
     // A reloaded web view already owns a page, so a create is refused and a rebuild takes it over.
     if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, rebuild, true, undefined, built)
-    return drawn
+    return drawn && !this.#life.ended
   }
 
   async #update({ frame, boxes }: Page): Promise<boolean> {

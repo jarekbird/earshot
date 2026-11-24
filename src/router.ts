@@ -25,7 +25,7 @@ interface Jump {
   moved: boolean
 }
 
-export const ON_PATH = Symbol('whether a screen is on the path from home to the one on show')
+export const SHOWING = Symbol('which showing of a screen is on the path from home to the one on show, if any')
 
 export class Router {
   readonly #stack: Entry[]
@@ -60,8 +60,8 @@ export class Router {
     return this.#stack.length
   }
 
-  [ON_PATH](screen: Screen): boolean {
-    return this.#stack.some(entry => entry.screen === screen)
+  [SHOWING](screen: Screen): object | undefined {
+    return this.#stack.findLast(entry => entry.screen === screen)?.life
   }
 
   onChange(listener: (current: Screen) => void): () => void {
