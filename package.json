@@ -1,6 +1,6 @@
 {
   "name": "earshot",
-  "version": "0.0.37",
+  "version": "0.0.38",
   "description": "A voice-first app framework for Even Realities G2 glasses: declare what your app can do, then hold and say it.",
   "license": "MIT",
   "type": "module",
@@ -47,7 +47,7 @@
     "dist"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.check.json && tsc -p tsconfig.sim.json && tsc -p tsconfig.relay.json",

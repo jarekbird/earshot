@@ -22,8 +22,10 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.37
+npm install github:jarekbird/earshot#v0.0.38
 ```
+
+npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
 
 ## Actions
 
@@ -287,7 +289,7 @@ new Shell(life, glasses, router, { voice: { transcribe: service.transcribe, mode
 
 A glasses app is web files on the user's phone, and anyone can read a key out of them. So your OpenRouter key stays on a small server of yours, the relay, and the app calls that. Earshot ships it: one function that takes a request and gives a response.
 
-On Node 22 or later, on any host that keeps a process running:
+On Node 24 or later, on any host that keeps a process running:
 
 ```sh
 EARSHOT_RELAY_KEY=sk-or-... EARSHOT_RELAY_UPSTREAM=https://openrouter.ai npx earshot-relay
