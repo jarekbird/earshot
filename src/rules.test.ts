@@ -218,3 +218,8 @@ it.runIf(process.env.EARSHOT_OFFLINE)("E4: in CI the tests see no network but th
 it.runIf(process.env.CI || process.env.GITHUB_ACTIONS)('E4: CI never runs the tests with the network on', () => {
   expect(process.env.EARSHOT_OFFLINE).toBe('1')
 })
+
+it("the README's install line pins this version: a stale one installs an Earshot the README does not describe", () => {
+  const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  expect(readFileSync(join(root, 'README.md'), 'utf8').match(/earshot#v[\d.]+/g)).toEqual([`earshot#v${version}`])
+})
