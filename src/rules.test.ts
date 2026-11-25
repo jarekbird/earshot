@@ -540,18 +540,16 @@ it("the README's install line pins this version: a stale one installs an Earshot
   expect(readme.match(/--branch v[\d.]+/g)).toEqual([`--branch v${version}`])
 })
 
-it('the changelog says what this version changed, and each version before it: an app raises its pin by what it reads there', () => {
+it('the changelog has an entry for this version and for every version before it: an app raises its pin by what it reads there', () => {
   const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
   const entries = readFileSync(join(root, 'CHANGELOG.md'), 'utf8').split(/^## /m).slice(1)
-  const named = entries.map(entry =>
-    entry
-      .match(/^(\d+)\.(\d+)\.(\d+) \(\d{4}-\d{2}-\d{2}\)\n/)
-      ?.slice(1)
-      .map(Number),
-  )
-  expect(named.filter(parts => !parts)).toEqual([])
-  expect(named[0]?.join('.')).toBe(version)
-  const weight = (parts: number[] | undefined) => parts!.reduce((sum, part) => sum * 100_000 + part, 0)
-  expect(named.filter((parts, at) => at > 0 && weight(parts) >= weight(named[at - 1]))).toEqual([])
+  const named = entries.map(entry => entry.match(/^(\d+\.\d+\.\d+) \(\d{4}-\d{2}-\d{2}\)\n/)?.[1])
+  const before = (one: string) => {
+    const [major, minor, patch] = one.split('.').map(Number)
+    return patch > 0 ? `${major}.${minor}.${patch - 1}` : undefined
+  }
+  const expected = [version]
+  for (let next = before(version); next && next !== '0.0.0'; next = before(next)) expected.push(next)
+  expect(named.slice(0, expected.length)).toEqual(expected)
   expect(entries.filter(entry => !/^- \S/m.test(entry)).map(entry => entry.split('\n')[0])).toEqual([])
 })
