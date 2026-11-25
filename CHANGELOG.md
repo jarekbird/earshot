@@ -6,6 +6,11 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
+## 0.0.44 (2026-11-24)
+
+- A tap or a swipe that takes a notice away does nothing else. It also ran the row under the cursor, which the
+  notice covered. A double tap still goes up, and a pick from Even's menu still runs.
+
 ## 0.0.43 (2026-11-24)
 
 - A gesture Even's SDK does not know is no input. It was read as a tap, and a tap runs what the cursor is on.

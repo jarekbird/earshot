@@ -107,6 +107,9 @@ read, which would otherwise be taken for item 0.
   an old menu cannot run a different action. Over ten, the rest fold into a list.
 - A blocked action says why in the overlay for three seconds. A `confirm` action asks there first, and only a tap
   confirms. An action that needs a target and has none opens a list of its targets.
+- A notice covers the rows under it. A tap or a swipe while one shows only takes it away: nothing is chosen from
+  what cannot be seen. A double tap still goes up and a pick from Even's menu still runs, since neither chooses from
+  what the notice covers.
 - Holds are handed on untouched; slice 3 takes them.
 
 `earshot/testing` is a stand-in bridge for tests, and a traced frame is what `earshot/sim` reads back as the glasses'
