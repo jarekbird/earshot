@@ -61,21 +61,24 @@ function base64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
-function sealed(host: string): void {
-  let relay: URL | undefined
+const NOT_ALONE = 'A relay that is told a secret is named by its address alone, with https: no query, no fragment, no name or password.'
+
+function sealed(host: string): string {
+  let relay: URL
   try {
     relay = new URL(host)
   } catch {
-    relay = undefined
+    throw new Error(NOT_ALONE)
   }
-  if (relay?.protocol !== 'https:' && !(relay?.protocol === 'http:' && onThisDevice(relay.hostname)))
-    throw new Error('The calls carry a secret, so their relay is named by its whole address, with https.')
+  if (relay.protocol !== 'https:' && !(relay.protocol === 'http:' && onThisDevice(relay.hostname)))
+    throw new Error('The calls carry a secret, so their relay is named with https.')
+  if (/[?#]/.test(host) || relay.username || relay.password) throw new Error(NOT_ALONE)
+  return `${relay.origin}${relay.pathname.replace(/\/+$/, '')}`
 }
 
 export function openRouter(options: OpenRouterOptions): OpenRouter {
   const { secret } = options
-  if (secret !== undefined) sealed(options.host)
-  const host = options.host.replace(/\/+$/, '')
+  const host = secret === undefined ? options.host.replace(/\/+$/, '') : sealed(options.host)
   const models = { ...MODELS, ...options.models }
   const now = options.now ?? Date.now
   let heldBack: { until: number; say: string } | undefined
@@ -107,6 +110,7 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(secret === undefined ? body : { ...body, secret }),
+        ...(secret === undefined ? {} : { redirect: 'error' as const }),
         signal,
       })
       if (response.ok) return (await response.json()) as Record<string, unknown>

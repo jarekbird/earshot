@@ -60,6 +60,40 @@ describe('a relay that asks for a secret', () => {
   it.each(['https://relay.example/', 'http://localhost:8787', 'http://127.0.0.1:8787', 'http://[::1]:8787'])('may be named %j', host => {
     expect(() => openRouter({ host, secret: SECRET })).not.toThrow()
   })
+
+  it.each([
+    'https://relay.example/?to=elsewhere',
+    'https://relay.example/#part',
+    'https://name@relay.example',
+    'https://name:word@relay.example',
+  ])('is not named %j: by its address alone', host => {
+    expect(() => openRouter({ host, secret: SECRET })).toThrow('address alone')
+    expect(() => openRouter({ host })).not.toThrow()
+  })
+
+  it.each([
+    ['https:relay.example', 'https://relay.example/api/v1/audio/transcriptions'],
+    ['https://relay.example/base//', 'https://relay.example/base/api/v1/audio/transcriptions'],
+    ['HTTPS://Relay.Example:443', 'https://relay.example/api/v1/audio/transcriptions'],
+  ])('is called at the address that was checked, never at the text %j as a page would read it', async (host, called) => {
+    const { sent, fetcher } = service(json({ text: 'x' }))
+    await openRouter({ host, secret: SECRET, fetch: fetcher }).transcribe({ pcm: tone(), seconds: 0.1 })
+    expect(new URL(sent[0].url, 'https://app.example/panel/').href).toBe(called)
+  })
+
+  it('is followed to no other address: a call that carries the secret refuses a redirect, and one without goes as before', async () => {
+    const modes: (RequestRedirect | undefined)[] = []
+    const fetcher = async (_url: string | URL | Request, init?: RequestInit) => (
+      modes.push(init?.redirect),
+      json({ text: 'x', choices: [{ message: { content: 'y' } }] })
+    )
+    const guarded = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: fetcher })
+    await guarded.transcribe({ pcm: tone(), seconds: 0.1 })
+    await guarded.model.choose({ words: 'open', options: [{ id: 'a', say: 'A' }] })
+    await guarded.compact('a long text', 40)
+    await openRouter({ host: 'https://relay.example', fetch: fetcher }).transcribe({ pcm: tone(), seconds: 0.1 })
+    expect(modes).toEqual(['error', 'error', 'error', undefined])
+  })
 })
 
 describe('speech to text', () => {

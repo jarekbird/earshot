@@ -58,7 +58,7 @@ const bridge = await waitForEvenAppBridge()
 const glasses = new Glasses(life, bridge, { trace: EARSHOT_TRACE })
 const calls = (host: string) => openRouter({ host, ...(secret.value ? { secret: secret.value } : {}) })
 const relayed = EARSHOT_RELAY ? { host: EARSHOT_RELAY, service: calls(EARSHOT_RELAY) } : undefined
-if (relayed) life.listen(secret, 'change', () => void (relayed.service = calls(relayed.host)))
+if (relayed) life.listen(secret, 'input', () => void (relayed.service = calls(relayed.host)))
 
 const open = action({
   id: 'open',

@@ -207,12 +207,23 @@ describe('the example app in the real Even Hub simulator', () => {
     },
   )
 
-  it.runIf(process.platform === 'linux')("sends a hold through the developer's relay: speech to words, then Jev's pick", async () => {
+  it.runIf(process.platform === 'linux')(
+    "sends a hold through the developer's relay, once the secret is typed on the phone: speech to words, then Jev's pick",
+    async () => {
+      const sim = await start('', true, TYPED)
+      forwarded.length = 0
+      await sim.hold(1_200)
+      await sim.shows('Hold the touchpad and say')
+      expect(forwarded).toEqual(['/api/v1/audio/transcriptions', '/api/alpha/decisions'])
+    },
+  )
+
+  it.runIf(process.platform === 'linux')('says that voice is off, and has nothing forwarded, at a hold with no secret typed', async () => {
     const sim = await start('', true)
     forwarded.length = 0
     await sim.hold(1_200)
-    await sim.shows('Hold the touchpad and say')
-    expect(forwarded).toEqual(['/api/v1/audio/transcriptions', '/api/alpha/decisions'])
+    await sim.shows('Voice is off for now')
+    expect(forwarded).toEqual([])
   })
 })
 
