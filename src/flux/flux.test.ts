@@ -854,6 +854,37 @@ describe('live speech from Flux, through the relay', () => {
     ])
   })
 
+  it('tells the end of a turn it took while it grew, however high the upstream numbered it', () => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(Number.MAX_SAFE_INTEGER, 'hello'))
+    lines[0].says(info(Number.MAX_SAFE_INTEGER, 'hello world', 'EndOfTurn'))
+    expect(turns.map(turn => [turn.id, turn.words, turn.final, turn.cut])).toEqual([
+      [0, 'hello', false, false],
+      [0, 'hello world', true, false],
+    ])
+  })
+
+  it('takes no turn numbered too high to count on from the numbers of the lines before, also where those left numbers out', () => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(3, 'one', 'EndOfTurn'))
+    lines[0].drops()
+    hear(sound(100))
+    vi.advanceTimersByTime(retryDelay(1))
+    lines[1].connects()
+    lines[1].says(info(Number.MAX_SAFE_INTEGER - 1, 'far', 'EndOfTurn'))
+    lines[1].says(info(0, 'near', 'EndOfTurn'))
+    lines[1].says(info(1, 'nearer', 'EndOfTurn'))
+    expect(turns.map(turn => [turn.id, turn.words])).toEqual([
+      [0, 'one'],
+      [1, 'near'],
+      [2, 'nearer'],
+    ])
+  })
+
   it('counts its own turns one by one, also where the upstream leaves numbers out', () => {
     const { lines, turns, hear } = listening()
     hear(sound(100))

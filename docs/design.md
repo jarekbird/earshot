@@ -450,7 +450,11 @@ The line, as states:
   had. The transport numbers the turns itself, one by one and on across lines: the upstream's number only says
   which turn of its line a message is about. A message about a turn before the newest of its line is not taken, nor
   one numbered with anything but a count (a fraction, a negative, a number too large to count with), so no number
-  the upstream sends can hide the turns of the next line.
+  the upstream sends can hide the turns of the next line. Nor is a turn taken whose number, counted on from where
+  the upstream's own numbers stood when its line began, is no number any more: that is the bound the transport had
+  when it made its ids from the upstream's numbers, kept so that nothing it refused then is taken now. The bound
+  stands still for a line, so a turn that was taken as it grew is also told when it ends, and when the upstream's
+  numbers themselves have run out, the bound starts again from the transport's own count.
 - While the line is up, sound goes out as it comes. Only sound that cannot be sent yet is held: the last ten
   seconds of it, to the sample, in memory of its own (a long piece is copied, not kept whole), and let go of when the
   lifetime ends. It is sent however long the line was away, unless the app set `staleMs`: then sound held longer is
