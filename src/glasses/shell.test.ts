@@ -587,6 +587,75 @@ describe('an action that cannot run', () => {
     expect(ran).toEqual([`open ${names[0]}`])
   })
 
+  it('runs nothing on a tap under a notice the glasses took only part of, also when an older draw was answered meanwhile', async () => {
+    const { fake, front, ran, shell } = world()
+    await settle()
+    const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
+    let answer: (() => void) | undefined
+    let refusing = false
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      if (!answer) await new Promise<void>(done => (answer = done))
+      if (refusing) return false
+      refusing = String(upgrade.content).includes('Saved')
+      return send(upgrade)
+    }
+    fake.down()
+    await settle(0)
+    shell.notice('Saved')
+    answer!()
+    await settle(3_500)
+    expect(front()).toBe('Saved')
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([])
+    refusing = false
+    await settle(10_000)
+    expect(front()).toBe('')
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[1]}`])
+  })
+
+  it('runs nothing on a second tap while the notice is still on its way to the glasses, which have not answered yet', async () => {
+    const { fake, front, ran, shell } = world()
+    await settle()
+    const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
+    let answer: (() => void) | undefined
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      const accepted = await send(upgrade)
+      if (!answer) await new Promise<void>(done => (answer = done))
+      return accepted
+    }
+    shell.notice('Saved')
+    await settle(0)
+    expect(front()).toBe('Saved')
+    fake.tap()
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer!()
+    await settle()
+    expect(front()).toBe('')
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[0]}`])
+  })
+
+  it('takes taps again after a notice the glasses refused: what they may have shown of it is written over', async () => {
+    const { fake, front, ran, shell } = world()
+    await settle()
+    fake.refuse('update', 1)
+    shell.notice('Saved')
+    await settle(0)
+    fake.tap()
+    await settle(1_000)
+    expect(front()).toBe('')
+    expect(ran).toEqual([])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[0]}`])
+  })
+
   it('still goes up at a double tap, and still runs a pick from the menu, while a notice shows: neither chooses from what it covers', async () => {
     const { fake, front, ran, shell, router } = world()
     await settle()

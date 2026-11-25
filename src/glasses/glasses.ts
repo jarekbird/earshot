@@ -109,7 +109,7 @@ interface Page {
   over: boolean
 }
 
-export const COVERED = Symbol('whether the glasses may still show an overlay')
+export const COVERED = Symbol('whether the glasses have an overlay on show')
 
 const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
@@ -314,7 +314,6 @@ export class Glasses {
       .filter(fits)
       .slice(0, MAX_IMAGE_BOXES)
       .map((picture, index) => ({ id: FIRST_PICTURE + index, name: picture.id.slice(0, MAX_NAME_CHARS), picture }))
-    if (over) this.#covered = true
     this.#wanted = { frame: this.#frames, boxes, pictures, menu, over: over !== null }
     void this.#run()
   }
@@ -385,7 +384,6 @@ export class Glasses {
         }
         this.#watch({ at: 'end', frame, drawn })
         this.#shown = frame
-        this.#covered = page.over
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
         this.#report(page)
@@ -418,7 +416,7 @@ export class Glasses {
     return ok
   }
 
-  async #build({ frame, boxes, pictures, menu }: Page, shape: string): Promise<boolean> {
+  async #build({ frame, boxes, pictures, menu, over }: Page, shape: string): Promise<boolean> {
     const menuItems = menu.map(({ id, name }) => new MenuItemProperty({ itemID: id, itemName: name }))
     const page = {
       containerTotalNum: boxes.length + pictures.length,
@@ -429,10 +427,15 @@ export class Glasses {
     const create = () => this.#bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page))
     const rebuild = () => this.#bridge.rebuildPageContainer(new RebuildPageContainer(page))
     const shown = boxes.length - 1
+    if (over) this.#covered = true
     let drawn = !this.#created && (await this.#ask(frame, 'create', shown, create, StartUpPageCreateResult.success))
     // A reloaded web view already owns a page, so a create is refused and a rebuild takes it over.
     if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, rebuild, true)
-    if (!drawn) return false
+    if (!drawn) {
+      this.#sent.delete(INPUT)
+      return false
+    }
+    this.#covered = over
     this.#created = true
     this.#shape = shape
     this.#layout = layoutOf({ boxes, pictures })
@@ -442,7 +445,7 @@ export class Glasses {
     return true
   }
 
-  async #update({ frame, boxes }: Page): Promise<boolean> {
+  async #update({ frame, boxes, over }: Page): Promise<boolean> {
     let drawn = true
     for (const box of boxes) {
       if (this.#sent.get(box.id) === stateOf(box)) continue
@@ -452,10 +455,13 @@ export class Glasses {
         content: box.text,
         textColor: box.brightness,
       })
+      if (box.id === INPUT && over) this.#covered = true
       const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name)
       if (this.#life.ended) return false
       if (accepted) this.#sent.set(box.id, stateOf(box))
       else drawn = false
+      if (box.id === INPUT && accepted) this.#covered = over
+      if (box.id === INPUT && !accepted) this.#sent.delete(INPUT)
     }
     return drawn
   }
