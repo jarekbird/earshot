@@ -110,6 +110,7 @@ interface Page {
 }
 
 export const OVERLAY = Symbol('the overlay the glasses are known to show')
+export const WHOLE = Symbol('whether the glasses show one whole frame, none partly sent since')
 
 const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
@@ -209,6 +210,7 @@ export class Glasses {
   #retryAt = 0
   #traced = ''
   #shown = 0
+  #whole = true
   #over: string | null | undefined = null
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
@@ -232,6 +234,10 @@ export class Glasses {
 
   get [OVERLAY](): string | null | undefined {
     return this.#over
+  }
+
+  get [WHOLE](): boolean {
+    return this.#whole
   }
 
   get micOpen(): boolean {
@@ -384,6 +390,7 @@ export class Glasses {
         }
         this.#watch({ at: 'end', frame, drawn })
         this.#shown = frame
+        this.#whole = true
         this.#over = page.over
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
@@ -405,6 +412,7 @@ export class Glasses {
   async #ask<T>(frame: number, op: DrawOp, boxes: number, call: () => Promise<T>, accepted: T, box?: string): Promise<boolean> {
     const named = box === undefined ? {} : { box }
     const started = this.#now()
+    this.#whole = false
     this.#watch({ at: 'call', frame, op, ...named })
     let got: unknown
     try {
@@ -478,7 +486,10 @@ export class Glasses {
       const accepted = await this.#ask(frame, 'picture', 1, send, ImageRawDataUpdateResult.success, name)
       if (this.#life.ended) return false
       if (accepted) this.#hung.set(id, picture.key)
-      else drawn = false
+      else {
+        this.#hung.delete(id)
+        drawn = false
+      }
     }
     return drawn
   }

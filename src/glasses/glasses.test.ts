@@ -394,6 +394,27 @@ describe('a rebuild the glasses refuse', () => {
   })
 })
 
+describe('a picture the glasses refuse', () => {
+  it('is taken for one that may have landed: the picture from before it is sent again', async () => {
+    const { fake, glasses } = setup()
+    const picture = (key: string, value: number) => ({ id: 'chart', x: 0, y: 54, w: 200, h: 100, key, data: new Uint8Array([value]) })
+    glasses.draw({ boxes: [box('body', 'One')], pictures: [picture('a', 1)] })
+    await settle(1_000)
+    const hang = fake.bridge.updateImageRawData.bind(fake.bridge)
+    fake.bridge.updateImageRawData = async update => {
+      fake.bridge.updateImageRawData = hang
+      await hang(update)
+      return undefined as never
+    }
+    glasses.draw({ boxes: [box('body', 'One')], pictures: [picture('b', 2)] })
+    await settle()
+    expect([...fake.pictures()[0].data]).toEqual([2])
+    glasses.draw({ boxes: [box('body', 'One')], pictures: [picture('a', 1)] })
+    await settle(10_000)
+    expect([...fake.pictures()[0].data]).toEqual([1])
+  })
+})
+
 describe('input', () => {
   it('tells every listener what the user did', () => {
     const { fake, glasses } = setup()

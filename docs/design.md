@@ -117,6 +117,16 @@ read, which would otherwise be taken for item 0.
   but the rows it cut are not back. A write the glasses refuse may have landed, so that box is written again,
   whatever it is thought to hold; after a rebuild they refuse, nothing of the page is taken as known, and the next
   page is built, not written into.
+- A tap on a list, and a gesture a screen of boxes ties to an action, runs only what the glasses show under it
+  (E15). Each frame remembers what a tap and each swipe would run; an empty list's tap would run nothing. The
+  glasses are sent a frame box by box and picture by picture, and a list's marker, rows and bright row are boxes of
+  their own, so while a frame is being written the glasses show a mix that neither frame is. `Glasses` knows
+  whether it shows one whole frame: not from the first drawing call for a frame, noted where every such call to
+  the bridge is made, until a page is answered in full. A touch counts only while the glasses show one whole frame
+  of this screen and that frame would run the same as the newest; otherwise it is dropped, as when the cursor's
+  move, a new row or any other redraw is still being written. A frame asked for and not yet sent holds nothing
+  back. Jarek chose this over letting a tap through when the whole frames agree (2026-11-25): a dropped tap costs
+  a second tap, a tap on the wrong row runs the wrong thing.
 - A question is answered only once the glasses are known to show that question. A tap or a swipe before that does
   nothing: an older notice may still be what the user sees.
 - Holds are handed on untouched; slice 3 takes them.

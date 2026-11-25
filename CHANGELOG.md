@@ -6,7 +6,7 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.45 (2026-11-24)
+## 0.0.46 (2026-11-25)
 
 - Live speech from Flux numbers the turns it tells itself, one by one and on across lines. Before, an id was made
   from the speech service's own number, and one number gone wild hid every turn after it, for the rest of the
@@ -14,6 +14,13 @@ each version's commits say: they name what a version added, and may miss a chang
 - A turn the service numbers more than 2^32 ahead of the newest of its line is not told: no line has that many.
 - `Turn.id` still counts up and stays the same while a turn grows. Where the service's numbers skip, the ids no
   longer do.
+
+## 0.0.45 (2026-11-25)
+
+- A tap on a list runs only the row the glasses show the cursor on, and a gesture a screen of boxes ties to an
+  action runs only what the screen on show ties it to. A touch that comes while a redraw is still being written to
+  the glasses is dropped; it ran what the newest frame held, which was not yet on show.
+- A picture the glasses refuse is sent again, as a refused text already was.
 
 ## 0.0.44 (2026-11-24)
 
