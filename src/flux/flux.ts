@@ -109,8 +109,6 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
       let sent = 0
       let last = -1
       let next = 0
-      let before = 0
-      let reach = 0
       let growing: Turn | null = null
       let failures = 0
       let state: LiveState = 'on'
@@ -169,7 +167,6 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
         runs = []
         sent = 0
         last = -1
-        before = reach = Number.isSafeInteger(reach + ROOM) ? reach : next
         cutTurn()
       }
 
@@ -183,7 +180,7 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
       const turned = (message: Record<string, unknown>) => {
         const { turn_index: index, transcript, audio_window_start: from, audio_window_end: to } = message
         if (message.type !== 'TurnInfo' || typeof index !== 'number' || typeof transcript !== 'string') return
-        if (!Number.isSafeInteger(index) || index < 0 || !Number.isSafeInteger(before + index)) return
+        if (!Number.isSafeInteger(index) || index < 0 || index - last > ROOM) return
         const words = transcript.trim()
         const same = growing !== null && index === last
         if (!words || (!same && index <= last)) return
@@ -196,7 +193,6 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
         growing = final ? null : turn
         last = index
         next = id + 1
-        reach = before + index + 1
         if (final) runs = runs.filter(run => run.end > until * BYTES_PER_S)
         say(turn)
       }
