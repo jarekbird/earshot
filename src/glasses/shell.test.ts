@@ -492,6 +492,73 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     await settle()
     expect(ran).toEqual(['pause'])
   })
+
+  it('E15: runs nothing while a frame between the one answered and the newest may be partly on show', async () => {
+    let playing = false
+    const { fake, ran, shell } = world({
+      home: ({ ran }) => {
+        const play = action({ id: 'play', say: 'Play', run: () => void ran.push('play') })
+        const pause = action({ id: 'pause', say: 'Pause', run: () => void ran.push('pause') })
+        return {
+          id: 'player',
+          actions: () => [],
+          view: () =>
+            boxes(
+              [
+                { id: 'label', x: 0, y: 0, w: 576, h: 27, text: playing ? 'Pause' : 'Play' },
+                { id: 'state', x: 0, y: 27, w: 576, h: 27, text: playing ? 'Playing' : 'Stopped' },
+              ],
+              { on: { tap: playing ? pause : play } },
+            ),
+        }
+      },
+    })
+    await settle()
+    const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
+    let writes = 0
+    let answer: (() => void) | undefined
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      if (++writes === 2) await new Promise<void>(done => (answer = done))
+      return send(upgrade)
+    }
+    playing = true
+    shell.redraw()
+    await settle(0)
+    expect(fake.lines()).toEqual(['Pause', 'Stopped'])
+    playing = false
+    shell.redraw()
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer!()
+    await settle()
+    expect(fake.lines()).toEqual(['Play', 'Stopped'])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['play'])
+  })
+
+  it('E15: runs nothing on a tap of an empty list, also when the screen is on its way to tying a tap to that action', async () => {
+    let listed = true
+    const { fake, ran, shell } = world({
+      home: ({ refresh }) => ({
+        id: 'home',
+        actions: () => [],
+        view: () =>
+          listed
+            ? list({ title: 'Home', action: refresh })
+            : boxes([{ id: 'only', x: 0, y: 0, w: 576, h: 27, text: 'Refresh' }], { on: { tap: refresh } }),
+      }),
+    })
+    await settle()
+    fake.refuse('rebuild', 100)
+    listed = false
+    shell.redraw()
+    await settle(0)
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+  })
 })
 
 describe('a double tap', () => {

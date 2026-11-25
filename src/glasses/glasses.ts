@@ -110,6 +110,7 @@ interface Page {
 }
 
 export const OVERLAY = Symbol('the overlay the glasses are known to show')
+export const BEGUN = Symbol('the newest frame the glasses were sent any of')
 
 const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
@@ -209,6 +210,7 @@ export class Glasses {
   #retryAt = 0
   #traced = ''
   #shown = 0
+  #begun = 0
   #over: string | null | undefined = null
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
@@ -232,6 +234,10 @@ export class Glasses {
 
   get [OVERLAY](): string | null | undefined {
     return this.#over
+  }
+
+  get [BEGUN](): number {
+    return this.#begun
   }
 
   get micOpen(): boolean {
@@ -429,6 +435,7 @@ export class Glasses {
     const rebuild = () => this.#bridge.rebuildPageContainer(new RebuildPageContainer(page))
     const shown = boxes.length - 1
     if (over !== this.#over) this.#over = undefined
+    this.#begun = Math.max(this.#begun, frame)
     let drawn = !this.#created && (await this.#ask(frame, 'create', shown, create, StartUpPageCreateResult.success))
     // A reloaded web view already owns a page, so a create is refused and a rebuild takes it over.
     if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, rebuild, true)
@@ -458,6 +465,7 @@ export class Glasses {
         textColor: box.brightness,
       })
       if (over !== this.#over) this.#over = undefined
+      this.#begun = Math.max(this.#begun, frame)
       const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name)
       if (this.#life.ended) return false
       if (accepted) this.#sent.set(box.id, stateOf(box))
