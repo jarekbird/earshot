@@ -6,7 +6,7 @@ export interface ListenOptions {
   reopenAfterMs?: number | false
 }
 
-export interface MicCalls {
+interface MicCalls {
   open(): Promise<unknown>
   close(): Promise<unknown>
 }
@@ -18,8 +18,8 @@ export interface Held {
 
 export const HOLD = Symbol('the microphone, for a hold alone')
 export const MIC_SILENT_MS = 3_000
-export const MIN_REOPEN_MS = 500
-export const MAX_REOPEN_MS = 86_400_000
+const MIN_REOPEN_MS = 500
+const MAX_REOPEN_MS = 86_400_000
 const RETRY_FIRST_MS = 500
 const RETRY_MAX_MS = 4_000
 const CLOSES_AFTER_THE_END = 5

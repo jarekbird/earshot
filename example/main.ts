@@ -19,7 +19,7 @@ import {
   type Agent,
   type LiveState,
   type Speaker,
-} from '../src/index.js'
+} from 'earshot'
 
 declare const EARSHOT_RELAY: string
 declare const EARSHOT_TRACE: boolean

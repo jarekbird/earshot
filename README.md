@@ -22,8 +22,29 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.39
+npm install github:jarekbird/earshot#v0.0.42
 ```
+
+npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
+
+## Your first app
+
+`example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
+
+```sh
+git clone --depth 1 --branch v0.0.42 https://github.com/jarekbird/earshot
+cp -r earshot/example my-app
+cd my-app
+npm install
+npm start      # builds the app, serves it at http://127.0.0.1:5173 and rebuilds when you save
+npm run sim    # in a second terminal: Even's simulator, on that address
+```
+
+- In the simulator, swipe to move, tap to open, double tap to go back. Even's menu holds the other actions.
+- To try a voice command with no service at all, give the page the words it should hear: open `http://127.0.0.1:5173/#say=open voice|go back` in the simulator, hold, make any sound and let go. Each hold hears the next of those lines.
+- `main.ts` is the app: its actions, its screens and what it does with the words. `app.json` is what the Even Hub reads; give it your own `package_id` and `name`. `package.json` has the version, which the build writes into the app.
+- `npm run typecheck` checks the types, `npm run check` runs the store check below on what was built, and `npm run pack` makes the package for the Even Hub in `build/`, which Even's own `evenhub` command then creates the app from or uploads.
+- For voice from a real service, run the relay below and build with its address: `EARSHOT_RELAY=https://relay.example.com npm run build`. `worker.ts` and `wrangler.toml` are that relay as a Cloudflare Worker.
 
 ## Actions
 
@@ -287,7 +308,7 @@ new Shell(life, glasses, router, { voice: { transcribe: service.transcribe, mode
 
 A glasses app is web files on the user's phone, and anyone can read a key out of them. So your OpenRouter key stays on a small server of yours, the relay, and the app calls that. Earshot ships it: one function that takes a request and gives a response.
 
-On Node 22 or later, on any host that keeps a process running:
+On Node 24 or later, on any host that keeps a process running:
 
 ```sh
 EARSHOT_RELAY_KEY=sk-or-... EARSHOT_RELAY_UPSTREAM=https://openrouter.ai npx earshot-relay
@@ -445,12 +466,11 @@ npm install
 npm ci --prefix workerd   # Cloudflare's runtime, for the tests of the relay's Worker host
 npm run check
 npx vitest run --config vitest.sim.config.ts -t "<test name>"   # one test against the real simulator (Linux, with Xvfb)
-npm run example:pack   # build, check and pack the example app in example/
 ```
 
 The Worker's runtime is installed apart, in `workerd/`, because it runs on fewer machines than the rest: an app that installs Earshot from Git builds it with the tools in `package.json`, and must never need this one. `npm run check` says so when it is missing.
 
-A change goes through a pull request. Run `npm run check` yourself before every commit. It also builds the package as an app gets it and compiles every example on this page against it, so an example that no longer compiles fails. The whole simulator suite (`npm run check:sim`, the job `sim`) runs on the pull request, not on your machine. No test may call an outside service (E4): a guard refuses the usual ways on your machine, and CI runs the tests with no network but its own. The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
+A change goes through a pull request. Run `npm run check` yourself before every commit. It also builds the package as an app gets it and compiles every example on this page against it, so an example that no longer compiles fails. The whole simulator suite (`npm run check:sim`, the job `sim`) runs on the pull request, not on your machine. No test may call an outside service (E4): a guard refuses the usual ways on your machine, and on Linux CI runs the tests with no network but its own. CI also runs `check` on macOS, on Windows and on the newest Node, where the guard is all there is. The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
 
 MIT licensed.
 
@@ -501,4 +521,5 @@ await sim.stop()
 - Input reaches the app only when its page has a container that captures events.
 - `Simulator.start({ url, mic: true })` gives the simulator a microphone that hears a steady tone, on Linux, and `await sim.hold(1200)` holds the touchpad that long. With `transcribe: scriptedSpeech(['open voice', 'go back'])` in your app, which hears one line a recording and calls no service, that tests a voice command end to end.
 - `new Glasses(life, bridge, { trace: true })` writes what the glasses show to the console. Then `await sim.shows('Threads')` waits for it, `sim.shown()` gives the lines, `sim.menu()` the items of Even's menu, and `await sim.pick('Refresh')` picks one.
+- The driver is tried on Linux with the real simulator, and on macOS with a stand-in for it. It does not run on Windows yet.
 - The simulator is not the glasses: check fonts, scrolling and timing on the device.
