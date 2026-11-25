@@ -329,13 +329,15 @@ export class Shell {
       return
     }
     const asking = this.#asking
-    if (this.#overlaid) this.#clear()
+    const covered = this.#overlaid
+    if (covered) this.#clear()
     if (asking) return input.kind === 'tap' ? asking.yes() : input.kind === 'up' || input.kind === 'down' ? asking.no?.() : undefined
     if (input.kind === 'double') {
       if (!this.#router.back()) void this.#glasses.leave()
       return
     }
     if (input.kind === 'menu') return this.#picked(input.item)
+    if (covered) return
     const drawn = this.#drawn
     const screen = this.#router.current
     const place = this.#places.get(screen)
