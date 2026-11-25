@@ -457,7 +457,7 @@ export class Glasses {
             this.#watch({ at: 'begin', frame, rebuild: false })
             await this.#update(page)
             this.#going = null
-            if (this.#life.ended) return void (this.#progress.sending = 0)
+            if (this.#life.ended) return this.#cut(frame)
             this.#progressed({ sending: 0 })
             this.#watch({ at: 'end', frame, drawn: false })
           }
@@ -470,7 +470,7 @@ export class Glasses {
         const written = rebuild ? await this.#build(page, shape) : await this.#update(page, true)
         if (written && !rebuild && !page.left && !this.#life.ended && this.#progress.menu !== frame) this.#progressed({ menu: frame })
         const drawn = written && !this.#takenBack(frame) && (await this.#hang(page))
-        if (this.#life.ended) return void (this.#progress.sending = 0)
+        if (this.#life.ended) return this.#cut(frame)
         this.#going = null
         if (drawn) {
           this.#whole = frame
@@ -497,6 +497,11 @@ export class Glasses {
     } finally {
       this.#drawing = false
     }
+  }
+
+  #cut(frame: number): void {
+    this.#progress.sending = 0
+    this.#watch({ at: 'end', frame, drawn: false })
   }
 
   #progressed(now: Partial<{ shown: number; menu: number; sending: number }>): void {
@@ -529,7 +534,10 @@ export class Glasses {
     const named = box === undefined ? {} : { box }
     const started = this.#now()
     this.#watch({ at: 'call', frame, op, ...named })
-    if (this.#life.ended || this.#takenBack(frame)) return false
+    if (this.#life.ended || this.#takenBack(frame)) {
+      this.#watch({ at: 'answer', frame, op, ...named, boxes, ms: 0, ok: false, got: undefined })
+      return false
+    }
     let got: unknown
     try {
       got = await call()

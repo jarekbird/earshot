@@ -1,6 +1,6 @@
-import { action, type Action, type TargetInfo } from '../action.js'
+import { action, UNLESS, type Action, type TargetInfo } from '../action.js'
 import { joinPcm, levelOf, problemWith, QUIET, secondsOf, type Audio, type Sound } from '../audio.js'
-import { LifetimeEnded, type Lifetime, type Timer } from '../lifetime.js'
+import { Lifetime, LifetimeEnded, type Timer } from '../lifetime.js'
 import { ITEM_LIMIT } from '../context.js'
 import { matchWords, navigator, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
 import type { Rolling } from '../rolling.js'
@@ -228,21 +228,23 @@ export class Shell {
     const view = screen.view?.() ?? list({ action: this.#chooser(actions) })
     if (stale()) return
     const place = this.#places.get(showing) ?? { cursor: 0, top: 0 }
-    this.#places.set(showing, place)
+    let reached: Partial<Place> = {}
     let boxes: Box[]
     let pictures: Picture[] = []
     let scrolls = false
+    let kept: View = view
     let drew: Read | null = null
     let targets: readonly TargetInfo[] = []
     if (view.kind === 'list') {
       targets = view.action.targets() ?? []
       const laid = layoutList(view, targets, place)
-      Object.assign(place, laid.state)
+      reached = laid.state
       boxes = laid.boxes
     } else if (view.kind === 'text') {
       const words = copied(view)
       const laid = (read && sameText(read.view, words) ? read.laid : layoutText(words))(place)
-      Object.assign(place, laid.state)
+      reached = laid.state
+      kept = words
       scrolls = laid.scrolls
       drew = { view: words, state: { ...laid.state } }
       boxes = laid.boxes
@@ -258,11 +260,12 @@ export class Shell {
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
     if (stale()) return
+    this.#places.set(showing, Object.assign(place, reached))
     const frame = this.#glasses.draw({ boxes, pictures, menu })
     this.#pending = [...this.#pending.filter(asked => asked === this.#glasses[PROGRESS].sending || asked > frame), frame]
     if (!showings.onPath(showing)) return this.#glasses[PROGRESS].drop([frame])
     if (!this.#drawn || frame > this.#drawn.frame)
-      this.#drawn = { frame, screen, showing, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
+      this.#drawn = { frame, screen, showing, view: kept, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
     this.#frames.asked(frame, showing, drew, view.kind)
   }
 
@@ -477,6 +480,7 @@ export class Shell {
     }
     if (this.#recording) return
     this.#callOff()
+    if (moves !== this.#moves) return void this.#spent.add(source)
     const chunks: Uint8Array[] = []
     const bars = Array<string>(METER_BARS).fill(QUIET)
     const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`)
@@ -527,7 +531,8 @@ export class Shell {
   async #decide(voice: VoiceOptions, audio: Audio, passed?: string): Promise<void> {
     const turn = ++this.#turn
     const showing = this.#router[SHOWINGS].current
-    const life = this.#life.child()
+    const life = new Lifetime()
+    life.own(this.#life.own(() => serve(() => life.end(), TURN_END)))
     const mine = () => turn === this.#turn && !this.#life.ended
     const moved = () => this.#router[SHOWINGS].current !== showing || !this.#router[SHOWINGS].onPath(showing)
     const finish = (then: () => void) => {
@@ -542,11 +547,12 @@ export class Shell {
     }
     this.#deciding = life
     this.#decidingOn = showing ?? null
-    const patience = voice.timeoutMs ?? VOICE_TIMEOUT_MS
-    const slow = life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), patience)
-    if (!mine()) return slow.cancel()
-    if (passed === undefined) this.#show(this.#words.thinking)
+    let slow: Timer = { cancel: () => {} }
     try {
+      const patience = voice.timeoutMs ?? VOICE_TIMEOUT_MS
+      slow = life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), patience)
+      if (!mine()) return slow.cancel()
+      if (passed === undefined) this.#show(this.#words.thinking)
       const transcribe = passed === undefined ? voice.transcribe : undefined
       if (!mine() || moved()) return finish(() => {})
       const transcript = transcribe ? await transcribe.call(voice, audio, life) : (passed ?? null)
@@ -707,10 +713,14 @@ export class Shell {
       const moves = this.#moves
       const jumps = this.#jumps(chosen, targetId)
       if (moves !== this.#moves) return
+      let left = false
+      const still = () => moves === this.#moves || ((left = true), false)
+      const act = () => chosen[UNLESS]?.(targetId, still) ?? chosen.run(targetId)
       this.#said = said
-      const running = jumps ? this.#router.jumping(() => chosen.run(targetId)) : chosen.run(targetId)
+      const running = jumps ? this.#router.jumping(act) : act()
       this.#said = false
       const outcome = await this.#life.guard(running)
+      if (left) return
       if (outcome.done) return this.redraw()
       if (outcome.why === 'blocked') return this.notice(outcome.say)
       this.notice(outcome.why === 'gone' ? this.#words.gone : this.#words.unavailable)

@@ -22,6 +22,8 @@ export type Outcome =
   | { done: false; why: 'gone' }
   | { done: false; why: 'unknown' }
 
+export const UNLESS = Symbol('run, unless the caller has moved on once the app was asked all there is to ask')
+
 export interface Action {
   readonly id: string
   readonly say: string
@@ -31,6 +33,7 @@ export interface Action {
   targets(): readonly TargetInfo[] | null
   choose?(): void
   run(targetId?: string): Promise<Outcome>
+  [UNLESS]?(targetId: string | undefined, still: () => boolean): Promise<Outcome>
 }
 
 interface Common {
@@ -67,18 +70,22 @@ export function action<T = never>(spec: PlainSpec | TargetSpec<T>): Action {
             .map(t => ({ id: t.id, say: t.say, private: t.private ?? false, ...(t.risk === undefined ? {} : { risk: t.risk }) }))
         : null,
     ...(spec.targets && spec.choose ? { choose: spec.choose } : {}),
-    run: async targetId => {
-      const why = blocked()
-      if (why !== null) return { done: false, why: 'blocked', say: why }
-      if (!spec.targets) {
-        await spec.run()
-        return { done: true }
-      }
-      if (targetId === undefined) return { done: false, why: 'target' }
-      const target = spec.targets().find(t => t.id === targetId)
-      if (!target) return { done: false, why: 'gone' }
-      await spec.run(target.value)
+    run: targetId => run(targetId, () => true),
+    [UNLESS]: run,
+  }
+
+  async function run(targetId: string | undefined, still: () => boolean): Promise<Outcome> {
+    const why = blocked()
+    if (why !== null) return { done: false, why: 'blocked', say: why }
+    if (!spec.targets) {
+      if (!still()) return { done: false, why: 'gone' }
+      await spec.run()
       return { done: true }
-    },
+    }
+    if (targetId === undefined) return { done: false, why: 'target' }
+    const target = spec.targets().find(t => t.id === targetId)
+    if (!target || !still()) return { done: false, why: 'gone' }
+    await spec.run(target.value)
+    return { done: true }
   }
 }

@@ -299,6 +299,151 @@ describe('drawing', () => {
     expect(ran).toEqual(['rows', 'jump'])
   })
 
+  it('runs nothing when the app, asked once more whether an action is blocked just before it runs, replaces the screen', async () => {
+    const places: { router?: Router } = {}
+    const ran: string[] = []
+    let asked = 0
+    const act = action({
+      id: 'act',
+      say: 'Act',
+      blocked: () => {
+        if (++asked === 2) places.router?.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+        return null
+      },
+      run: () => void ran.push('act'),
+    })
+    const { fake, router } = world({ home: () => ({ id: 'home', view: () => text({ body: 'Home' }), actions: () => [act] }) })
+    places.router = router
+    await settle()
+    asked = 0
+    fake.pick('Act')
+    await settle()
+    expect([asked, router.current.id, ran, fake.overlay()]).toEqual([2, 'other', [], ''])
+  })
+
+  it('runs nothing when the app, asked once more for the rows of an action just before it runs, replaces the screen', async () => {
+    const places: { router?: Router } = {}
+    const ran: string[] = []
+    let asked = 0
+    const pick = action({
+      id: 'pick',
+      say: 'Pick',
+      targets: () => {
+        if (++asked === 2) places.router?.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+        return [{ id: 'a', say: 'A', value: 'a' }]
+      },
+      run: row => void ran.push(row),
+    })
+    const { fake, router } = world({
+      home: () => ({
+        id: 'home',
+        view: () => boxes([{ id: 'status', x: 0, y: 0, w: 576, h: 27, text: 'Ready' }], { on: { tap: { action: pick, target: 'a' } } }),
+      }),
+    })
+    places.router = router
+    await settle()
+    asked = 0
+    fake.tap()
+    await settle()
+    expect([asked, router.current.id, ran, fake.overlay()]).toEqual([2, 'other', [], ''])
+  })
+
+  it('runs an action an app made by hand, as it always did', async () => {
+    const ran: string[] = []
+    const own: Action = {
+      id: 'own',
+      say: 'Own',
+      risk: 'safe',
+      blocked: () => null,
+      targets: () => null,
+      run: async () => (ran.push('own'), { done: true }),
+    }
+    const { fake } = world({ home: () => ({ id: 'home', view: () => text({ body: 'Home' }), actions: () => [own] }) })
+    await settle()
+    fake.pick('Own')
+    await settle()
+    expect(ran).toEqual(['own'])
+  })
+
+  it('keeps the row the cursor is on when a draw that was dropped had fewer rows', async () => {
+    const places: { shell?: Shell } = {}
+    const rows = ['One', 'Two', 'Three', 'Four', 'Five']
+    let armed = false
+    const open = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => {
+        const few = armed
+        if (armed) {
+          armed = false
+          places.shell?.redraw()
+        }
+        return (few ? rows.slice(0, 1) : rows).map(row => ({ id: row, say: row, value: row }))
+      },
+      run: () => {},
+    })
+    const { fake, shell, cursor } = world({ home: () => ({ id: 'home', view: () => list({ title: 'Rows', action: open }) }) })
+    places.shell = shell
+    await settle()
+    for (let at = 0; at < 4; at++) fake.down()
+    await settle()
+    expect(cursor()).toBe('Five')
+    armed = true
+    shell.redraw()
+    await settle()
+    shell.redraw()
+    await settle()
+    expect(cursor()).toBe('Five')
+  })
+
+  it('keeps the place a text is read at when a draw that was dropped had a shorter text', async () => {
+    const places: { shell?: Shell } = {}
+    const long = Array.from({ length: 40 }, (_, at) => `Line ${at + 1}`).join('\n')
+    let armed = false
+    const view = () => {
+      const page = text({ body: long })
+      Object.defineProperty(page, 'body', {
+        get: () => {
+          if (!armed) return long
+          armed = false
+          places.shell?.redraw()
+          return 'Short'
+        },
+      })
+      return page
+    }
+    const { fake, shell } = world({ home: () => ({ id: 'home', view }) })
+    places.shell = shell
+    const top = () => fake.lines()[0]
+    await settle()
+    fake.down()
+    await settle()
+    fake.down()
+    await settle()
+    const before = top()
+    expect(before).not.toBe('Line 1')
+    armed = true
+    shell.redraw()
+    await settle()
+    shell.redraw()
+    await settle()
+    expect(top()).toBe(before)
+  })
+
+  it('takes a swipe up on a text that follows its end, though the app has since changed the view it gave', async () => {
+    const body = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join('\n')
+    const first = text({ body, end: true })
+    let given = 0
+    const { fake } = world({ home: () => ({ id: 'home', view: () => (given++ === 0 ? first : text({ body, end: true })) }) })
+    await settle()
+    const tail = fake.lines()
+    expect(tail.at(-1)).toBe('Line 30')
+    ;(first as { end?: boolean }).end = false
+    fake.up()
+    await settle()
+    expect(fake.lines().at(-1)).not.toBe('Line 30')
+  })
+
   it('draws a screen with what a listener the app set on the router before the shell made ready for it', async () => {
     const life = new Lifetime()
     const fake = fakeBridge()
@@ -2582,6 +2727,77 @@ describe('a hold', () => {
     await say(fake)
     await settle()
     expect([router.current.id, ran]).toEqual(['other', []])
+  })
+
+  it('records nothing for a hold when what the turn before it left behind opens a screen and goes back', async () => {
+    const places: { router?: Router } = {}
+    const asked: number[] = []
+    let turns = 0
+    const { fake, router } = world({
+      voice: {
+        transcribe: (audio, turn) => {
+          if (turns++ > 0) return Promise.resolve((asked.push(audio.seconds), 'refresh'))
+          turn?.own(() => {
+            places.router?.open({ id: 'child', view: () => text({ body: 'Child' }) })
+            places.router?.back()
+          })
+          return new Promise<string>(() => {})
+        },
+      },
+    })
+    places.router = router
+    await settle()
+    await say(fake)
+    await say(fake)
+    await settle()
+    expect([turns, asked]).toEqual([1, []])
+    await say(fake)
+    expect(asked).toHaveLength(1)
+  })
+
+  it('lets nothing of what a turn left behind throw reach whoever ends the app, only a sentence of its own', async () => {
+    const { fake, life } = world({
+      voice: {
+        transcribe: (_audio, turn) => {
+          turn?.own(() => {
+            throw new Error('what was said in the turn')
+          })
+          return new Promise<string>(() => {})
+        },
+      },
+    })
+    await settle()
+    await say(fake)
+    const reported = vi.fn()
+    vi.stubGlobal('reportError', reported)
+    expect(() => life.end()).not.toThrow()
+    expect(reported.mock.calls.map(([error]) => String(error))).toEqual([TURN_END])
+  })
+
+  it('ends what a turn left behind when the app ends, also when the turn was still being decided', async () => {
+    let ended = 0
+    const { fake, life } = world({
+      voice: { transcribe: (_audio, turn) => (turn?.own(() => void ended++), new Promise<string>(() => {})) },
+    })
+    await settle()
+    await say(fake)
+    life.end()
+    expect(ended).toBe(1)
+  })
+
+  it('says that voice did not work, and is busy no longer, when the app throws as it is asked how long a turn may take', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, front, shell } = world({ voice })
+    await settle()
+    Object.defineProperty(voice, 'timeoutMs', {
+      get: () => {
+        throw new Error('no setting')
+      },
+    })
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await say(fake)
+    await settle(100)
+    expect([shell.busy, front(), asked, logged.mock.calls.length]).toEqual([false, 'Voice did not work', [], 1])
   })
 
   it('records nothing for a hold when the screen was replaced as the app was asked how long a hold may be', async () => {

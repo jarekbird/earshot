@@ -1842,6 +1842,42 @@ describe('watching the draws', () => {
     expect(fake.calls.filter(call => call.includes('picture'))).toEqual([])
   })
 
+  it('tells of an answer for every call and of an end for every begin, also when whoever watches ends the lifetime at the call', async () => {
+    const fake = fakeBridge()
+    const life = new Lifetime()
+    const seen: string[] = []
+    const glasses = new Glasses(life, fake.bridge, {
+      watch: event => {
+        seen.push(event.at === 'answer' ? `answer ${event.ok}` : event.at === 'end' ? `end ${event.drawn}` : event.at)
+        if (event.at === 'call') life.end()
+      },
+    })
+    glasses.draw(frame(box('title', 'One')))
+    await settle(REBUILD_GAP_MS)
+    expect(seen).toEqual(['ask', 'begin', 'call', 'answer false', 'end false'])
+    expect(fake.calls).toEqual([])
+  })
+
+  it('tells of an end when the lifetime ends while a frame is written into a page that waits for its rebuild', async () => {
+    const fake = fakeBridge()
+    const life = new Lifetime()
+    const seen: string[] = []
+    let ending = false
+    const glasses = new Glasses(life, fake.bridge, {
+      watch: event => {
+        if (ending && event.at !== 'answer') seen.push(event.at === 'end' ? `end ${event.drawn}` : event.at)
+        if (ending && event.at === 'call') life.end()
+      },
+    })
+    glasses.draw({ ...frame(box('title', 'One')), menu: [{ id: 1, name: 'A' }] })
+    await settle(REBUILD_GAP_MS)
+    glasses.holdRebuilds(new Promise<void>(() => {}))
+    ending = true
+    glasses.draw({ ...frame(box('title', 'Two')), menu: [{ id: 2, name: 'B' }] })
+    await settle(REBUILD_GAP_MS)
+    expect(seen).toEqual(['ask', 'wait', 'begin', 'call', 'end false'])
+  })
+
   it('lets a frame that was taken back leave what the glasses show, however many frames were asked for before it', async () => {
     const fake = fakeBridge()
     const glasses = new Glasses(new Lifetime(), fake.bridge)
