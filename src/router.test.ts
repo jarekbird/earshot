@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { action } from './action.js'
+import { action, unless, type Action } from './action.js'
 import type { Lifetime } from './lifetime.js'
-import { Router, SHOWINGS, type Screen } from './router.js'
+import { Router, showingsOf, type Screen } from './router.js'
 
 const screen = (id: string, more: Partial<Screen> = {}): Screen => ({ id, ...more })
 
@@ -325,26 +325,46 @@ describe('what the shell is told of the showings on the path', () => {
     const log = screen('log')
     const router = new Router({ home: screen('home') })
     router.open(log)
-    const first = router[SHOWINGS].current
+    const first = showingsOf(router).current
     router.open(log)
-    const second = router[SHOWINGS].current
+    const second = showingsOf(router).current
     expect(second).not.toBe(first)
-    expect([first, second].map(router[SHOWINGS].onPath)).toEqual([true, true])
+    expect([first, second].map(showingsOf(router).onPath)).toEqual([true, true])
     router.back()
-    expect([first, second].map(router[SHOWINGS].onPath)).toEqual([true, false])
+    expect([first, second].map(showingsOf(router).onPath)).toEqual([true, false])
     router.replace(log)
-    expect(router[SHOWINGS].onPath(first)).toBe(false)
+    expect(showingsOf(router).onPath(first)).toBe(false)
   })
 
   it('tells of every leaving, also when the router is closed, and then counts no showing as on the path', () => {
     const router = new Router({ home: screen('home') })
     router.open(screen('log'))
-    const showing = router[SHOWINGS].current
+    const showing = showingsOf(router).current
     let told = 0
-    const stop = router[SHOWINGS].onLeave(() => void told++)
+    const stop = showingsOf(router).onLeave(() => void told++)
     router.close()
     expect(told).toBe(1)
-    expect(router[SHOWINGS].onPath(showing)).toBe(false)
+    expect(showingsOf(router).onPath(showing)).toBe(false)
     stop()
+  })
+})
+
+describe('what the framework keeps to itself', () => {
+  it('adds no member to a router or to an action that an app could see, copy or have to name', () => {
+    const made = action({ id: 'a', say: 'A', run: () => {} })
+    const router = new Router({ home: { id: 'home' } })
+    const named: Record<keyof Action, true> = {
+      id: true,
+      say: true,
+      hint: true,
+      risk: true,
+      blocked: true,
+      targets: true,
+      choose: true,
+      run: true,
+    }
+    expect(Object.keys(named)).toHaveLength(8)
+    expect([made, router, Router.prototype].flatMap(of => Object.getOwnPropertySymbols(of))).toEqual([])
+    expect([typeof unless(made), unless({ ...made }), typeof showingsOf(router).onPath]).toEqual(['function', undefined, 'function'])
   })
 })

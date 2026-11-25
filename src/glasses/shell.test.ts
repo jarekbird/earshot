@@ -348,6 +348,97 @@ describe('drawing', () => {
     expect([asked, router.current.id, ran, fake.overlay()]).toEqual([2, 'other', [], ''])
   })
 
+  it('runs what an app wrapped around an action, never the action under it', async () => {
+    const ran: string[] = []
+    const base = action({ id: 'act', say: 'Act', run: () => void ran.push('act') })
+    const locked: Action = { ...base, run: async () => ({ done: false, why: 'blocked', say: 'Locked' }) }
+    const { fake, front } = world({ home: () => ({ id: 'home', view: () => text({ body: 'Home' }), actions: () => [locked] }) })
+    await settle()
+    fake.pick('Act')
+    await settle(100)
+    expect([ran, front()]).toEqual([[], 'Locked'])
+  })
+
+  it('runs nothing when the app, asked for the value of the row that was meant, replaces the screen', async () => {
+    const places: { router?: Router } = {}
+    const ran: string[] = []
+    let armed = false
+    const row = {
+      id: 'a',
+      say: 'A',
+      get value() {
+        if (armed) places.router?.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+        armed = false
+        return 'a'
+      },
+    }
+    const pick = action({ id: 'pick', say: 'Pick', targets: () => [row], run: value => void ran.push(value) })
+    const { fake, router } = world({
+      home: () => ({
+        id: 'home',
+        view: () => boxes([{ id: 'status', x: 0, y: 0, w: 576, h: 27, text: 'Ready' }], { on: { tap: { action: pick, target: 'a' } } }),
+      }),
+    })
+    places.router = router
+    await settle()
+    armed = true
+    fake.tap()
+    await settle()
+    expect([router.current.id, ran]).toEqual(['other', []])
+  })
+
+  it("runs nothing when the app, asked for the work of an action, replaces the screen, and calls that work as the app's own", async () => {
+    const places: { router?: Router } = {}
+    const ran: string[] = []
+    let armed = false
+    const spec = {
+      id: 'act',
+      say: 'Act',
+      name: 'own',
+      get run() {
+        if (armed) places.router?.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+        armed = false
+        return function (this: { name: string }) {
+          ran.push(this.name)
+        }
+      },
+    }
+    const act = action(spec)
+    const { fake, router } = world({ home: () => ({ id: 'home', view: () => text({ body: 'Home' }), actions: () => [act] }) })
+    places.router = router
+    await settle()
+    fake.pick('Act')
+    await settle()
+    expect(ran).toEqual(['own'])
+    armed = true
+    fake.pick('Act')
+    await settle()
+    expect([router.current.id, ran]).toEqual(['other', ['own']])
+  })
+
+  it('draws nothing for a shell that the app ended as it was asked for a view', async () => {
+    const life = new Lifetime()
+    const mine = life.child()
+    const fake = fakeBridge()
+    let armed = false
+    const router = new Router({
+      home: {
+        id: 'home',
+        view: () => {
+          if (armed) mine.end()
+          return text({ body: armed ? 'After the end' : 'Home' })
+        },
+      },
+    })
+    const shell = new Shell(mine, new Glasses(life, fake.bridge), router)
+    await settle()
+    armed = true
+    shell.redraw()
+    await settle()
+    expect(fake.lines()).toEqual(['Home'])
+    life.end()
+  })
+
   it('runs an action an app made by hand, as it always did', async () => {
     const ran: string[] = []
     const own: Action = {
@@ -2791,13 +2882,18 @@ describe('a hold', () => {
     await settle()
     Object.defineProperty(voice, 'timeoutMs', {
       get: () => {
-        throw new Error('no setting')
+        throw new Error('what the app would not have in a log')
       },
     })
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const reported = vi.fn()
+    vi.stubGlobal('reportError', reported)
     await say(fake)
     await settle(100)
-    expect([shell.busy, front(), asked, logged.mock.calls.length]).toEqual([false, 'Voice did not work', [], 1])
+    expect([shell.busy, front(), asked, logged.mock.calls.length]).toEqual([false, 'Voice did not work', [], 0])
+    expect(reported.mock.calls.map(([error]) => String(error))).toEqual([
+      'Error: Earshot: a listener of the settings of a voice turn threw.',
+    ])
   })
 
   it('records nothing for a hold when the screen was replaced as the app was asked how long a hold may be', async () => {

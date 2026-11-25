@@ -4,8 +4,17 @@ import { fakeBridge } from './fake.js'
 import type { Box, Frame, Picture } from './frame.js'
 import type { Sound } from '../audio.js'
 import { HOLD } from './mic.js'
-import { FRAME_TAG, Glasses, INPUT_TAG, MIC_SILENT_MS, OVERLAY_DIM, REBUILD_GAP_MS, type Drawing, type ListenOptions } from './glasses.js'
-import { PROGRESS } from './frames.js'
+import {
+  FRAME_TAG,
+  Glasses,
+  INPUT_TAG,
+  MIC_SILENT_MS,
+  OVERLAY_DIM,
+  progressOf,
+  REBUILD_GAP_MS,
+  type Drawing,
+  type ListenOptions,
+} from './glasses.js'
 import type { Input } from './input.js'
 import { textWidth } from './text.js'
 
@@ -1641,7 +1650,7 @@ describe('watching the draws', () => {
     const glasses = new Glasses(new Lifetime(), fake.bridge)
     glasses.draw(frame(box('title', 'One')))
     await settle()
-    expect([glasses[PROGRESS].shown, glasses[PROGRESS].sending]).toEqual([1, 0])
+    expect([progressOf(glasses).shown, progressOf(glasses).sending]).toEqual([1, 0])
     let release = () => {}
     const waiting = new Promise<void>(go => (release = go))
     const real = fake.bridge.textContainerUpgrade
@@ -1653,17 +1662,17 @@ describe('watching the draws', () => {
     await settle(0)
     glasses.draw(frame(box('title', 'Three')))
     glasses.draw(frame(box('title', 'Four')))
-    expect([glasses[PROGRESS].shown, glasses[PROGRESS].sending]).toEqual([1, 2])
+    expect([progressOf(glasses).shown, progressOf(glasses).sending]).toEqual([1, 2])
     release()
     await settle()
-    expect([glasses[PROGRESS].shown, glasses[PROGRESS].sending]).toEqual([4, 0])
+    expect([progressOf(glasses).shown, progressOf(glasses).sending]).toEqual([4, 0])
   })
 
   it('has said which frame is on its way, and which is shown, before it tells whoever watches of the begin and the end', async () => {
     const seen: Array<[string, number, number]> = []
     const glasses: Glasses = new Glasses(new Lifetime(), fakeBridge().bridge, {
       watch: event => {
-        if (event.at === 'begin' || event.at === 'end') seen.push([event.at, glasses[PROGRESS].sending, glasses[PROGRESS].shown])
+        if (event.at === 'begin' || event.at === 'end') seen.push([event.at, progressOf(glasses).sending, progressOf(glasses).shown])
       },
     })
     glasses.draw(frame(box('title', 'One')))
@@ -1719,7 +1728,7 @@ describe('watching the draws', () => {
   it('tells whoever follows its progress each time a frame is on its way or on the glasses', async () => {
     const glasses = new Glasses(new Lifetime(), fakeBridge().bridge)
     const seen: Array<[number, number]> = []
-    glasses[PROGRESS].onChange(() => void seen.push([glasses[PROGRESS].sending, glasses[PROGRESS].shown]))
+    progressOf(glasses).onChange(() => void seen.push([progressOf(glasses).sending, progressOf(glasses).shown]))
     glasses.draw(frame(box('title', 'One')))
     await settle()
     expect(seen).toEqual([
@@ -1738,14 +1747,14 @@ describe('watching the draws', () => {
     glasses.draw(frame(box('title', 'Two'), box('body', 'second')))
     await settle(0)
     expect(glasses.shown).toBe(1)
-    expect([glasses[PROGRESS].has('title'), glasses[PROGRESS].has('body')]).toEqual([1, 2])
+    expect([progressOf(glasses).has('title'), progressOf(glasses).has('body')]).toEqual([1, 2])
   })
 
   it('has noted which frame a box of text is from before it tells whoever watches of the answer', async () => {
     const seen: number[] = []
     const glasses: Glasses = new Glasses(new Lifetime(), fakeBridge().bridge, {
       watch: event => {
-        if (event.at === 'answer' && event.op === 'update' && event.ok) seen.push(glasses[PROGRESS].has('title'))
+        if (event.at === 'answer' && event.op === 'update' && event.ok) seen.push(progressOf(glasses).has('title'))
       },
     })
     glasses.draw(frame(box('title', 'One')))
@@ -1761,7 +1770,7 @@ describe('watching the draws', () => {
     await settle()
     glasses.draw(frame(box('new', 'Two')))
     await settle(1_000)
-    expect([glasses[PROGRESS].has('old'), glasses[PROGRESS].has('new')]).toEqual([0, 2])
+    expect([progressOf(glasses).has('old'), progressOf(glasses).has('new')]).toEqual([0, 2])
   })
 
   it('says which frame the menu on the glasses is from as soon as the page is built, though a picture of it is still refused', async () => {
@@ -1773,7 +1782,7 @@ describe('watching the draws', () => {
     const icon = { id: 'icon', x: 376, y: 54, w: 200, h: 100, key: 'v1', data: new Uint8Array([1, 2, 3]) }
     glasses.draw({ ...frame(box('title', 'Two')), menu: [{ id: 1, name: 'Open' }], pictures: [icon] })
     await settle(400)
-    expect([glasses.shown, glasses[PROGRESS].menu]).toEqual([1, 2])
+    expect([glasses.shown, progressOf(glasses).menu]).toEqual([1, 2])
   })
 
   it('tells nothing of its progress, and leaves no frame as being sent, once its lifetime has ended', async () => {
@@ -1789,11 +1798,11 @@ describe('watching the draws', () => {
     glasses.draw(frame(box('title', 'Two')))
     await settle(0)
     let told = 0
-    glasses[PROGRESS].onChange(() => void told++)
+    progressOf(glasses).onChange(() => void told++)
     life.end()
     answer()
     await settle()
-    expect([told, glasses[PROGRESS].sending]).toEqual([0, 0])
+    expect([told, progressOf(glasses).sending]).toEqual([0, 0])
   })
 
   it('sends no picture, and counts no frame as being sent, when the page was taken only after its lifetime ended', async () => {
@@ -1808,7 +1817,7 @@ describe('watching the draws', () => {
     glasses.draw({ ...frame(box('title', 'One')), pictures: [icon] })
     await settle(0)
     life.end()
-    expect(glasses[PROGRESS].sending).toBe(0)
+    expect(progressOf(glasses).sending).toBe(0)
     answer()
     await settle()
     expect(fake.calls.filter(call => call.includes('picture'))).toEqual([])
@@ -1878,6 +1887,34 @@ describe('watching the draws', () => {
     expect(seen).toEqual(['ask', 'wait', 'begin', 'call', 'end false'])
   })
 
+  it('counts a frame as shown no more once it was taken back, though its last picture was taken after that', async () => {
+    const fake = fakeBridge()
+    const ends: string[] = []
+    const glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => void (event.at === 'end' && ends.push(`${event.frame} ${event.drawn}`)),
+    })
+    const first = glasses.draw(frame(box('title', 'One')))
+    await settle(REBUILD_GAP_MS)
+    let hang = () => {}
+    const hanging = new Promise<void>(go => (hang = go))
+    const real = fake.bridge.updateImageRawData
+    fake.bridge.updateImageRawData = async update => (await hanging, real(update))
+    const cover = { id: 'cover', x: 376, y: 54, w: 200, h: 100, key: 'v1', data: new Uint8Array([1, 2, 3]) }
+    const second = glasses.draw({ ...frame(box('title', 'Two')), pictures: [cover] })
+    await settle(REBUILD_GAP_MS)
+    progressOf(glasses).drop([second])
+    hang()
+    await settle(REBUILD_GAP_MS)
+    expect([glasses.shown, ends.filter(end => end.startsWith(`${second} `))]).toEqual([first, [`${second} false`]])
+  })
+
+  it('hangs nothing on its own objects that an app could see or copy: what it tells the shell is kept beside them', () => {
+    const glasses = new Glasses(new Lifetime(), fakeBridge().bridge)
+    const keys = (of: object) => Object.getOwnPropertySymbols(of).map(String)
+    expect([...keys(glasses), ...keys(Glasses.prototype)]).toEqual(['Symbol(the microphone, for a hold alone)'])
+    expect(typeof progressOf(glasses).drop).toBe('function')
+  })
+
   it('lets a frame that was taken back leave what the glasses show, however many frames were asked for before it', async () => {
     const fake = fakeBridge()
     const glasses = new Glasses(new Lifetime(), fake.bridge)
@@ -1885,7 +1922,7 @@ describe('watching the draws', () => {
     await settle()
     glasses.draw(frame(box('title', 'Stale')))
     const newest = glasses.draw(frame(box('title', 'Newest')))
-    glasses[PROGRESS].drop([newest])
+    progressOf(glasses).drop([newest])
     glasses.overlay('Status')
     glasses.overlay(null)
     await settle()
@@ -1898,7 +1935,7 @@ describe('watching the draws', () => {
     const shown = glasses.draw(frame(box('title', 'Shown')))
     await settle()
     const newest = glasses.draw(frame(box('title', 'Newest')))
-    glasses[PROGRESS].drop([newest])
+    progressOf(glasses).drop([newest])
     glasses.overlay('Status')
     await settle()
     glasses.overlay(null)
@@ -1922,7 +1959,7 @@ describe('watching the draws', () => {
     const before = fake.calls.length
     const second = glasses.draw({ ...frame(box('title', 'Two')), menu: [{ id: 2, name: 'B' }], pictures: [cover('v2')] })
     await settle(0)
-    glasses[PROGRESS].drop([second])
+    progressOf(glasses).drop([second])
     write()
     held()
     await settle(1_000)
@@ -1945,7 +1982,7 @@ describe('watching the draws', () => {
     fake.bridge.textContainerUpgrade = async upgrade => (await writing, real(upgrade))
     const second = glasses.draw(frame(box('title', 'Two')))
     await settle(0)
-    glasses[PROGRESS].drop([second])
+    progressOf(glasses).drop([second])
     write()
     await settle()
     expect(seen.filter(told => told.endsWith(` ${second}`))).toEqual([`begin ${second}`, `end ${second}`])
@@ -1973,7 +2010,7 @@ describe('watching the draws', () => {
         if (!back || event.at !== 'begin') return
         back = false
         const third = glasses.draw(frame(box('title', 'Third')))
-        glasses[PROGRESS].drop([event.frame, third])
+        progressOf(glasses).drop([event.frame, third])
       },
     })
     glasses.draw(frame(box('title', 'First')))
@@ -2015,7 +2052,7 @@ describe('watching the draws', () => {
     fake.bridge.textContainerUpgrade = async upgrade => (await writing, real(upgrade))
     const asked = Array.from({ length: 200 }, (_, at) => glasses.draw(frame(box('title', `Frame ${at}`))))
     await settle(0)
-    glasses[PROGRESS].drop(asked)
+    progressOf(glasses).drop(asked)
     write()
     await settle()
     expect(fake.lines()).toEqual(['Frame 199'])
@@ -2033,7 +2070,7 @@ describe('watching the draws', () => {
     const writing = new Promise<void>(go => (write = go))
     const real = fake.bridge.textContainerUpgrade
     fake.bridge.textContainerUpgrade = async upgrade => (await writing, real(upgrade))
-    for (let at = 0; at < 200; at++) glasses[PROGRESS].drop([glasses.draw(frame(box('title', `Frame ${at}`)))])
+    for (let at = 0; at < 200; at++) progressOf(glasses).drop([glasses.draw(frame(box('title', `Frame ${at}`)))])
     write()
     await settle()
     expect(fake.lines()).toEqual(['Shown'])
@@ -2053,11 +2090,11 @@ describe('watching the draws', () => {
     await settle()
     expect(fake.lines()).toEqual(['Before', 'Withheld'])
     const before = fake.calls.length
-    glasses[PROGRESS].drop([second])
+    progressOf(glasses).drop([second])
     await settle(60_000)
     expect(fake.lines()).toEqual(['Before', 'Withheld'])
     expect(fake.calls.slice(before)).toEqual([])
-    expect([glasses[PROGRESS].has('title'), glasses[PROGRESS].has('body')]).toEqual([second - 1, second])
+    expect([progressOf(glasses).has('title'), progressOf(glasses).has('body')]).toEqual([second - 1, second])
   })
 
   it('hangs no picture of a frame taken back, though the glasses never took it, and goes on saying whose menu they hold', async () => {
@@ -2071,10 +2108,10 @@ describe('watching the draws', () => {
     await settle()
     expect(fake.menuItems().map(item => item.name)).toEqual(['B'])
     const before = fake.calls.length
-    glasses[PROGRESS].drop([second])
+    progressOf(glasses).drop([second])
     await settle(60_000)
     expect(fake.calls.slice(before)).toEqual([])
-    expect([glasses[PROGRESS].menu, glasses.shown]).toEqual([second, second - 1])
+    expect([progressOf(glasses).menu, glasses.shown]).toEqual([second, second - 1])
   })
 
   it('shows a notice over what the glasses hold, and takes it away again, after a frame partly taken was taken back', async () => {
@@ -2087,7 +2124,7 @@ describe('watching the draws', () => {
     const second = glasses.draw(frame(box('title', 'After'), body('Withheld')))
     await settle()
     const bright = fake.boxes().map(({ brightness }) => brightness)
-    glasses[PROGRESS].drop([second])
+    progressOf(glasses).drop([second])
     glasses.overlay('Status')
     await settle(60_000)
     expect(fake.overlay()).toBe('Status')
@@ -2096,7 +2133,7 @@ describe('watching the draws', () => {
     await settle(60_000)
     expect([fake.overlay(), fake.lines()]).toEqual(['', ['Before', 'Withheld']])
     expect(fake.boxes().map(({ brightness }) => brightness)).toEqual(bright)
-    expect([glasses[PROGRESS].has('title'), glasses[PROGRESS].has('body')]).toEqual([second - 1, second])
+    expect([progressOf(glasses).has('title'), progressOf(glasses).has('body')]).toEqual([second - 1, second])
   })
 
   it('shows a page as bright and as whole as before once a notice is gone, though a frame asked for under it was taken back', async () => {
@@ -2112,7 +2149,7 @@ describe('watching the draws', () => {
     await settle()
     expect(seen()).not.toEqual(before)
     const second = glasses.draw(frame(box('title', 'After'), body(rows('New'))))
-    glasses[PROGRESS].drop([second])
+    progressOf(glasses).drop([second])
     glasses.overlay(null)
     await settle(60_000)
     expect(seen()).toEqual(before)
@@ -2133,7 +2170,7 @@ describe('watching the draws', () => {
     const under = fake.lines().filter(line => line.startsWith('New'))
     expect(under.length).toBeGreaterThan(0)
     expect(under.length).toBeLessThan(9)
-    glasses[PROGRESS].drop([second])
+    progressOf(glasses).drop([second])
     glasses.overlay(null)
     await settle(60_000)
     expect(fake.lines()).toEqual(['Before', ...under])
@@ -2152,7 +2189,7 @@ describe('watching the draws', () => {
     glasses.draw(frame(box('title', 'Title'), body(rows('Newer end'))))
     await settle()
     const third = glasses.draw(frame(box('title', 'Third'), body(rows('Third end'))))
-    glasses[PROGRESS].drop([third])
+    progressOf(glasses).drop([third])
     glasses.overlay(null)
     await settle(60_000)
     expect(fake.lines().at(-1)).toBe('Newer end')
@@ -2170,7 +2207,7 @@ describe('watching the draws', () => {
     const second = glasses.draw(frame(box('title', 'On its way')))
     await settle()
     const before = fake.calls.length
-    glasses[PROGRESS].drop([second])
+    progressOf(glasses).drop([second])
     write()
     await settle(60_000)
     expect(fake.lines()).toEqual(['On its way'])
@@ -2185,7 +2222,7 @@ describe('watching the draws', () => {
         if (!back || event.at !== 'wait') return
         back = false
         glasses.draw({ ...frame(box('title', 'Direct')), menu: [{ id: 3, name: 'C' }] })
-        glasses[PROGRESS].drop([event.frame])
+        progressOf(glasses).drop([event.frame])
       },
     })
     glasses.draw({ ...frame(box('title', 'One')), menu: [{ id: 1, name: 'A' }] })

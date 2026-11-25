@@ -16,7 +16,7 @@ import {
 import type { Sound, Speaker } from '../audio.js'
 import type { Lifetime, Timer } from '../lifetime.js'
 import { clipBytes, linesOf, type Box, type Brightness, type Frame, type MenuItem, type Picture } from './frame.js'
-import { PROGRESS, type Sent } from './frames.js'
+import type { Sent } from './frames.js'
 import { decode, type GlassesEvent, type Input } from './input.js'
 import { serve } from '../serve.js'
 import { HOLD, Mic, MIC_SILENT_MS, retryDelay, type Held, type ListenOptions } from './mic.js'
@@ -210,6 +210,10 @@ const textBox = ({ id, name, box, text, brightness }: Placed) =>
     zOrderIndex: id === INPUT ? INPUT_ORDER : BOX_ORDER + id,
   })
 
+const PROGRESS = new WeakMap<Glasses, Sent>()
+
+export const progressOf = (glasses: Glasses): Sent => PROGRESS.get(glasses) as Sent
+
 export class Glasses {
   readonly #life: Lifetime
   readonly #bridge: GlassesBridge
@@ -246,6 +250,7 @@ export class Glasses {
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
+    PROGRESS.set(this, this.#telling())
     this.#bridge = bridge
     this.#now = options.now ?? Date.now
     this.#trace = options.trace === true ? line => console.info(line) : options.trace || undefined
@@ -271,7 +276,7 @@ export class Glasses {
     return this.#progress.shown
   }
 
-  get [PROGRESS](): Sent {
+  #telling(): Sent {
     const progress = this.#progress
     return {
       get shown() {
@@ -469,7 +474,7 @@ export class Glasses {
         this.#watch({ at: 'begin', frame, rebuild })
         const written = rebuild ? await this.#build(page, shape) : await this.#update(page, true)
         if (written && !rebuild && !page.left && !this.#life.ended && this.#progress.menu !== frame) this.#progressed({ menu: frame })
-        const drawn = written && !this.#takenBack(frame) && (await this.#hang(page))
+        const drawn = written && !this.#takenBack(frame) && (await this.#hang(page)) && !this.#takenBack(frame)
         if (this.#life.ended) return this.#cut(frame)
         this.#going = null
         if (drawn) {

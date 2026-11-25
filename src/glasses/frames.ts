@@ -24,8 +24,6 @@ export interface Sent {
   drop(frames: readonly number[]): void
 }
 
-export const PROGRESS = Symbol('how far the glasses are with the frames asked of them')
-
 export const copied = (view: Words): Words =>
   text({ ...(view.title === undefined ? {} : { title: view.title }), body: view.body, end: view.end }) as Words
 

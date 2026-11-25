@@ -25,7 +25,9 @@ interface Jump {
   moved: boolean
 }
 
-export const SHOWINGS = Symbol('the showings of screens on the path from home to the one on show')
+const SHOWINGS = new WeakMap<Router, Showings>()
+
+export const showingsOf = (router: Router): Showings => SHOWINGS.get(router) as Showings
 
 interface Showings {
   readonly current: object | undefined
@@ -59,6 +61,7 @@ export class Router {
   constructor(options: RouterOptions) {
     this.#appActions = options.actions ?? (() => [])
     this.#stack = [this.#enter(options.home)]
+    SHOWINGS.set(this, this.#showings())
   }
 
   get current(): Screen {
@@ -69,7 +72,7 @@ export class Router {
     return this.#stack.length
   }
 
-  get [SHOWINGS](): Showings {
+  #showings(): Showings {
     const stack = this.#stack
     const left = this.#left
     const moved = this.#moved

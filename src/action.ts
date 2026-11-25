@@ -22,7 +22,11 @@ export type Outcome =
   | { done: false; why: 'gone' }
   | { done: false; why: 'unknown' }
 
-export const UNLESS = Symbol('run, unless the caller has moved on once the app was asked all there is to ask')
+type Unless = (targetId: string | undefined, still: () => boolean) => Promise<Outcome>
+
+const UNLESS = new WeakMap<Action, Unless>()
+
+export const unless = (made: Action): Unless | undefined => UNLESS.get(made)
 
 export interface Action {
   readonly id: string
@@ -33,7 +37,6 @@ export interface Action {
   targets(): readonly TargetInfo[] | null
   choose?(): void
   run(targetId?: string): Promise<Outcome>
-  [UNLESS]?(targetId: string | undefined, still: () => boolean): Promise<Outcome>
 }
 
 interface Common {
@@ -57,7 +60,7 @@ export interface TargetSpec<T> extends Common {
 
 export function action<T = never>(spec: PlainSpec | TargetSpec<T>): Action {
   const blocked = () => spec.blocked?.() ?? null
-  return {
+  const made: Action = {
     id: spec.id,
     say: spec.say,
     ...(spec.hint === undefined ? {} : { hint: spec.hint }),
@@ -71,21 +74,26 @@ export function action<T = never>(spec: PlainSpec | TargetSpec<T>): Action {
         : null,
     ...(spec.targets && spec.choose ? { choose: spec.choose } : {}),
     run: targetId => run(targetId, () => true),
-    [UNLESS]: run,
   }
+  UNLESS.set(made, run)
+  return made
 
   async function run(targetId: string | undefined, still: () => boolean): Promise<Outcome> {
     const why = blocked()
     if (why !== null) return { done: false, why: 'blocked', say: why }
     if (!spec.targets) {
+      const work = spec.run
       if (!still()) return { done: false, why: 'gone' }
-      await spec.run()
+      await work.call(spec)
       return { done: true }
     }
     if (targetId === undefined) return { done: false, why: 'target' }
     const target = spec.targets().find(t => t.id === targetId)
-    if (!target || !still()) return { done: false, why: 'gone' }
-    await spec.run(target.value)
+    if (!target) return { done: false, why: 'gone' }
+    const { value } = target
+    const work = spec.run
+    if (!still()) return { done: false, why: 'gone' }
+    await work.call(spec, value)
     return { done: true }
   }
 }
