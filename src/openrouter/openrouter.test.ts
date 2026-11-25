@@ -81,6 +81,25 @@ describe('a relay that asks for a secret', () => {
     expect(new URL(sent[0].url, 'https://app.example/panel/').href).toBe(called)
   })
 
+  it('gets its failures told without what was sent: an error of a call that carried the secret has no cause', async () => {
+    const telling = async (_url: string | URL | Request, init?: RequestInit) => {
+      throw Object.assign(new Error('the request failed'), { request: init?.body })
+    }
+    const unread = async () => new Response('not json', { status: 200 })
+    const failed = async (fetcher: typeof fetch, secret?: string) =>
+      openRouter({ host: 'https://relay.example', ...(secret === undefined ? {} : { secret }), fetch: fetcher })
+        .transcribe({ pcm: tone(), seconds: 0.1 })
+        .catch((error: Error) => error)
+    const errors = [await failed(telling, SECRET), await failed(unread, SECRET)]
+    expect(errors.map(error => [(error as Error).constructor.name, (error as Error).cause])).toEqual([
+      ['SayError', undefined],
+      ['RelayError', undefined],
+    ])
+    expect(JSON.stringify(errors.map(error => ({ ...(error as Error) })))).not.toContain(SECRET)
+    const open = [await failed(telling), await failed(unread)]
+    expect(open.map(error => (error as Error).cause instanceof Error)).toEqual([true, true])
+  })
+
   it('is followed to no other address: a call that carries the secret refuses a redirect, and one without goes as before', async () => {
     const modes: (RequestRedirect | undefined)[] = []
     const fetcher = async (_url: string | URL | Request, init?: RequestInit) => (

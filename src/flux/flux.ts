@@ -2,7 +2,7 @@ import { SAMPLE_RATE, type Speaker } from '../audio.js'
 import { Lifetime, type Timer } from '../lifetime.js'
 import { most, type LiveSpeech, type LiveState, type Turn } from '../live.js'
 import { serve } from '../serve.js'
-import { onThisDevice } from '../thisDevice.js'
+import { relayAddress } from '../relayAddress.js'
 
 export interface FluxSocket {
   binaryType: string
@@ -73,15 +73,10 @@ function parse(data: unknown): Record<string, unknown> | null {
 const NOT_ALONE = 'The relay of live speech is named by its address alone: no query, no fragment, no name or password.'
 
 function lineTo(host: string): string {
-  let relay: URL
-  try {
-    relay = new URL(host)
-  } catch {
-    throw new Error(NOT_ALONE)
-  }
-  if (relay.protocol !== 'https:' && !(relay.protocol === 'http:' && onThisDevice(relay.hostname)))
-    throw new Error('Live speech carries a secret and sound, so its relay is named with https.')
-  if (/[?#]/.test(host) || relay.username || relay.password) throw new Error(NOT_ALONE)
+  const relay = relayAddress(host, {
+    alone: NOT_ALONE,
+    sealed: 'Live speech carries a secret and sound, so its relay is named with https.',
+  })
   relay.protocol = relay.protocol === 'https:' ? 'wss:' : 'ws:'
   relay.pathname = `${relay.pathname.replace(/\/+$/, '')}${LIVE_PATH}`
   return relay.href

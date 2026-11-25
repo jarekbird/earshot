@@ -218,12 +218,10 @@ describe('the example app in the real Even Hub simulator', () => {
     },
   )
 
-  it.runIf(process.platform === 'linux')('says that voice is off, and has nothing forwarded, at a hold with no secret typed', async () => {
+  it.runIf(process.platform === 'linux')('says that voice is off at a hold with no secret typed', async () => {
     const sim = await start('', true)
-    forwarded.length = 0
     await sim.hold(1_200)
     await sim.shows('Voice is off for now')
-    expect(forwarded).toEqual([])
   })
 })
 

@@ -3,7 +3,7 @@ import type { Compact } from '../context.js'
 import type { NavigatorModel, Option } from '../navigator.js'
 import { LifetimeEnded, type Lifetime } from '../lifetime.js'
 import { RelayError, SayError } from '../say.js'
-import { onThisDevice } from '../thisDevice.js'
+import { relayAddress } from '../relayAddress.js'
 
 export interface OpenRouterModels {
   speech: string
@@ -64,15 +64,7 @@ function base64(bytes: Uint8Array): string {
 const NOT_ALONE = 'A relay that is told a secret is named by its address alone, with https: no query, no fragment, no name or password.'
 
 function sealed(host: string): string {
-  let relay: URL
-  try {
-    relay = new URL(host)
-  } catch {
-    throw new Error(NOT_ALONE)
-  }
-  if (relay.protocol !== 'https:' && !(relay.protocol === 'http:' && onThisDevice(relay.hostname)))
-    throw new Error('The calls carry a secret, so their relay is named with https.')
-  if (/[?#]/.test(host) || relay.username || relay.password) throw new Error(NOT_ALONE)
+  const relay = relayAddress(host, { alone: NOT_ALONE, sealed: 'The calls carry a secret, so their relay is named with https.' })
   return `${relay.origin}${relay.pathname.replace(/\/+$/, '')}`
 }
 
@@ -114,10 +106,11 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
         signal,
       })
       if (response.ok) return (await response.json()) as Record<string, unknown>
-    } catch (cause) {
+    } catch (failure) {
+      const cause = secret === undefined ? failure : undefined
       if (life?.ended) throw new LifetimeEnded()
       if (response) throw new RelayError(`The answer of the relay to ${path} could not be read.`, response.status, cause)
-      throw new SayError(NO_CONNECTION, { cause })
+      throw new SayError(NO_CONNECTION, cause === undefined ? {} : { cause })
     } finally {
       done()
     }

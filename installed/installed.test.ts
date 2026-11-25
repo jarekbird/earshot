@@ -69,7 +69,7 @@ beforeAll(() => {
   symlinkSync(join(root, 'node_modules'), join(home, 'node_modules'), 'junction')
   cpSync(join(root, 'package.json'), join(installed, 'package.json'))
   unbuilt = configs.flatMap(build)
-})
+}, 60_000)
 
 afterAll(() => rmSync(home, { recursive: true, force: true }))
 

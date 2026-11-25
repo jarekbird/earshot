@@ -1,13 +1,31 @@
 import { readFileSync } from 'node:fs'
-import { createServer } from 'node:http'
+import { createServer, request } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import { describe, expect, it, onTestFinished } from 'vitest'
-import worker from '../example/worker.js'
+import { build } from 'esbuild'
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
+import { Miniflare } from '../workerd/runtime.js'
 import { serve, settings } from './node.js'
 
 const KEY = 'sk-developer'
 const BUSY = 'typesafe/jev-1.14'
+
+const ROOT = join(import.meta.dirname, '..')
+let worker = ''
+beforeAll(async () => {
+  const built = await build({
+    entryPoints: [join(ROOT, 'example/worker.ts')],
+    tsconfig: join(ROOT, 'tsconfig.json'),
+    bundle: true,
+    format: 'esm',
+    write: false,
+    logLevel: 'silent',
+  })
+  worker = built.outputFiles[0].text
+})
+
+const closing: (() => unknown)[] = []
+afterAll(async () => void (await Promise.all(closing.splice(0).map(close => close()))))
 
 async function upstream(): Promise<string> {
   const server = createServer((incoming, outgoing) => {
@@ -21,26 +39,76 @@ async function upstream(): Promise<string> {
     })
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  onTestFinished(() => void server.close())
+  closing.push(() => server.close())
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 }
 
-type Host = (path: string, init: RequestInit) => Promise<Response>
+type Host = (path: string, init: RequestInit, asksFirst?: boolean) => Promise<Response>
 
-async function hosts(models?: string): Promise<Record<string, Host>> {
-  const to = await upstream()
+// Fact: a runtime with no proxy before it gives up on an upload it was not going to read, and the caller may see that before the answer.
+const askingFirst = (address: string, init: RequestInit): Promise<Response> =>
+  new Promise((resolve, reject) => {
+    const body = Buffer.from(String(init.body))
+    const call = request(address, {
+      method: init.method,
+      headers: { ...(init.headers as Record<string, string>), 'content-length': body.length, expect: '100-continue' },
+    })
+    call.on('continue', () => call.end(body))
+    call.on('error', reject)
+    call.on('response', answer => {
+      const parts: Buffer[] = []
+      answer.on('data', part => parts.push(part))
+      answer.on('end', () => {
+        call.destroy()
+        const headers = Object.entries(answer.headers).flatMap(([name, value]) =>
+          typeof value === 'string' ? [[name, value] as [string, string]] : [],
+        )
+        resolve(new Response(Buffer.concat(parts), { status: answer.statusCode, headers }))
+      })
+    })
+    call.flushHeaders()
+  })
+
+async function inWorkerd(to: string, models?: string, secret?: string): Promise<string> {
+  const runtime = new Miniflare({
+    modules: true,
+    script: worker,
+    compatibilityDate: '2026-07-01',
+    bindings: { OPENROUTER_KEY: KEY, UPSTREAM: to, ...(models ? { MODELS: models } : {}), ...(secret ? { SECRET: secret } : {}) },
+  })
+  closing.push(() => runtime.dispose())
+  return (await runtime.ready).href.replace(/\/$/, '')
+}
+
+async function start(to: string, models?: string, secret?: string): Promise<Record<string, Host>> {
   const server = await serve({
-    ...settings({ EARSHOT_RELAY_KEY: KEY, EARSHOT_RELAY_UPSTREAM: to, ...(models ? { EARSHOT_RELAY_MODELS: models } : {}) }),
+    ...settings({
+      EARSHOT_RELAY_KEY: KEY,
+      EARSHOT_RELAY_UPSTREAM: to,
+      ...(models ? { EARSHOT_RELAY_MODELS: models } : {}),
+      ...(secret ? { EARSHOT_RELAY_SECRET: secret } : {}),
+    }),
     port: 0,
     hostname: '127.0.0.1',
   })
-  onTestFinished(() => void server.close())
-  const at = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const env = { OPENROUTER_KEY: KEY, UPSTREAM: to, ...(models ? { MODELS: models } : {}) }
+  closing.push(() => server.close())
+  const node = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const edge = await inWorkerd(to, models, secret)
   return {
-    'the Node server': (path, init) => fetch(`${at}${path}`, init),
-    'the Worker': (path, init) => worker.fetch(new Request(`https://relay.example${path}`, init), env),
+    'the Node server': (path, init, asks) => (asks ? askingFirst : fetch)(`${node}${path}`, init),
+    "the Worker, in Cloudflare's own runtime": (path, init, asks) => (asks ? askingFirst : fetch)(`${edge}${path}`, init),
   }
+}
+
+const started = new Map<string, Promise<Record<string, Host>>>()
+const hosts = (models = '', secret = ''): Promise<Record<string, Host>> => {
+  const set = `${models}|${secret}`
+  if (!started.has(set))
+    started.set(
+      set,
+      upstream().then(to => start(to, models || undefined, secret || undefined)),
+    )
+  return started.get(set)!
 }
 
 const SEEN = ['content-type', 'access-control-allow-origin', 'access-control-allow-methods', 'access-control-allow-headers', 'x-upstream']
@@ -61,16 +129,37 @@ const post = (body: unknown): RequestInit => ({
 const SPEECH = '/api/v1/audio/transcriptions'
 const WHISPER = 'openai/whisper-large-v3-turbo'
 
-const CALLS: { name: string; models?: string; path: string; init: RequestInit; status: number }[] = [
+const PHRASE = 'a phrase of the developer'
+const CALLS: { name: string; models?: string; secret?: string; path: string; init: RequestInit; status: number; asksFirst?: boolean }[] = [
   { name: 'forward a call with the key', path: SPEECH, init: post({ model: WHISPER, input_audio: 'UklGR', stream: true }), status: 200 },
   { name: "answer a browser's first check", path: '/api/alpha/decisions', init: { method: 'OPTIONS' }, status: 204 },
   { name: 'refuse a path Earshot never calls', path: '/api/v1/keys', init: post({ model: WHISPER }), status: 404 },
   { name: 'refuse another method', path: SPEECH, init: { method: 'GET' }, status: 405 },
   { name: 'refuse a body that is not a JSON object', path: SPEECH, init: post('[1]'), status: 400 },
-  { name: 'refuse a body over the limit', path: SPEECH, init: post({ model: WHISPER, input_audio: 'a'.repeat(4_000_001) }), status: 413 },
+  {
+    name: 'refuse a body over the limit, before a caller that asks first has sent it',
+    path: SPEECH,
+    init: post({ model: WHISPER, input_audio: 'a'.repeat(4_000_001) }),
+    status: 413,
+    asksFirst: true,
+  },
   { name: 'refuse a model nobody listed', path: SPEECH, init: post({ model: 'other/model' }), status: 400 },
   { name: "pass the upstream's refusal on as it is", path: '/api/alpha/decisions', init: post({ model: BUSY, state: {} }), status: 429 },
   { name: 'forward a model the developer listed', models: 'a/one, b/two', path: SPEECH, init: post({ model: 'b/two' }), status: 200 },
+  {
+    name: 'turn away a call that does not say the secret they were given, with no live speech set up',
+    secret: PHRASE,
+    path: SPEECH,
+    init: post({ model: WHISPER, input_audio: 'UklGR' }),
+    status: 401,
+  },
+  {
+    name: 'forward a call that says the secret, and keep the secret to themselves',
+    secret: PHRASE,
+    path: SPEECH,
+    init: post({ model: WHISPER, input_audio: 'UklGR', secret: PHRASE }),
+    status: 200,
+  },
   {
     name: "refuse Earshot's own model once the developer lists others",
     models: 'a/one',
@@ -97,23 +186,19 @@ describe('E13: the Node server and the Worker follow the upstream of a call nowh
     await new Promise<void>(resolve => moved.listen(0, '127.0.0.1', resolve))
     onTestFinished(() => void moved.close())
     const to = `http://127.0.0.1:${(moved.address() as AddressInfo).port}`
-    const server = await serve({ ...settings({ EARSHOT_RELAY_KEY: KEY, EARSHOT_RELAY_UPSTREAM: to }), port: 0, hostname: '127.0.0.1' })
-    onTestFinished(() => void server.close())
     const init = post({ model: WHISPER, input_audio: 'UklGR' })
-    const answers = [
-      await seen(await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}${SPEECH}`, init)),
-      await seen(await worker.fetch(new Request(`https://relay.example${SPEECH}`, init), { OPENROUTER_KEY: KEY, UPSTREAM: to })),
-    ]
+    const answers = await Promise.all(Object.values(await start(to)).map(async host => seen(await host(SPEECH, init))))
     expect(answers.map(answer => answer.status)).toEqual([502, 502])
     expect(heard).toEqual([])
   })
 })
 
 describe('E13: the Node server and the Worker are one relay', () => {
-  it.each(CALLS)('both $name', async ({ models, path, init, status }) => {
-    const answers = await Promise.all(Object.values(await hosts(models)).map(async host => seen(await host(path, init))))
+  it.each(CALLS)('both $name', async ({ models, secret, path, init, status, asksFirst }) => {
+    const answers = await Promise.all(Object.values(await hosts(models, secret)).map(async host => seen(await host(path, init, asksFirst))))
     for (const answer of answers) expect(answer.status).toBe(status)
     expect(answers[1]).toEqual(answers[0])
+    if (secret && status === 200) expect(answers[0].body).not.toContain(secret)
   })
 
   it('read their settings through one function, whose type names every setting a host must pass', () => {
