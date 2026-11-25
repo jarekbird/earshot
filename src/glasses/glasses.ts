@@ -581,7 +581,6 @@ export class Glasses {
     const create = () => this.#bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page))
     const rebuild = () => this.#bridge.rebuildPageContainer(new RebuildPageContainer(page))
     const shown = boxes.length - 1
-    if (over !== this.#over) this.#over = undefined
     let made = false
     const built = () => {
       this.#created = true
@@ -604,7 +603,11 @@ export class Glasses {
     }
     const asked =
       <T>(call: () => Promise<T>) =>
-      () => ((made = true), call())
+      () => {
+        made = true
+        if (over !== this.#over) this.#over = undefined
+        return call()
+      }
     let drawn =
       !this.#created && (await this.#ask(frame, 'create', shown, asked(create), StartUpPageCreateResult.success, undefined, built))
     // A reloaded web view already owns a page, so a create is refused and a rebuild takes it over.
@@ -641,9 +644,12 @@ export class Glasses {
         this.#progressed(whole && boxes.every(other => this.#sent.get(other.id) === stateOf(other)) ? { menu: frame } : {})
         this.#landed()
       }
-      if (over !== this.#over) this.#over = undefined
       let made = false
-      const write = () => ((made = true), this.#bridge.textContainerUpgrade(upgrade))
+      const write = () => {
+        made = true
+        if (over !== this.#over) this.#over = undefined
+        return this.#bridge.textContainerUpgrade(upgrade)
+      }
       const accepted = await this.#ask(frame, 'update', 1, write, true, box.name, taken)
       if (this.#life.ended) return false
       if (!accepted) {
@@ -668,6 +674,7 @@ export class Glasses {
         if (!left) {
           this.#have.pictures[index] = picture
           this.#have.hung.add(id)
+          this.#landed()
         }
       }
     }

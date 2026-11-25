@@ -2077,6 +2077,91 @@ describe('watching the draws', () => {
     expect([fake.lines(), fake.pictures().map(picture => [...picture.data])]).toEqual([['One'], [[4, 5, 6]]])
   })
 
+  it('leaves where it landed a picture that was on its way when its frame was taken back, and hangs none over it', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    const cover = (key: string, data: number[]) => ({ id: 'cover', x: 376, y: 54, w: 200, h: 100, key, data: new Uint8Array(data) })
+    glasses.draw({ ...frame(box('title', 'One')), pictures: [cover('v1', [1, 2, 3])] })
+    await settle(REBUILD_GAP_MS)
+    let hang = () => {}
+    const hanging = new Promise<void>(go => (hang = go))
+    const real = fake.bridge.updateImageRawData
+    fake.bridge.updateImageRawData = async update => (await hanging, real(update))
+    const before = fake.calls.length
+    const second = glasses.draw({ ...frame(box('title', 'One')), pictures: [cover('v2', [4, 5, 6])] })
+    await settle(REBUILD_GAP_MS)
+    progressOf(glasses).drop([second])
+    hang()
+    await settle(60_000)
+    expect([fake.pictures().map(picture => [...picture.data]), fake.calls.slice(before)]).toEqual([[[4, 5, 6]], ['picture cover']])
+  })
+
+  it('still knows the glasses show no notice after a frame with one was taken back before anything of it was written', async () => {
+    const fake = fakeBridge()
+    let second = 0
+    const known: (string | null | undefined)[] = []
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (event.frame !== second) return
+        if (event.at === 'end') known.push(glasses[OVERLAY])
+        if (event.at !== 'begin') return
+        glasses.overlay(null)
+        progressOf(glasses).drop([second])
+      },
+    })
+    glasses.draw(frame(box('title', 'One')))
+    await settle(REBUILD_GAP_MS)
+    const before = fake.calls.length
+    glasses.overlay('Status')
+    second = glasses.draw(frame(box('title', 'Two')))
+    await settle(60_000)
+    expect([known, glasses[OVERLAY], fake.calls.slice(before)]).toEqual([[null], null, []])
+  })
+
+  it('still knows the glasses show no notice after a page with one was taken back before it was built', async () => {
+    const fake = fakeBridge()
+    let second = 0
+    const known: (string | null | undefined)[] = []
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (event.frame !== second) return
+        if (event.at === 'end') known.push(glasses[OVERLAY])
+        if (event.at !== 'begin') return
+        glasses.overlay(null)
+        progressOf(glasses).drop([second])
+      },
+    })
+    glasses.draw(frame(box('title', 'One')))
+    await settle(REBUILD_GAP_MS)
+    const before = fake.calls.length
+    glasses.overlay('Status')
+    second = glasses.draw(frame(box('title', 'One'), box('body', 'Two', { y: 27 })))
+    await settle(60_000)
+    expect([known, glasses[OVERLAY], fake.calls.slice(before)]).toEqual([[null], null, []])
+  })
+
+  it('does not know which notice the glasses show while they have not answered a page built with another', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    glasses.draw(frame(box('title', 'One')))
+    await settle(REBUILD_GAP_MS)
+    let answer = () => {}
+    const waiting = new Promise<void>(go => (answer = go))
+    const rebuild = fake.bridge.rebuildPageContainer.bind(fake.bridge)
+    fake.bridge.rebuildPageContainer = async page => {
+      const taken = await rebuild(page)
+      await waiting
+      return taken
+    }
+    glasses.overlay('Status')
+    glasses.draw(frame(box('title', 'One'), box('body', 'Two', { y: 27 })))
+    await settle(REBUILD_GAP_MS)
+    const meanwhile = glasses[OVERLAY]
+    answer()
+    await settle(60_000)
+    expect([meanwhile, glasses[OVERLAY]]).toEqual([undefined, 'Status'])
+  })
+
   it('knows which overlay the glasses show by the time it tells of the end of the draw that changed it', async () => {
     const fake = fakeBridge()
     const known: (string | null | undefined)[] = []
