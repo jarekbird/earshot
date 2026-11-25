@@ -374,6 +374,26 @@ describe('the menu', () => {
   })
 })
 
+describe('a rebuild the glasses refuse', () => {
+  it('is taken for one that may have landed: the page before it is built again, not only written into', async () => {
+    const { fake, glasses } = setup()
+    glasses.draw(frame(box('body', 'One', { h: 200 })))
+    await settle(1_000)
+    const rebuild = fake.bridge.rebuildPageContainer.bind(fake.bridge)
+    fake.bridge.rebuildPageContainer = async page => {
+      fake.bridge.rebuildPageContainer = rebuild
+      await rebuild(page)
+      return false
+    }
+    glasses.draw(frame(box('body', 'One', { h: 40 })))
+    await settle()
+    expect(fake.boxes().find(drawn => drawn.name === 'body')!.h).toBe(40)
+    glasses.draw(frame(box('body', 'One', { h: 200 })))
+    await settle(10_000)
+    expect(fake.boxes().find(drawn => drawn.name === 'body')!.h).toBe(200)
+  })
+})
+
 describe('input', () => {
   it('tells every listener what the user did', () => {
     const { fake, glasses } = setup()

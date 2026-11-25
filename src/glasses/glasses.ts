@@ -434,6 +434,8 @@ export class Glasses {
     if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, rebuild, true)
     if (!drawn) {
       this.#sent.clear()
+      this.#shape = ''
+      this.#layout = ''
       return false
     }
     this.#created = true
