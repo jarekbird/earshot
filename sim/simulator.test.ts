@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
 import { FRAME_TAG, INPUT_TAG } from '../src/glasses/glasses.js'
-import { findBinary, limited, Simulator } from './simulator.js'
+import { ending, findBinary, limited, Simulator } from './simulator.js'
 
 const FAKE = `#!/usr/bin/env node
 import { createServer } from 'node:http'
@@ -284,6 +284,14 @@ describe('stop', () => {
   })
 })
 
+describe('ending', () => {
+  it('ends the simulator and all it started: by its group where there are groups, by its tree on Windows', () => {
+    expect(ending('linux', 4321)).toBeUndefined()
+    expect(ending('darwin', 4321)).toBeUndefined()
+    expect(ending('win32', 4321)).toEqual(['taskkill', ['/pid', '4321', '/t', '/f']])
+  })
+})
+
 describe('limited', () => {
   it('gives every process a hard time limit where the system can', () => {
     expect(limited('linux', 'Xvfb', ['-displayfd', '3'], 60)).toEqual(['timeout', ['--kill-after=10', '60', 'Xvfb', '-displayfd', '3']])
@@ -299,6 +307,14 @@ describe('findBinary', () => {
     writeFileSync(join(bin, 'evenhub-simulator'), '')
     mkdirSync(join(project, 'packages/app'), { recursive: true })
     expect(findBinary(join(project, 'packages/app'), 'linux', 'x64')).toBe(join(bin, 'evenhub-simulator'))
+  })
+
+  it('finds it on Windows, where Even names it with .exe', () => {
+    const project = mkdtempSync(join(dir, 'project-'))
+    const bin = join(project, 'node_modules/@evenrealities/sim-win32-x64/bin')
+    mkdirSync(bin, { recursive: true })
+    writeFileSync(join(bin, 'evenhub-simulator.exe'), '')
+    expect(findBinary(project, 'win32', 'x64')).toBe(join(bin, 'evenhub-simulator.exe'))
   })
 
   it('says what to install when it is missing', () => {

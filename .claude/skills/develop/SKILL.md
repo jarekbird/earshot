@@ -20,7 +20,8 @@ The maintainer's process. An outside contribution follows `CONTRIBUTING.md` and 
    pull request the job `c3` runs the changed tests on the old source and expects one to fail (C3). Run
    `npm run check` before each commit. A test reaches only this machine (E4). On your machine a guard
    refuses the usual ways out, in the simulator's page too; on Linux CI runs every test with no network but its
-   own, which closes the rest. On macOS and Windows CI has the guard alone.
+   own, which closes the rest. On macOS and Windows CI has the guard alone, and on Windows the guard does not
+   reach the simulator's page: the Linux job `sim` runs the same tests and catches a call from one.
 4. **Self-verify.** For a change to what the glasses draw, to input, to the microphone or to the example app, run the
    simulator tests it reaches: `npx vitest run --config vitest.sim.config.ts -t "<test name>"` (Linux, with `Xvfb`).
    The whole simulator suite is CI's job `sim`, never a local run. `Simulator.screenshot('glasses')` in a test gives
@@ -28,7 +29,7 @@ The maintainer's process. An outside contribution follows `CONTRIBUTING.md` and 
 5. **Review.** Use skill `review-loop`.
 6. **Pull request.** Rebase onto `origin/main`, run `npm run check`, push the branch and open a pull request into
    `main`. The body follows `.github/pull_request_template.md`; every section is required. It merges only with
-   `check` and `sim` green on the pull request, with every focus of the review approved, and on Jarek's word: no
+   every required check green on the pull request, with every focus of the review approved, and on Jarek's word: no
    agent merges on its own. Remove the worktree once it merges.
 7. **Release.** Use skill `release`.
 
