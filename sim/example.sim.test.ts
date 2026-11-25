@@ -41,7 +41,7 @@ describe('the example app in the real Even Hub simulator', () => {
       hostname: '127.0.0.1',
       fetch: async (address, init) => {
         const { pathname } = new URL(String(address))
-        if (pathname.endsWith('/transcriptions')) return Response.json({ text: 'open voice' })
+        if (pathname.endsWith('/transcriptions')) return Response.json({ text: HEARD })
         const criteria: Record<string, string> = JSON.parse(String(init?.body)).questions.pick.criteria
         const wanted = Object.keys(criteria).find(id => criteria[id].startsWith('Open note: Voice')) ?? 'none'
         return Response.json({ answers: { pick: { type: 'choice', choice: wanted, probabilities: { [wanted]: 0.95 } } } })
@@ -93,6 +93,7 @@ describe('the example app in the real Even Hub simulator', () => {
   })
 
   const TYPED = '/with-the-secret-typed'
+  const HEARD = 'the one about speaking'
   const MISTYPED = '/with-the-secret-mistyped'
   const TYPED_LATER = '/with-the-secret-typed-later'
   const TYPED_YET = '/is-the-secret-typed-yet'

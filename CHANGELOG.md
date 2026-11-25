@@ -6,7 +6,7 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.43 (2026-11-24)
+## 0.0.44 (2026-11-24)
 
 - A relay that has a secret asks its three calls for it too, not only live speech. A call that does not say it is
   answered 401 before anything is forwarded. A relay with no secret answers as before.
@@ -16,8 +16,14 @@ each version's commits say: they name what a version added, and may miss a chang
 - **An app must** give `openRouter` its relay's secret when the relay has one (`SECRET`, `EARSHOT_RELAY_SECRET`),
   or a hold says "Voice is off for now". That goes for a relay with live speech, and for one that had a secret set
   with no live upstream, where the setting used to be ignored.
-- **An app must** give such a relay a secret of at least 16 characters or take the setting out: a shorter one that
-  was ignored before now makes no relay.
+- **An app must** give such a relay a fitting secret or take the setting out: one under 16 characters, or over 1,024
+  as JSON writes them, was ignored before with no live upstream and now makes no relay.
+
+## 0.0.43 (2026-11-24)
+
+- A gesture Even's SDK does not know is no input. It was read as a tap, and a tap runs what the cursor is on.
+- An event whose parts name different gestures is no input either, nor is a pick from the menu whose item the SDK
+  could not read. A gesture that arrives with sound is no longer dropped.
 
 ## 0.0.42 (2026-11-24)
 
