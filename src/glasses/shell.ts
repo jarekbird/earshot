@@ -491,7 +491,11 @@ export class Shell {
       if (moved()) elsewhere()
       else then()
     }
-    const slow = this.#life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), voice.timeoutMs ?? VOICE_TIMEOUT_MS)
+    const slow = this.#life.timeout(() => {
+      if (!mine()) return
+      finish(() => this.notice(this.#words.slow))
+      this.#turn++
+    }, voice.timeoutMs ?? VOICE_TIMEOUT_MS)
     this.#deciding = life
     if (passed === undefined) this.#show(this.#words.thinking)
     try {

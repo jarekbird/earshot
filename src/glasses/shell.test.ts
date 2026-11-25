@@ -1660,6 +1660,26 @@ describe('a hold', () => {
     expect(made.front()).toBe('Saved')
   })
 
+  it('says nothing of an agent that answers after its turn ran out of time, on whichever screen', async () => {
+    const { voice } = hearing('remember the milk')
+    voice.timeoutMs = 2_000
+    const made = world({ voice })
+    let answer: ((verdict: { kind: 'handled'; say: string }) => void) | undefined
+    voice.agents = [
+      () => {
+        made.router.open({ id: 'saved', view: () => text({ title: 'Notes', body: 'The milk' }) })
+        return new Promise(done => (answer = done))
+      },
+    ]
+    await settle()
+    await say(made.fake)
+    await settle(3_000)
+    answer!({ kind: 'handled', say: 'Saved' })
+    await settle()
+    expect(made.fake.lines()).toContain('Notes')
+    expect(made.front()).toBe('')
+  })
+
   it('says nothing after an agent that went to another screen and has nothing to say', async () => {
     const { voice } = hearing('remember the milk')
     const made = world({ voice })
