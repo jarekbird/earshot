@@ -110,7 +110,7 @@ interface Page {
 }
 
 export const OVERLAY = Symbol('the overlay the glasses are known to show')
-export const BEGUN = Symbol('the newest frame the glasses were sent any of')
+export const PARTS = Symbol('the frames the glasses were sent a part of since the one they answered in full')
 
 const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
@@ -210,7 +210,7 @@ export class Glasses {
   #retryAt = 0
   #traced = ''
   #shown = 0
-  #begun = 0
+  #parts = new Set<number>()
   #over: string | null | undefined = null
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
@@ -236,8 +236,8 @@ export class Glasses {
     return this.#over
   }
 
-  get [BEGUN](): number {
-    return this.#begun
+  get [PARTS](): ReadonlySet<number> {
+    return this.#parts
   }
 
   get micOpen(): boolean {
@@ -390,6 +390,7 @@ export class Glasses {
         }
         this.#watch({ at: 'end', frame, drawn })
         this.#shown = frame
+        this.#parts.clear()
         this.#over = page.over
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
@@ -411,6 +412,7 @@ export class Glasses {
   async #ask<T>(frame: number, op: DrawOp, boxes: number, call: () => Promise<T>, accepted: T, box?: string): Promise<boolean> {
     const named = box === undefined ? {} : { box }
     const started = this.#now()
+    this.#parts.add(frame)
     this.#watch({ at: 'call', frame, op, ...named })
     let got: unknown
     try {
@@ -435,7 +437,6 @@ export class Glasses {
     const rebuild = () => this.#bridge.rebuildPageContainer(new RebuildPageContainer(page))
     const shown = boxes.length - 1
     if (over !== this.#over) this.#over = undefined
-    this.#begun = Math.max(this.#begun, frame)
     let drawn = !this.#created && (await this.#ask(frame, 'create', shown, create, StartUpPageCreateResult.success))
     // A reloaded web view already owns a page, so a create is refused and a rebuild takes it over.
     if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, rebuild, true)
@@ -465,7 +466,6 @@ export class Glasses {
         textColor: box.brightness,
       })
       if (over !== this.#over) this.#over = undefined
-      this.#begun = Math.max(this.#begun, frame)
       const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name)
       if (this.#life.ended) return false
       if (accepted) this.#sent.set(box.id, stateOf(box))
@@ -486,7 +486,10 @@ export class Glasses {
       const accepted = await this.#ask(frame, 'picture', 1, send, ImageRawDataUpdateResult.success, name)
       if (this.#life.ended) return false
       if (accepted) this.#hung.set(id, picture.key)
-      else drawn = false
+      else {
+        this.#hung.delete(id)
+        drawn = false
+      }
     }
     return drawn
   }

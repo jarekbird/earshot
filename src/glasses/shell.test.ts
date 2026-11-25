@@ -538,6 +538,71 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect(ran).toEqual(['play'])
   })
 
+  const player = (shows: () => { text: string; picture: string; playing: boolean }) =>
+    world({
+      home: ({ ran }) => {
+        const play = action({ id: 'play', say: 'Play', run: () => void ran.push('play') })
+        const pause = action({ id: 'pause', say: 'Pause', run: () => void ran.push('pause') })
+        return {
+          id: 'player',
+          actions: () => [],
+          view: () =>
+            boxes([{ id: 'status', x: 0, y: 0, w: 576, h: 27, text: shows().text }], {
+              on: { tap: shows().playing ? pause : play },
+              pictures: [
+                { id: 'button', x: 300, y: 54, w: 200, h: 100, key: shows().picture, data: new Uint8Array([shows().picture.length]) },
+              ],
+            }),
+        }
+      },
+    })
+
+  it('E15: runs nothing while a picture of a frame between the one answered and the newest may be on show', async () => {
+    let now = { text: 'Song', picture: 'play', playing: false }
+    const { fake, ran, shell } = player(() => now)
+    await settle()
+    const hang = fake.bridge.updateImageRawData.bind(fake.bridge)
+    let answer: (() => void) | undefined
+    fake.bridge.updateImageRawData = async update => {
+      const result = await hang(update)
+      if (!answer) await new Promise<void>(done => (answer = done))
+      return result
+    }
+    now = { text: 'Song', picture: 'pause', playing: true }
+    shell.redraw()
+    await settle(0)
+    expect(answer).toBeDefined()
+    now = { text: 'Song', picture: 'play', playing: false }
+    shell.redraw()
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer!()
+    await settle()
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['play'])
+  })
+
+  it('still runs what a tap is tied to when a frame that tied it to something else was asked for and never sent', async () => {
+    let now = { text: 'One', picture: 'play', playing: false }
+    const { fake, ran, shell } = player(() => now)
+    await settle()
+    const answer = held(fake)
+    now = { text: 'One', picture: 'play', playing: true }
+    shell.redraw()
+    now = { text: 'Two', picture: 'play', playing: false }
+    shell.redraw()
+    await settle(0)
+    expect(fake.lines()).toEqual(['One'])
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual(['play'])
+    answer()
+    await settle()
+    expect(fake.lines()).toEqual(['Two'])
+  })
+
   it('E15: runs nothing on a tap of an empty list, also when the screen is on its way to tying a tap to that action', async () => {
     let listed = true
     const { fake, ran, shell } = world({
