@@ -196,7 +196,7 @@ export class Glasses {
   #number = 0
   #whole: { number: number; frame: Frame } = { number: 0, frame: { boxes: [] } }
   #going: { number: number; frame: Frame } | null = null
-  #dropped: [from: number, to: number] = [0, -1]
+  readonly #dropped = new Set<number>()
   #overlay: string | null = null
   #wanted: Page | null = null
   #shape = ''
@@ -258,15 +258,15 @@ export class Glasses {
         this.#following.add(told)
         return () => void this.#following.delete(told)
       },
-      drop: frame => {
-        if (frame !== this.#number || frame === this.#whole.number) return
-        this.#dropped = [frame, frame]
-        this.#back(this.#going && this.#going.number !== frame ? this.#going : this.#whole)
-      },
-      retract: () => {
-        if (this.#number === this.#whole.number) return
-        this.#dropped = [this.#whole.number + 1, this.#frames]
-        this.#back(this.#whole)
+      drop: frames => {
+        const mine = frames.filter(frame => frame > this.#whole.number)
+        for (const frame of mine) this.#dropped.add(frame)
+        if (!this.#dropped.has(this.#number)) return
+        const back = this.#going && !this.#dropped.has(this.#going.number) ? this.#going : this.#whole
+        this.#frame = back.frame
+        this.#number = back.number
+        if (back.number === 0) this.#wanted = null
+        else this.#place()
       },
     }
   }
@@ -428,8 +428,12 @@ export class Glasses {
         const drawn = written && !this.#takenBack(frame) && (await this.#hang(page))
         if (this.#life.ended) return void (this.#progress.sending = 0)
         this.#going = null
-        if (drawn) this.#whole = { number: frame, frame: page.from }
+        if (drawn) {
+          this.#whole = { number: frame, frame: page.from }
+          for (const dropped of this.#dropped) if (dropped <= frame) this.#dropped.delete(dropped)
+        }
         if (!drawn && this.#takenBack(frame)) {
+          if (this.#wanted === page) this.#wanted = null
           this.#progressed({ sending: 0 })
           this.#watch({ at: 'end', frame, drawn })
           continue
@@ -457,13 +461,7 @@ export class Glasses {
   }
 
   #takenBack(frame: number): boolean {
-    return frame >= this.#dropped[0] && frame <= this.#dropped[1]
-  }
-
-  #back(to: { number: number; frame: Frame }): void {
-    this.#frame = to.frame
-    this.#number = to.number
-    this.#place()
+    return this.#dropped.has(frame)
   }
 
   #later(ms: number): void {

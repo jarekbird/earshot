@@ -21,8 +21,7 @@ export interface Sent {
   readonly sending: number
   has(box: string): number
   onChange(told: () => void): () => void
-  drop(frame: number): void
-  retract(): void
+  drop(frames: readonly number[]): void
 }
 
 export const PROGRESS = Symbol('how far the glasses are with the frames asked of them')

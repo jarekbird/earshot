@@ -1849,7 +1849,7 @@ describe('watching the draws', () => {
     await settle()
     glasses.draw(frame(box('title', 'Stale')))
     const newest = glasses.draw(frame(box('title', 'Newest')))
-    glasses[PROGRESS].drop(newest)
+    glasses[PROGRESS].drop([newest])
     glasses.overlay('Status')
     glasses.overlay(null)
     await settle()
@@ -1862,7 +1862,7 @@ describe('watching the draws', () => {
     const shown = glasses.draw(frame(box('title', 'Shown')))
     await settle()
     const newest = glasses.draw(frame(box('title', 'Newest')))
-    glasses[PROGRESS].drop(newest)
+    glasses[PROGRESS].drop([newest])
     glasses.overlay('Status')
     await settle()
     glasses.overlay(null)
@@ -1886,7 +1886,7 @@ describe('watching the draws', () => {
     const before = fake.calls.length
     const second = glasses.draw({ ...frame(box('title', 'Two')), menu: [{ id: 2, name: 'B' }], pictures: [cover('v2')] })
     await settle(0)
-    glasses[PROGRESS].drop(second)
+    glasses[PROGRESS].drop([second])
     write()
     held()
     await settle(1_000)
@@ -1909,7 +1909,7 @@ describe('watching the draws', () => {
     fake.bridge.textContainerUpgrade = async upgrade => (await writing, real(upgrade))
     const second = glasses.draw(frame(box('title', 'Two')))
     await settle(0)
-    glasses[PROGRESS].drop(second)
+    glasses[PROGRESS].drop([second])
     write()
     await settle()
     expect(seen.filter(told => told.endsWith(` ${second}`))).toEqual([`begin ${second}`, `end ${second}`])
@@ -1936,8 +1936,8 @@ describe('watching the draws', () => {
       watch: event => {
         if (!back || event.at !== 'begin') return
         back = false
-        glasses.draw(frame(box('title', 'Third')))
-        glasses[PROGRESS].retract()
+        const third = glasses.draw(frame(box('title', 'Third')))
+        glasses[PROGRESS].drop([event.frame, third])
       },
     })
     glasses.draw(frame(box('title', 'First')))

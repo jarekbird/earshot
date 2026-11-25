@@ -142,6 +142,7 @@ export class Shell {
   #deciding: Lifetime | null = null
   #decidingOn: object | null = null
   readonly #frames: Frames
+  #pending: number[] = []
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -168,10 +169,12 @@ export class Shell {
         const { onPath, current } = router[SHOWINGS]
         this.#frames.left(onPath)
         const spoken = this.#recording?.showing ?? this.#decidingOn
-        if (spoken !== undefined && spoken !== null && !onPath(spoken)) this.#callOff()
-        if (onPath(current)) return
-        this.#callOff()
-        this.#glasses[PROGRESS].retract()
+        const closed = !onPath(current)
+        try {
+          if (closed || (spoken !== undefined && spoken !== null && !onPath(spoken))) this.#callOff()
+        } finally {
+          if (closed) this.#glasses[PROGRESS].drop(this.#pending)
+        }
       }),
     )
     this.#router = router
@@ -205,10 +208,11 @@ export class Shell {
     if (this.#life.ended) return
     const showings = this.#router[SHOWINGS]
     const showing = showings.current
+    if (showing === undefined) return
     const screen = this.#router.current
     const actions = this.#router.actions()
     const view = screen.view?.() ?? list({ action: this.#chooser(actions) })
-    if (showing === undefined || showings.current !== showing || !showings.onPath(showing)) return
+    if (showings.current !== showing || !showings.onPath(showing)) return
     const place = this.#places.get(showing) ?? { cursor: 0, top: 0 }
     this.#places.set(showing, place)
     let boxes: Box[]
@@ -239,7 +243,8 @@ export class Shell {
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
     if (showings.current !== showing || !showings.onPath(showing)) return
     const frame = this.#glasses.draw({ boxes, pictures, menu })
-    if (!showings.onPath(showing)) return this.#glasses[PROGRESS].drop(frame)
+    this.#pending = [...this.#pending.filter(asked => asked > this.#glasses.shown), frame]
+    if (!showings.onPath(showing)) return this.#glasses[PROGRESS].drop([frame])
     if (!this.#drawn || frame > this.#drawn.frame)
       this.#drawn = { frame, screen, showing, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
     this.#frames.asked(frame, showing, drew, view.kind)
@@ -386,7 +391,7 @@ export class Shell {
       return void this.#start(chosen, target)
     }
     const seen = this.#frames.words
-    if (view.kind === 'text' && seen && (seen.kind !== 'text' || seen.showing !== showing)) return
+    if (view.kind === 'text' && (seen?.kind !== 'text' || seen.showing !== showing)) return
     const step = input.kind === 'up' ? -1 : 1
     if (view.kind === 'text') {
       if (input.kind !== 'tap') return this.#scroll(drawn, place, 'swipe', step < 0)
@@ -581,7 +586,11 @@ export class Shell {
       return this.redraw()
     }
     if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target, true, pass)
+    const showings = this.#router[SHOWINGS]
+    const showing = showings.current
+    const still = () => showings.current === showing && showings.onPath(showing)
     const instead = pass && this.#voice?.instead
+    if (!still()) return
     const which = action<Pick | null>({
       id: 'earshot.which',
       say: this.#words.which,
@@ -589,7 +598,7 @@ export class Shell {
         ...verdict.candidates.map((candidate, index) => ({ id: String(index), say: candidate.say, value: candidate })),
         ...(instead ? [{ id: INSTEAD, say: instead, value: null }] : []),
       ],
-      run: candidate => (candidate ? this.#do(candidate.action, candidate.target, this.#said) : pass?.()),
+      run: candidate => (candidate ? this.#do(candidate.action, candidate.target, this.#said) : still() ? pass?.() : undefined),
     })
     this.#clear()
     this.#openOwn({ id: 'earshot.which', view: () => list({ title: this.#words.which, action: which }) })

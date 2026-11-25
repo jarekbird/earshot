@@ -799,6 +799,91 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(fake.lines()).toEqual(['Before'])
   })
 
+  it('takes no swipe on a text before any of its words are on the glasses', async () => {
+    const fake = fakeBridge()
+    const life = new Lifetime()
+    const glasses = new Glasses(life, fake.bridge)
+    let created = () => {}
+    const creating = new Promise<void>(go => (created = go))
+    const real = fake.bridge.createStartUpPageContainer
+    fake.bridge.createStartUpPageContainer = async page => (await creating, real(page))
+    const body = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join('\n')
+    new Shell(life, glasses, new Router({ home: { id: 'log', view: () => text({ title: 'Log', body }) } }))
+    fake.down()
+    created()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 1')
+    life.end()
+  })
+
+  it('leaves a frame the app drew on the glasses itself when the router is closed, and takes back only its own', async () => {
+    const { fake, glasses, router, shell } = world()
+    let body = 'Before'
+    router.open({ id: 'note', view: () => text({ body }) })
+    await settle()
+    body = 'Never to be shown'
+    shell.redraw()
+    glasses.draw({ boxes: [{ id: 'count', x: 0, y: 0, w: 200, h: 40, text: 'Countdown' }] })
+    router.close()
+    await settle()
+    expect(fake.lines()).toEqual(['Countdown'])
+  })
+
+  it('sends the glasses no blank page when the router is closed before anything was shown', async () => {
+    const fake = fakeBridge()
+    const life = new Lifetime()
+    const router = new Router({ home: { id: 'home', view: () => text({ body: 'Home' }) } })
+    new Shell(life, new Glasses(life, fake.bridge), router)
+    router.close()
+    await settle()
+    expect(fake.calls).toEqual([])
+    life.end()
+  })
+
+  it('takes back its frames when the router is closed, also when what a turn left behind throws as it is called off', async () => {
+    const { fake, life, router, shell } = world({
+      voice: {
+        transcribe: (_audio, turn) => {
+          turn?.own(() => {
+            throw new Error('cleanup failed')
+          })
+          return new Promise<string>(() => {})
+        },
+      },
+    })
+    let body = 'Before'
+    router.open({ id: 'note', view: () => text({ body }) })
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(400))
+    fake.sound(tone(400))
+    fake.release()
+    await settle(50)
+    body = 'Never to be shown'
+    shell.redraw()
+    expect(() => router.close()).toThrow()
+    await settle()
+    expect(fake.lines().join(' ')).not.toContain('Never to be shown')
+    life.end()
+  })
+
+  it('lets an app replace its home screen also when that screen redraws as it leaves', async () => {
+    const fake = fakeBridge()
+    const life = new Lifetime()
+    const glasses = new Glasses(life, fake.bridge)
+    const made: { shell?: Shell } = {}
+    const router = new Router({
+      home: { id: 'home', enter: left => void left.own(() => made.shell?.redraw()), view: () => text({ body: 'Home' }) },
+    })
+    made.shell = new Shell(life, glasses, router)
+    await settle()
+    router.replace({ id: 'next', view: () => text({ body: 'Next home' }) })
+    await settle()
+    expect(fake.lines()).toEqual(['Next home'])
+    life.end()
+  })
+
   it('runs nothing for a tap or a swipe once the router is closed', async () => {
     const ran: string[] = []
     const { fake, router } = world()
@@ -1757,6 +1842,30 @@ describe('a hold', () => {
     fake.tap()
     await settle()
     expect([ran, heard]).toEqual([[], []])
+  })
+
+  it('opens no list of candidates, and hands the words to no agent, when the screen moved on as the app was asked what to offer instead', async () => {
+    const heard: string[] = []
+    const { voice } = hearing('open')
+    voice.agents = [said => (heard.push(said.words), { kind: 'notMine' })]
+    voice.model = { choose: async ({ options }) => Object.fromEntries(options.slice(0, 2).map(option => [option.id, 0.5])) }
+    let moved = false
+    const { fake, router } = world({ voice })
+    Object.defineProperty(voice, 'instead', {
+      get: () => {
+        if (!moved) {
+          moved = true
+          router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+        }
+        return 'Keep as a note'
+      },
+    })
+    await settle()
+    await say(fake)
+    await settle()
+    expect(router.current.id).toBe('child')
+    expect(fake.lines()).not.toContain('Which one?')
+    expect(heard).toEqual([])
   })
 
   it('goes back when asked to', async () => {
