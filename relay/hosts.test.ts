@@ -2,12 +2,30 @@ import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import { describe, expect, it, onTestFinished } from 'vitest'
-import worker from '../example/worker.js'
+import { build } from 'esbuild'
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
+import { Miniflare } from '../workerd/runtime.js'
 import { serve, settings } from './node.js'
 
 const KEY = 'sk-developer'
 const BUSY = 'typesafe/jev-1.14'
+
+const ROOT = join(import.meta.dirname, '..')
+let worker = ''
+beforeAll(async () => {
+  const built = await build({
+    entryPoints: [join(ROOT, 'example/worker.ts')],
+    tsconfig: join(ROOT, 'tsconfig.json'),
+    bundle: true,
+    format: 'esm',
+    write: false,
+    logLevel: 'silent',
+  })
+  worker = built.outputFiles[0].text
+})
+
+const closing: (() => unknown)[] = []
+afterAll(async () => void (await Promise.all(closing.splice(0).map(close => close()))))
 
 async function upstream(): Promise<string> {
   const server = createServer((incoming, outgoing) => {
@@ -21,26 +39,46 @@ async function upstream(): Promise<string> {
     })
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  onTestFinished(() => void server.close())
+  closing.push(() => server.close())
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 }
 
 type Host = (path: string, init: RequestInit) => Promise<Response>
 
-async function hosts(models?: string): Promise<Record<string, Host>> {
-  const to = await upstream()
+async function inWorkerd(to: string, models?: string): Promise<string> {
+  const runtime = new Miniflare({
+    modules: true,
+    script: worker,
+    compatibilityDate: '2026-07-01',
+    bindings: { OPENROUTER_KEY: KEY, UPSTREAM: to, ...(models ? { MODELS: models } : {}) },
+  })
+  closing.push(() => runtime.dispose())
+  return (await runtime.ready).href.replace(/\/$/, '')
+}
+
+async function start(to: string, models?: string): Promise<Record<string, Host>> {
   const server = await serve({
     ...settings({ EARSHOT_RELAY_KEY: KEY, EARSHOT_RELAY_UPSTREAM: to, ...(models ? { EARSHOT_RELAY_MODELS: models } : {}) }),
     port: 0,
     hostname: '127.0.0.1',
   })
-  onTestFinished(() => void server.close())
-  const at = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const env = { OPENROUTER_KEY: KEY, UPSTREAM: to, ...(models ? { MODELS: models } : {}) }
+  closing.push(() => server.close())
+  const node = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const edge = await inWorkerd(to, models)
   return {
-    'the Node server': (path, init) => fetch(`${at}${path}`, init),
-    'the Worker': (path, init) => worker.fetch(new Request(`https://relay.example${path}`, init), env),
+    'the Node server': (path, init) => fetch(`${node}${path}`, init),
+    "the Worker, in Cloudflare's own runtime": (path, init) => fetch(`${edge}${path}`, init),
   }
+}
+
+const started = new Map<string, Promise<Record<string, Host>>>()
+const hosts = (models = ''): Promise<Record<string, Host>> => {
+  if (!started.has(models))
+    started.set(
+      models,
+      upstream().then(to => start(to, models || undefined)),
+    )
+  return started.get(models)!
 }
 
 const SEEN = ['content-type', 'access-control-allow-origin', 'access-control-allow-methods', 'access-control-allow-headers', 'x-upstream']
@@ -97,13 +135,8 @@ describe('E13: the Node server and the Worker follow the upstream of a call nowh
     await new Promise<void>(resolve => moved.listen(0, '127.0.0.1', resolve))
     onTestFinished(() => void moved.close())
     const to = `http://127.0.0.1:${(moved.address() as AddressInfo).port}`
-    const server = await serve({ ...settings({ EARSHOT_RELAY_KEY: KEY, EARSHOT_RELAY_UPSTREAM: to }), port: 0, hostname: '127.0.0.1' })
-    onTestFinished(() => void server.close())
     const init = post({ model: WHISPER, input_audio: 'UklGR' })
-    const answers = [
-      await seen(await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}${SPEECH}`, init)),
-      await seen(await worker.fetch(new Request(`https://relay.example${SPEECH}`, init), { OPENROUTER_KEY: KEY, UPSTREAM: to })),
-    ]
+    const answers = await Promise.all(Object.values(await start(to)).map(async host => seen(await host(SPEECH, init))))
     expect(answers.map(answer => answer.status)).toEqual([502, 502])
     expect(heard).toEqual([])
   })
