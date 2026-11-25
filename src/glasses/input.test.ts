@@ -42,7 +42,7 @@ describe('decode', () => {
     expect(decode({ sysEvent: { eventType: 'DOUBLE_CLICK_EVENT' } })).toEqual({ kind: 'double' })
   })
 
-  it('reads no tap into a gesture the SDK did not know: a tap runs what the cursor is on, and that may be a write', () => {
+  it('E14: reads no tap into a gesture the SDK did not know: a tap runs what the cursor is on, and that may be a write', () => {
     const fromHost = (jsonData: object) => evenHubEventFromJson({ type: 'sysEvent', jsonData })
     expect(decode(fromHost({ eventType: 42, eventSource: 1 }))).toBeNull()
     expect(decode(fromHost({ eventType: 'TRIPLE_CLICK_EVENT' }))).toBeNull()
@@ -53,7 +53,7 @@ describe('decode', () => {
     expect(decode(evenHubEventFromJson(['list_event', { containerID: 1, eventType: 99 }]))).toBeNull()
   })
 
-  it('reads no tap where it could not read all the host said: a type named deep down, or more than it will go through', () => {
+  it('E14: reads no tap where it could not read all the host said: a type named deep down, or more than it will go through', () => {
     const fromHost = (jsonData: object) => evenHubEventFromJson({ type: 'sysEvent', jsonData })
     expect(decode(fromHost({ a: { b: { c: { d: { e: { eventType: 42 } } } } } }))).toBeNull()
     const deep: Record<string, unknown> = {}
@@ -64,7 +64,7 @@ describe('decode', () => {
     expect(decode({ jsonData: { rows: Array.from({ length: 5_000 }, () => ({})) }, sysEvent: {} })).toBeNull()
   })
 
-  it('reads no tap past a type named under a name it knows, or in an event too wide to read through', () => {
+  it('E14: reads no tap past a type named under a name it knows, or in an event too wide to read through', () => {
     const fromHost = (jsonData: object) => evenHubEventFromJson({ type: 'sysEvent', jsonData })
     expect(decode(fromHost({ itemID: { eventType: 42 }, eventSource: 1 }))).toBeNull()
     expect(decode(fromHost({ eventType: { eventType: 42 } }))).toBeNull()
@@ -78,7 +78,7 @@ describe('decode', () => {
     expect(decode({ jsonData: circle, sysEvent: { eventSource: 1 } })).toEqual({ kind: 'tap' })
   })
 
-  it('reads no pick from the menu into an event that also names a type the SDK did not know, or that carries a gesture', () => {
+  it('E14: reads no pick from the menu into an event that also names a type the SDK did not know, or that carries a gesture', () => {
     expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: { itemID: 7, eventType: 42 } }))).toBeNull()
     expect(decode({ menuItemClickEvent: { itemID: 7 }, sysEvent: { eventType: 3 } })).toBeNull()
     expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: { itemID: 7, eventType: 0 } }))).toEqual({
@@ -88,7 +88,7 @@ describe('decode', () => {
     expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: { itemID: 7 } }))).toEqual({ kind: 'menu', item: 7 })
   })
 
-  it('reads no pick into a menu event whose item the SDK could not read: it would be taken for the first', () => {
+  it('E14: reads no pick into a menu event whose item the SDK could not read: it would be taken for the first', () => {
     expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: { itemID: 'abc' } }))).toBeNull()
     expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: { Item_ID: 7, itemId: 8 } }))).toBeNull()
     expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: { itemID: '7' } }))).toEqual({ kind: 'menu', item: 7 })
@@ -104,7 +104,7 @@ describe('decode', () => {
     expect(decode(evenHubEventFromJson({ type: 'text_event', data: { Container_ID: 1, Event_Type: 2 } }))).toEqual({ kind: 'down' })
   })
 
-  it('reads nothing into an event whose parts name different gestures, and one gesture into parts that agree', () => {
+  it('E14: reads nothing into an event whose parts name different gestures, and one gesture into parts that agree', () => {
     expect(decode({ sysEvent: { eventType: 3 }, textEvent: { eventType: 1 } })).toBeNull()
     expect(decode({ sysEvent: { eventType: 3 }, listEvent: { containerID: 1 } })).toBeNull()
     expect(decode({ jsonData: { eventType: 2 }, textEvent: { eventType: 1 } })).toBeNull()
