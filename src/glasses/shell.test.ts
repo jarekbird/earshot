@@ -445,19 +445,46 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect(ran).toEqual([`open ${names[1]}`])
   })
 
-  it('still runs the row under the cursor when the redraw on its way leaves that row as it is', async () => {
+  it('E15: runs nothing while a redraw is being written, even one that leaves the row as it is: the glasses show a mix of two frames', async () => {
     const { fake, ran, people, shell } = world()
     await settle()
     const answer = held(fake)
     people.push('Dee')
     shell.redraw()
     await settle(0)
-    expect(fake.lines().join(' ')).not.toContain('Dee')
     fake.tap()
     await settle(0)
-    expect(ran).toEqual([`open ${names[0]}`])
+    expect(ran).toEqual([])
     answer()
     await settle()
+    expect(fake.lines().join(' ')).toContain('Dee')
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[0]}`])
+  })
+
+  it('E15: runs nothing while the marker of a list has moved and its rows have not: the same row is under the cursor in both frames, not in the mix', async () => {
+    const { fake, ran, people } = world()
+    await settle()
+    const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
+    let writes = 0
+    let answer: (() => void) | undefined
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      if (++writes === 2) await new Promise<void>(done => (answer = done))
+      return send(upgrade)
+    }
+    people.splice(0, 2, names[1], names[0])
+    fake.down()
+    await settle(0)
+    expect(answer).toBeDefined()
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer!()
+    await settle()
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[0]}`])
   })
 
   it('E15: runs nothing on a gesture of a screen of boxes that the screen on show ties to something else', async () => {
@@ -584,22 +611,17 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect(ran).toEqual(['play'])
   })
 
-  it('still runs what a tap is tied to when a frame that tied it to something else was asked for and never sent', async () => {
+  it('still runs what a tap is tied to while newer frames are asked for and none of them is sent yet: the glasses show the old one whole', async () => {
     let now = { text: 'One', picture: 'play', playing: false }
     const { fake, ran, shell } = player(() => now)
     await settle()
-    const answer = held(fake)
     now = { text: 'One', picture: 'play', playing: true }
     shell.redraw()
     now = { text: 'Two', picture: 'play', playing: false }
     shell.redraw()
-    await settle(0)
-    expect(fake.lines()).toEqual(['One'])
     fake.tap()
-    await settle(0)
-    expect(ran).toEqual(['play'])
-    answer()
     await settle()
+    expect(ran).toEqual(['play'])
     expect(fake.lines()).toEqual(['Two'])
   })
 
