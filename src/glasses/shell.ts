@@ -8,7 +8,7 @@ import type { Router, Screen } from '../router.js'
 import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
-import { OVERLAY, type Glasses } from './glasses.js'
+import { BEGUN, OVERLAY, type Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { layoutList, layoutText, type Stride, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
@@ -204,10 +204,13 @@ export class Shell {
     const shown = fold ? offered.slice(0, MAX_MENU_ITEMS - 1) : offered
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
-    const aim = (bound: Bound, target?: string) => JSON.stringify([boundTo(bound).action.id, target ?? boundTo(bound).target ?? null])
+    const aim = (bound: Bound, target = boundTo(bound).target) => JSON.stringify([view.kind, boundTo(bound).action.id, target ?? null])
+    const under = targets[place.cursor]
     const aims: Aims =
       view.kind === 'list'
-        ? { tap: aim(view.action, targets[place.cursor]?.id) }
+        ? under
+          ? { tap: aim(view.action, under.id) }
+          : {}
         : view.kind === 'boxes'
           ? Object.fromEntries(Object.entries(view.on ?? {}).map(([gesture, bound]) => [gesture, aim(bound)]))
           : {}
@@ -231,10 +234,12 @@ export class Shell {
 
   #aimed(drawn: Drawn, gesture: Gesture): boolean {
     this.#shown()
-    const seen = this.#asked[0]
-    return (
-      seen !== undefined && seen.frame <= this.#glasses.shown && seen.screen === drawn.screen && seen.aims[gesture] === drawn.aims[gesture]
-    )
+    const aim = drawn.aims[gesture]
+    const [seen] = this.#asked
+    const shown = this.#glasses.shown
+    if (aim === undefined || !seen || seen.frame > shown) return false
+    const sent = Math.max(shown, this.#glasses[BEGUN])
+    return this.#asked.every(asked => asked.frame > sent || (asked.screen === drawn.screen && asked.aims[gesture] === aim))
   }
 
   #shown(): Screen | undefined {

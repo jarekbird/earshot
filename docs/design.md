@@ -118,9 +118,11 @@ read, which would otherwise be taken for item 0.
   whatever it is thought to hold; after a rebuild they refuse, nothing of the page is taken as known, and the next
   page is built, not written into.
 - A tap on a list, and a gesture a screen of boxes ties to an action, runs only what the glasses show under it
-  (E15). Each frame remembers what a tap and each swipe would run; a touch counts when the frame on show and the
-  newest frame agree, and is dropped when they differ, as when the cursor's move, or a new row above it, is still
-  on its way. A redraw that leaves what is under the touch as it is holds nothing back.
+  (E15). Each frame remembers what a tap and each swipe would run; an empty list's tap would run nothing. The
+  glasses are sent a frame box by box, so between the last frame answered in full and the newest, any frame they
+  were sent a part of may be partly on show. A touch counts when all of those agree with the newest, and is dropped
+  when one differs, as when the cursor's move, or a new row above it, is still on its way. A redraw that leaves
+  what is under the touch as it is holds nothing back.
 - A question is answered only once the glasses are known to show that question. A tap or a swipe before that does
   nothing: an older notice may still be what the user sees.
 - Holds are handed on untouched; slice 3 takes them.
