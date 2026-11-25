@@ -261,7 +261,13 @@ class Wire implements Line {
 }
 
 describe('the calls, when the upstream answers with another address', () => {
-  it('are told to follow none, so that no key and no recording go there', async () => {
+  const call = () =>
+    new Request('https://relay.example/api/v1/audio/transcriptions', {
+      method: 'POST',
+      body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
+    })
+
+  it("ask for the redirect itself and follow none: a Worker's fetch refuses any other way of not following", async () => {
     const seen: Array<RequestInit['redirect']> = []
     const handle = relay({
       key: 'sk-developer',
@@ -271,13 +277,41 @@ describe('the calls, when the upstream answers with another address', () => {
         return new Response('{}')
       },
     })
-    await handle(
-      new Request('https://relay.example/api/v1/audio/transcriptions', {
-        method: 'POST',
-        body: JSON.stringify({ model: DEFAULT_MODELS[0] }),
-      }),
-    )
-    expect(seen).toEqual(['error'])
+    await handle(call())
+    expect(seen).toEqual(['manual'])
+  })
+
+  it.each([301, 302, 303, 307, 308])('answer a %i that the upstream could not be reached, and pass on nothing of it', async status => {
+    const moved = new Response('{"key":"sk-developer"}', { status, headers: { location: 'https://elsewhere.example/api' } })
+    const handle = relay({ key: 'sk-developer', upstream: 'https://upstream.example', fetch: async () => moved })
+    const answered = await handle(call())
+    expect(answered.status).toBe(502)
+    expect(answered.headers.get('location')).toBeNull()
+    expect(await answered.text()).toBe('{"error":"The upstream could not be reached."}')
+  })
+
+  it('let go of a redirect that goes on sending: what the relay will not read does not stay open', async () => {
+    let letGo = false
+    let sent = 0
+    const going = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await new Promise(resolve => setTimeout(resolve, 5))
+        if (++sent > 40) controller.close()
+        else controller.enqueue(new Uint8Array(1_024))
+      },
+      cancel: () => void (letGo = true),
+    })
+    const moved = new Response(going, { status: 307, headers: { location: 'https://elsewhere.example/api' } })
+    const handle = relay({ key: 'sk-developer', upstream: 'https://upstream.example', fetch: async () => moved })
+    expect((await handle(call())).status).toBe(502)
+    expect(letGo).toBe(true)
+    expect(sent).toBeLessThan(40)
+  })
+
+  it('answer the same when the host gives no more than that it was a redirect', async () => {
+    const hidden = Object.defineProperty(new Response(null), 'type', { value: 'opaqueredirect' })
+    const handle = relay({ key: 'sk-developer', upstream: 'https://upstream.example', fetch: async () => hidden })
+    expect((await handle(call())).status).toBe(502)
   })
 })
 
