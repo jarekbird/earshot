@@ -28,7 +28,7 @@ const UNLESS = new WeakMap<Action, { run: Action['run']; unless: Unless }>()
 
 export function unless(made: Action): Unless | undefined {
   const kept = UNLESS.get(made)
-  return kept?.run === made.run ? kept.unless : undefined
+  return kept && kept.run === made.run ? kept.unless : undefined
 }
 
 export interface Action {

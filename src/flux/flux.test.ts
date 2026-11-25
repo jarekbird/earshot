@@ -835,6 +835,25 @@ describe('live speech from Flux, through the relay', () => {
     ])
   })
 
+  it('takes no turn numbered so high that it could not be counted on from the turns already heard, and hears the line on', () => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(0, 'one', 'EndOfTurn'))
+    lines[0].drops()
+    hear(sound(100))
+    vi.advanceTimersByTime(retryDelay(1))
+    lines[1].connects()
+    lines[1].says(info(Number.MAX_SAFE_INTEGER, 'far', 'EndOfTurn'))
+    lines[1].says(info(0, 'near', 'EndOfTurn'))
+    lines[1].says(info(1, 'nearer', 'EndOfTurn'))
+    expect(turns.map(turn => [turn.id, turn.words])).toEqual([
+      [0, 'one'],
+      [1, 'near'],
+      [2, 'nearer'],
+    ])
+  })
+
   it('counts its own turns one by one, also where the upstream leaves numbers out', () => {
     const { lines, turns, hear } = listening()
     hear(sound(100))

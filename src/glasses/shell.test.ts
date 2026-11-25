@@ -161,6 +161,8 @@ describe('drawing', () => {
     shell.redraw()
     router.close()
     await settle()
+    expect(fake.overlay()).toBe('Saved')
+    await settle(4_000)
     expect([fake.overlay(), seen()]).toEqual(['', before])
   })
 
@@ -517,6 +519,50 @@ describe('drawing', () => {
     await settle()
     expect(fake.lines()).toEqual(['Home'])
     life.end()
+  })
+
+  it('asks an action an app made by hand for its work once at a tap, and runs the work it got then', async () => {
+    const ran: number[] = []
+    let asked = 0
+    const own: Action = {
+      id: 'own',
+      say: 'Own',
+      risk: 'safe',
+      blocked: () => null,
+      targets: () => null,
+      get run() {
+        const at = ++asked
+        return async () => (ran.push(at), { done: true as const })
+      },
+    }
+    const { fake } = world({ home: () => ({ id: 'home', view: () => text({ body: 'Home' }), actions: () => [own] }) })
+    await settle()
+    asked = 0
+    fake.pick('Own')
+    await settle()
+    expect([asked, ran]).toEqual([1, [1]])
+  })
+
+  it('keeps the place of a text that follows its end, though the app let it not follow for one swipe', async () => {
+    let end = true
+    const body = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join('\n')
+    const { fake, shell } = world({ home: () => ({ id: 'home', view: () => text({ title: 'Log', body, end }) }) })
+    const last = () => fake.lines().at(-1)
+    await settle()
+    expect(last()).toBe('Line 30')
+    fake.up()
+    await settle()
+    end = false
+    shell.redraw()
+    await settle()
+    fake.up()
+    await settle()
+    const read = last()
+    expect(read).not.toBe('Line 30')
+    end = true
+    shell.redraw()
+    await settle()
+    expect(last()).toBe(read)
   })
 
   it('runs an action an app made by hand, as it always did', async () => {
@@ -3017,6 +3063,81 @@ describe('a hold', () => {
     fake.sound(tone(200))
     expect(heard).toEqual([tone(200).length])
     life.end()
+  })
+
+  it('keeps what is said in a press from other listeners for as long as hold events of that press keep coming, and records it once', async () => {
+    const asked: number[] = []
+    const { fake, glasses, life } = world({
+      voice: { maxHoldMs: 1_000, transcribe: async audio => (asked.push(audio.seconds), '') },
+    })
+    const heard: number[] = []
+    life.own(glasses.listen(sound => void heard.push(sound.pcm.length)))
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(400))
+    fake.sound(tone(400))
+    await settle(700)
+    fake.hold()
+    await settle(1_500)
+    fake.sound(tone(200))
+    expect([heard, asked.length]).toEqual([[], 1])
+    await settle(600)
+    fake.sound(tone(200))
+    expect(heard).toEqual([tone(200).length])
+  })
+
+  it('shows the notice a screen gave as it left, though a turn that was being decided on it is called off with it', async () => {
+    const { fake, front, router, shell } = world({ voice: { transcribe: () => new Promise<string>(() => {}) } })
+    router.open({
+      id: 'child',
+      view: () => text({ body: 'Child' }),
+      enter: left => void left.own(() => shell.notice('Saved')),
+    })
+    await settle()
+    await say(fake)
+    expect(shell.busy).toBe(true)
+    router.back()
+    await settle()
+    expect([shell.busy, front()]).toEqual([false, 'Saved'])
+  })
+
+  it('takes a notice away with the turn when a touch calls the turn off, as it always did', async () => {
+    const { fake, front, shell } = world({ voice: { transcribe: () => new Promise<string>(() => {}) } })
+    await settle()
+    await say(fake)
+    shell.notice('In between')
+    await settle(100)
+    expect(front()).toBe('In between')
+    fake.tap()
+    await settle(100)
+    expect([shell.busy, front()]).toEqual([false, ''])
+  })
+
+  it('says that no answer came in time, and is busy no longer, when the app itself ended the lifetime it was given for the turn', async () => {
+    const turns: Lifetime[] = []
+    const { fake, front, shell } = world({
+      voice: { timeoutMs: 5_000, transcribe: (_audio, turn) => (turn && turns.push(turn), new Promise<string>(() => {})) },
+    })
+    await settle()
+    await say(fake)
+    turns[0].end()
+    await settle(5_000)
+    expect([shell.busy, front()]).toEqual([false, 'No answer in time'])
+  })
+
+  it('leaves no wait behind when a turn is called off: nothing is said of a late answer after it', async () => {
+    const { fake, front, router } = world({ voice: { timeoutMs: 5_000, transcribe: () => new Promise<string>(() => {}) } })
+    await settle()
+    await say(fake)
+    router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+    const waiting = vi.getTimerCount()
+    await settle(6_000)
+    expect(front()).toBe('')
+    router.back()
+    await settle()
+    await say(fake)
+    expect(vi.getTimerCount()).toBeLessThanOrEqual(waiting + 2)
   })
 
   it('records nothing for a hold when the screen was replaced as the app was asked how long a hold may be', async () => {

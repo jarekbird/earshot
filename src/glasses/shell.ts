@@ -130,6 +130,8 @@ export class Shell {
   #drawn: Drawn | null = null
   #asking: { yes: () => void; no?: () => void } | null = null
   #overlaid = false
+  #noticed = false
+  #slow: Timer | undefined
   #fading: Timer | undefined
   #recording: {
     chunks: Uint8Array[]
@@ -139,7 +141,7 @@ export class Shell {
     end: () => void
   } | null = null
   readonly #down = new Map<HoldSource, Timer>()
-  readonly #spent = new Set<HoldSource>()
+  readonly #spent = new Map<HoldSource, number>()
   #held: Held | null = null
   #turn = 0
   #said = false
@@ -178,7 +180,7 @@ export class Shell {
         const spoken = this.#recording?.showing ?? this.#decidingOn
         const closed = current !== undefined && !onPath(current)
         try {
-          if (closed || (spoken !== undefined && spoken !== null && !onPath(spoken))) this.#callOff()
+          if (closed || (spoken !== undefined && spoken !== null && !onPath(spoken))) this.#callOff(true)
         } finally {
           if (closed) progressOf(this.#glasses).drop(this.#pending)
         }
@@ -200,7 +202,7 @@ export class Shell {
         this.#moves++
         const spoken = this.#recording?.showing ?? this.#decidingOn
         try {
-          if (spoken !== undefined && spoken !== null && spoken !== showingsOf(router).current) this.#callOff()
+          if (spoken !== undefined && spoken !== null && spoken !== showingsOf(router).current) this.#callOff(true)
         } finally {
           if (this.#asking) this.#clear()
         }
@@ -283,7 +285,7 @@ export class Shell {
     const to = text(view.end && !up && from.atEnd ? { top: 0, away: false } : { top, away: true })
     const ends = drawn.view.kind === 'text' && drawn.view.end === true
     const follows = ends && view.end === true && to.atEnd
-    Object.assign(place, follows ? { top: 0, away: false } : { top: to.at, away: ends })
+    Object.assign(place, follows ? { top: 0, away: false } : ends ? { top: to.at, away: true } : { top: to.at })
     this.#frames.swiping(showing, { view, state: to.state })
     this.#draw({ view, laid: text })
   }
@@ -339,9 +341,11 @@ export class Shell {
 
   notice(text: string): void {
     this.#show(text, this.#noticeMs)
+    this.#noticed = true
   }
 
   #show(text: string, ms?: number): void {
+    this.#noticed = false
     this.#fading?.cancel()
     this.#fading = ms === undefined ? undefined : this.#life.timeout(() => this.#clear(), ms)
     this.#asking = null
@@ -350,6 +354,7 @@ export class Shell {
   }
 
   #clear(): void {
+    this.#noticed = false
     this.#fading?.cancel()
     this.#fading = undefined
     this.#asking = null
@@ -422,8 +427,9 @@ export class Shell {
     this.redraw()
   }
 
-  #callOff(): void {
+  #callOff(moved = false): void {
     this.#turn++
+    this.#slow?.cancel()
     const deciding = this.#deciding
     this.#deciding = null
     this.#decidingOn = null
@@ -431,7 +437,7 @@ export class Shell {
     try {
       this.#recording?.end()
     } finally {
-      this.#clear()
+      if (!(moved && this.#noticed)) this.#clear()
     }
   }
 
@@ -454,26 +460,31 @@ export class Shell {
     if (mine) this.#finish()
   }
 
+  #pressed(source: HoldSource, longest: number): void {
+    this.#down.get(source)?.cancel()
+    this.#down.set(
+      source,
+      this.#life.timeout(() => this.#lift(source), 2 * longest),
+    )
+  }
+
   #hold(source: HoldSource): void {
-    if (this.#spent.has(source)) return
+    const spent = this.#spent.get(source)
+    if (spent !== undefined) return this.#pressed(source, spent)
     const moves = this.#moves
     const showings = showingsOf(this.#router)
     const showing = showings.current
     const voice = this.#voice
     const longest = Math.min(voice?.maxHoldMs ?? MAX_HOLD_MS, LONGEST_HOLD_MS)
     if (this.#life.ended) return
-    this.#down.get(source)?.cancel()
-    this.#down.set(
-      source,
-      this.#life.timeout(() => this.#lift(source), 2 * longest),
-    )
+    this.#pressed(source, longest)
     const refused = () => {
       if (!this.#recording) return
       this.#recording.end()
       this.notice(this.#words.noMic)
     }
     this.#held ??= this.#glasses[HOLD](sound => this.#recording?.hear(sound), refused)
-    if (moves !== this.#moves) return void this.#spent.add(source)
+    if (moves !== this.#moves) return void this.#spent.set(source, longest)
     if (!showings.onPath(showing)) return
     if (!voice) {
       if (!this.#recording) this.#callOff()
@@ -481,7 +492,7 @@ export class Shell {
     }
     if (this.#recording) return
     this.#callOff()
-    if (moves !== this.#moves) return void this.#spent.add(source)
+    if (moves !== this.#moves) return void this.#spent.set(source, longest)
     const chunks: Uint8Array[] = []
     const bars = Array<string>(METER_BARS).fill(QUIET)
     const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`)
@@ -509,7 +520,7 @@ export class Shell {
       },
     }
     this.#recording = recording
-    this.#spent.add(source)
+    this.#spent.set(source, longest)
     this.#held.want(true)
     listening()
     voice.onListen?.()
@@ -553,7 +564,7 @@ export class Shell {
     let patience: number | undefined
     serve(() => void (patience = voice.timeoutMs ?? VOICE_TIMEOUT_MS), TURN_SET)
     if (patience === undefined) return finish(() => this.notice(this.#words.voiceFailed))
-    slow = life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), patience)
+    slow = this.#slow = this.#life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), patience)
     if (!mine()) return slow.cancel()
     if (passed === undefined) this.#show(this.#words.thinking)
     try {
