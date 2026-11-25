@@ -164,6 +164,14 @@ describe('a relay that asks for a secret', () => {
     expect([await leaving, let_go].map(seen => (seen instanceof LifetimeEnded ? 'ended' : seen))).toEqual(['ended', 1])
   })
 
+  it.each([401, 429, 500, 418])('lets go of an answer of %i it does not read, without waiting for it', async status => {
+    let let_go = 0
+    const unread = new ReadableStream({ cancel: () => (let_go++, new Promise<void>(() => {})) })
+    const router = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: async () => new Response(unread, { status }) })
+    const failed = await router.transcribe({ pcm: tone(), seconds: 0.1 }).catch((error: Error) => error)
+    expect([failed instanceof Error, let_go]).toEqual([true, 1])
+  })
+
   it('ends with its turn also while it lets go of a redirect that will not be let go of', async () => {
     const stuck = new ReadableStream({ cancel: () => new Promise<void>(() => {}) })
     const life = new Lifetime()
