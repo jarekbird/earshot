@@ -1,0 +1,24 @@
+{
+  "name": "earshot-example",
+  "version": "0.0.40",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node build.mjs --serve",
+    "sim": "evenhub-simulator http://127.0.0.1:5173",
+    "build": "node build.mjs",
+    "typecheck": "tsc",
+    "check": "earshot-check build/app.json dist",
+    "pack": "node build.mjs && earshot-check build/app.json dist && evenhub pack build/app.json dist -o build/earshot-example.ehpk"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "0.0.16",
+    "earshot": "github:jarekbird/earshot#v0.0.40"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "0.2.0",
+    "@evenrealities/evenhub-simulator": "0.9.5",
+    "esbuild": "0.28.2",
+    "typescript": "^5.7.0"
+  }
+}

@@ -50,7 +50,7 @@ export type Agent = (heard: Heard) => Verdict | Promise<Verdict>
 export const MAX_OPTIONS = 255
 export const QUESTION_LIMIT = 240_000
 export const SURE_AT = 0.7
-export const UNSURE_FROM = 0.15
+const UNSURE_FROM = 0.15
 const UNSURE_AT_MOST = 3
 const STANDARD = ['back', 'home']
 const PASS = 'pass'

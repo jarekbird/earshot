@@ -12,5 +12,4 @@ export const MAX_TEXT_BYTES = 999
 export const MAX_NAME_CHARS = 16
 export const MAX_MENU_ITEMS = 10
 export const MAX_MENU_NAME_BYTES = 32
-export const MIN_BRIGHTNESS = 0
 export const MAX_BRIGHTNESS = 4

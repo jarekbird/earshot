@@ -1,9 +1,10 @@
-import { execFileSync } from 'node:child_process'
-import { readdirSync, readFileSync } from 'node:fs'
+import { execFile, execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer, get } from 'node:http'
 import { connect, Socket, type AddressInfo } from 'node:net'
-import { networkInterfaces } from 'node:os'
-import { join, relative, sep } from 'node:path'
+import { networkInterfaces, tmpdir } from 'node:os'
+import { dirname, join, relative, sep } from 'node:path'
+import { promisify } from 'node:util'
 import ts from 'typescript'
 import { expect, it } from 'vitest'
 
@@ -111,8 +112,7 @@ it('E8: the example app uses every value the framework exports, but for a list t
       : [],
   )
   const used = parsed('example/main.ts').flatMap(one => {
-    if (!ts.isImportDeclaration(one) || !ts.isStringLiteral(one.moduleSpecifier) || one.moduleSpecifier.text !== '../src/index.js')
-      return []
+    if (!ts.isImportDeclaration(one) || !ts.isStringLiteral(one.moduleSpecifier) || one.moduleSpecifier.text !== 'earshot') return []
     const names = one.importClause?.isTypeOnly ? undefined : one.importClause?.namedBindings
     return names && ts.isNamedImports(names)
       ? names.elements.filter(name => !name.isTypeOnly).map(name => (name.propertyName ?? name.name).text)
@@ -133,6 +133,243 @@ it('E9: a view hands a screen no raw input, only actions', () => {
 
 const root = join(import.meta.dirname, '..')
 const tracked = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean)
+function exportsAndUses(file: string, text: string): { exported: string[]; used: { file: string; name: string }[] } {
+  const from = (specifier: string) => join(file, '..', specifier).replaceAll(sep, '/').replace(/\.js$/, '.ts')
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.ES2023, true)
+  const exported: string[] = []
+  const used: { file: string; name: string }[] = []
+  const bound = (name: ts.BindingName): string[] =>
+    ts.isIdentifier(name) ? [name.text] : name.elements.flatMap(one => (ts.isOmittedExpression(one) ? [] : bound(one.name)))
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && ts.isStringLiteralLike(node.arguments[0])) {
+      if (node.arguments[0].text.startsWith('.')) used.push({ file: from(node.arguments[0].text), name: '*' })
+    }
+    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
+      let first = node.qualifier
+      while (first && ts.isQualifiedName(first)) first = first.left
+      if (node.argument.literal.text.startsWith('.')) used.push({ file: from(node.argument.literal.text), name: first?.text ?? '*' })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  for (const statement of source.statements) {
+    if (ts.isExportAssignment(statement)) exported.push('default')
+    else if (ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) {
+      const names = ts.isImportDeclaration(statement) ? statement.importClause?.namedBindings : statement.exportClause
+      const listed = names && (ts.isNamedImports(names) || ts.isNamedExports(names)) ? names.elements : undefined
+      if (ts.isExportDeclaration(statement))
+        exported.push(...(listed?.map(one => one.name.text) ?? (names && ts.isNamespaceExport(names) ? [names.name.text] : [])))
+      const specifier = statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : ''
+      if (!specifier.startsWith('.')) continue
+      const everything = !listed && (names !== undefined || ts.isExportDeclaration(statement))
+      const taken = [
+        ...(listed?.map(one => (one.propertyName ?? one.name).text) ?? (everything ? ['*'] : [])),
+        ...(ts.isImportDeclaration(statement) && statement.importClause?.name ? ['default'] : []),
+      ]
+      used.push(...(taken.length ? taken : ['']).map(name => ({ file: from(specifier), name })))
+    } else if (ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some(one => one.kind === ts.SyntaxKind.ExportKeyword)) {
+      if (ts.getModifiers(statement)?.some(one => one.kind === ts.SyntaxKind.DefaultKeyword)) exported.push('default')
+      else if (ts.isVariableStatement(statement)) exported.push(...statement.declarationList.declarations.flatMap(one => bound(one.name)))
+      else if ('name' in statement && statement.name && ts.isIdentifier(statement.name as ts.Node))
+        exported.push((statement.name as ts.Identifier).text)
+    }
+  }
+  return { exported, used }
+}
+
+it('C2: the check knows each way to export and each way to use what another file exports', () => {
+  const of = (text: string) => exportsAndUses('src/here.ts', text)
+  expect(
+    of('export const a = 1, b = 2\nexport function c() {}\nexport interface D {}\nexport type E = 1\nexport class F {}').exported,
+  ).toEqual(['a', 'b', 'c', 'D', 'E', 'F'])
+  expect(of('const a = 1\nconst b = 2\nexport { a, b as c }').exported).toEqual(['a', 'c'])
+  expect(of('export default 1').exported).toEqual(['default'])
+  expect(of("export { x as y } from './there.js'")).toEqual({ exported: ['y'], used: [{ file: 'src/there.ts', name: 'x' }] })
+  expect(of("export * from './there.js'").used).toEqual([{ file: 'src/there.ts', name: '*' }])
+  expect(of("export * as all from './there.js'")).toEqual({ exported: ['all'], used: [{ file: 'src/there.ts', name: '*' }] })
+  expect(of("import { x, y as z } from './there.js'").used).toEqual([
+    { file: 'src/there.ts', name: 'x' },
+    { file: 'src/there.ts', name: 'y' },
+  ])
+  expect(of("import whole from './there.js'").used).toEqual([{ file: 'src/there.ts', name: 'default' }])
+  expect(of("import whole, { x } from '../check/there.js'").used).toEqual([
+    { file: 'check/there.ts', name: 'x' },
+    { file: 'check/there.ts', name: 'default' },
+  ])
+  expect(of("import * as all from './there.js'").used).toEqual([{ file: 'src/there.ts', name: '*' }])
+  expect(of("import './there.js'").used).toEqual([{ file: 'src/there.ts', name: '' }])
+  expect(of("const later = await import('./there.js')").used).toEqual([{ file: 'src/there.ts', name: '*' }])
+  expect(of('export const { a, b: c, ...rest } = thing, [d, , e] = list').exported).toEqual(['a', 'c', 'rest', 'd', 'e'])
+  expect(of("export type B = import('./there.js').A")).toEqual({ exported: ['B'], used: [{ file: 'src/there.ts', name: 'A' }] })
+  expect(of("let deep: import('./there.js').A.B").used).toEqual([{ file: 'src/there.ts', name: 'A' }])
+  expect(of("let all: typeof import('./there.js')").used).toEqual([{ file: 'src/there.ts', name: '*' }])
+  expect(of("import { expect } from 'vitest'")).toEqual({ exported: [], used: [] })
+})
+
+it('C2: nothing is exported that nothing uses, and no file is left that nothing reads', () => {
+  const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const built = [
+    ...Object.values(manifest.bin as Record<string, string>),
+    ...Object.values(manifest.exports as Record<string, { default: string }>).map(entry => entry.default),
+  ]
+  const entries = built
+    .map(path => path.replace(/^\.\/dist\//, '').replace(/\.js$/, '.ts'))
+    .map(path => (/^(check|sim|relay)\//.test(path) ? path : `src/${path}`))
+  const code = tracked.filter(file => /\.(ts|mts|mjs)$/.test(file) && !file.endsWith('.d.mts'))
+  const read = code.map(file => ({ file, ...exportsAndUses(file, readFileSync(join(root, file), 'utf8')) }))
+  const uses = read.flatMap(one => one.used)
+  const ours = read.filter(
+    ({ file }) => /^(src|check|sim|relay)\/.*\.ts$/.test(file) && !file.endsWith('.test.ts') && !entries.includes(file),
+  )
+  expect(entries.filter(file => !code.includes(file))).toEqual([])
+  expect(ours.filter(({ file }) => !uses.some(use => use.file === file)).map(({ file }) => file)).toEqual([])
+  expect(
+    ours.flatMap(({ file, exported }) =>
+      exported
+        .filter(name => !uses.some(use => use.file === file && (use.name === name || use.name === '*')))
+        .map(name => `${file}: ${name}`),
+    ),
+    'C2: an export nothing imports is left over. Take the word "export" away, or the thing itself when nothing in its own file uses it.',
+  ).toEqual([])
+})
+
+it('C3: a pull request tries its changed tests on the old source, with no network, unless it is marked as no new behaviour', () => {
+  const workflow = readFileSync(join(root, '.github/workflows/c3.yml'), 'utf8')
+  expect(workflow).toMatch(/^ {2}pull_request:$/m)
+  expect(workflow).toMatch(/^ {4}if: \$\{\{ !contains\(github\.event\.pull_request\.labels\.\*\.name, 'no new behaviour'\) \}\}$/m)
+  expect(workflow).toMatch(/^ {6}- run: \.github\/offline\.sh \.github\/c3\.sh "\$BASE"$/m)
+  expect(workflow.match(/^ {6}- run: /gm)).toHaveLength(3)
+  expect(readFileSync(join(root, '.github/c3.sh'), 'utf8')).toContain(
+    'if npx tsc -p tsconfig.c3.json && xargs -0 npx vitest run < "$lists/tests"; then',
+  )
+})
+
+const KEPT = Array.from({ length: 8 }, (_, n) => `export const kept${n} = ${n}`).join('\n')
+const WAS: Record<string, string> = {
+  'tsconfig.json': JSON.stringify({
+    compilerOptions: {
+      target: 'ES2023',
+      module: 'ESNext',
+      moduleResolution: 'bundler',
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      types: [],
+    },
+    include: ['src', 'example'],
+  }),
+  'src/add.ts': `${KEPT}\nexport const add = (a: number, b: number) => a - b\n`,
+  'src/add.test.ts':
+    "import { expect, it } from 'vitest'\nimport { add } from './add.js'\n\nit('adds nothing', () => expect(add(1, 0)).toBe(1))\n",
+  'example/main.ts': "import { add } from '../src/add.js'\n\nexport const one = add(1, 0)\n",
+}
+const FIXED = WAS['src/add.ts'].replace('a - b', 'a + b')
+const SHOWS = `${WAS['src/add.test.ts']}\nit('adds', () => expect(add(1, 2)).toBe(3))\n`
+const SHOWS_NOTHING = `${WAS['src/add.test.ts']}\nit('adds nothing to two', () => expect(add(2, 0)).toBe(2))\n`
+
+async function c3(changes: Record<string, string | null>, also: Record<string, string> = {}): Promise<{ passed: boolean; said: string }> {
+  const dir = mkdtempSync(join(tmpdir(), 'earshot-c3-'))
+  const run = promisify(execFile)
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME }
+  const git = (...args: string[]) =>
+    run('git', ['-c', 'user.name=trial', '-c', 'user.email=trial@example.invalid', ...args], { cwd: dir, env })
+  const write = (files: Record<string, string | null>) => {
+    for (const [file, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, file)), { recursive: true })
+      if (text === null) rmSync(join(dir, file))
+      else writeFileSync(join(dir, file), text)
+    }
+  }
+  try {
+    write({ ...WAS, ...also, '.gitignore': 'node_modules\n' })
+    symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'), 'junction')
+    await git('init', '-q')
+    await git('add', '-A')
+    await git('commit', '-q', '-m', 'as it was')
+    const old = (await git('rev-parse', 'HEAD')).stdout.trim()
+    write(changes)
+    await git('add', '-A')
+    await git('commit', '-q', '-m', 'the change')
+    const done = await run('sh', [join(root, '.github/c3.sh'), old], { cwd: dir, env }).then(
+      ({ stdout }) => ({ passed: true, said: stdout }),
+      (failed: { stdout: string }) => ({ passed: false, said: failed.stdout }),
+    )
+    return { passed: done.passed, said: done.said.split('\n').findLast(line => line.includes('C3: ')) ?? done.said }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+const C3_CASES: [string, Record<string, string | null>, boolean, string, Record<string, string>?][] = [
+  ['takes a fix with a test that fails without it', { 'src/add.ts': FIXED, 'src/add.test.ts': SHOWS }, true, 'fail, or do not compile'],
+  [
+    'refuses a fix whose test passes without it too',
+    { 'src/add.ts': FIXED, 'src/add.test.ts': SHOWS_NOTHING },
+    false,
+    'pass on the old source too',
+  ],
+  ['refuses a fix with no test', { 'src/add.ts': FIXED }, false, 'no test did'],
+  ['has nothing to ask of a change to no source', { 'README.md': 'Words.\n' }, true, 'no source changed'],
+  [
+    'takes a test that does not compile without the change',
+    {
+      'src/add.ts': `${FIXED}export type Sum = number\n`,
+      'src/add.test.ts': `${WAS['src/add.test.ts']}import type { Sum } from './add.js'\n\nexport const sum: Sum = add(1, 0)\n`,
+    },
+    true,
+    'fail, or do not compile',
+  ],
+  [
+    'refuses a change that only something else fails to compile without, when its test shows nothing',
+    {
+      'src/add.ts': `${WAS['src/add.ts']}export const sub = (a: number, b: number) => a - b\n`,
+      'src/add.test.ts': SHOWS_NOTHING,
+      'example/main.ts': "import { sub } from '../src/add.js'\n\nexport const one = sub(1, 0)\n",
+    },
+    false,
+    'pass on the old source too',
+  ],
+  [
+    'takes a fix in a file that is renamed in the same change',
+    {
+      'src/add.ts': null,
+      'src/sum.ts': FIXED,
+      'src/add.test.ts': null,
+      'src/sum.test.ts': SHOWS.replace('./add.js', './sum.js'),
+      'example/main.ts': WAS['example/main.ts'].replace('add.js', 'sum.js'),
+    },
+    true,
+    'fail, or do not compile',
+  ],
+  [
+    'refuses a fix whose test passes without it too, also when the name of the test has a space in it',
+    { 'src/add.ts': FIXED, 'src/add nothing.test.ts': WAS['src/add.test.ts'] },
+    false,
+    'pass on the old source too',
+  ],
+  [
+    'takes a fix in a file whose name has a space in it',
+    {
+      'src/two words.ts': 'export const two = 2\n',
+      'src/two words.test.ts':
+        "import { expect, it } from 'vitest'\nimport { two } from './two words.js'\n\nit('is two', () => expect(two).toBe(2))\n",
+    },
+    true,
+    'fail, or do not compile',
+    { 'src/two words.ts': 'export const two = 1\n' },
+  ],
+]
+
+it.skipIf(process.platform === 'win32').concurrent.each(C3_CASES)(
+  'C3: the job %s',
+  { timeout: 120_000 },
+  async (_, changes, passed, said, also) => {
+    const done = await c3(changes, also)
+    expect(done.said).toContain(said)
+    expect(done.passed).toBe(passed)
+  },
+)
+
 const DIRECTIVE = /^((\/\/\/? ?|\/\*+\s*)(@ts-|eslint[- ]|prettier-ignore|<reference|v8 ignore|c8 ignore|istanbul ignore|globals? )|#!)/
 
 interface Comment {
@@ -234,11 +471,19 @@ it("E4: a pull request runs check and the simulator suite with no network but th
   expect(workflow).toMatch(/^ {2}check:\n(?: {4}.*\n)*? {6}- run: \.github\/offline\.sh npm run check$/m)
   expect(workflow).toMatch(/^ {2}sim:\n(?: {4,}.*\n)*? {6}- run: \.github\/offline\.sh npm run check:sim$/m)
   expect(workflow).not.toMatch(/^ {4}if:/m)
-  expect(workflow.match(/npm run check/g)?.length).toBe(2)
   const offline = readFileSync(join(root, '.github/offline.sh'), 'utf8')
   expect(offline).toContain('unshare --net')
   expect(offline).toContain('EARSHOT_OFFLINE=1')
   expect(offline).toContain('"CI=$ci"')
+})
+
+it('E4: on the other systems CI has only the guard, since only Linux can take the network away; on Linux it always does', () => {
+  const workflow = readFileSync(join(root, '.github/workflows/check.yml'), 'utf8')
+  const elsewhere = [...workflow.matchAll(/^ {10}- \{ os: (\w+)-latest, node: \d+, run: (.+) \}$/gm)].map(([, os, run]) => `${os}: ${run}`)
+  expect(elsewhere.filter(leg => !/^(macos|windows): npm run check$|^ubuntu: \.github\/offline\.sh npm run check$/.test(leg))).toEqual([])
+  expect(elsewhere.map(leg => leg.split(':')[0]).sort()).toEqual(['macos', 'ubuntu', 'windows'])
+  expect(workflow).toMatch(/^ {2}elsewhere:\n(?: {4,}.*\n)*? {6}- run: \$\{\{ matrix\.run \}\}$/m)
+  expect(workflow.match(/npm run check/g)?.length).toBe(2 + elsewhere.length)
 })
 
 it("an app that installs Earshot installs no tool that runs on fewer machines than Earshot's own: the Worker's runtime is apart", () => {
@@ -250,9 +495,9 @@ it("an app that installs Earshot installs no tool that runs on fewer machines th
   ).toEqual([])
   const apart = JSON.parse(readFileSync(join(root, 'workerd/package.json'), 'utf8'))
   expect(Object.keys(apart.devDependencies)).toEqual(['miniflare'])
-  expect(readFileSync(join(root, '.github/workflows/check.yml'), 'utf8')).toMatch(
-    /^ {6}- run: npm ci --prefix workerd\n {6}- run: \.github\/offline\.sh npm run check$/m,
-  )
+  const workflow = readFileSync(join(root, '.github/workflows/check.yml'), 'utf8')
+  expect(workflow).toMatch(/^ {6}- run: npm ci --prefix workerd\n {6}- run: \.github\/offline\.sh npm run check$/m)
+  expect(workflow).toMatch(/^ {6}- run: npm ci --prefix workerd\n {6}- run: \$\{\{ matrix\.run \}\}$/m)
 })
 
 it('E16: every live speech Earshot has, stand-in or real, runs the one set of tests in src/live.contract.test.ts', () => {
@@ -273,11 +518,31 @@ it.runIf(process.env.EARSHOT_OFFLINE)("E4: in CI the tests see no network but th
   expect(outside).toEqual([])
 })
 
-it.runIf(process.env.CI || process.env.GITHUB_ACTIONS)('E4: CI never runs the tests with the network on', () => {
+const onLinuxInCi = (process.env.CI || process.env.GITHUB_ACTIONS) && process.platform === 'linux'
+
+it.runIf(onLinuxInCi)('E4: on Linux, CI never runs the tests with the network on', () => {
   expect(process.env.EARSHOT_OFFLINE).toBe('1')
+})
+
+it('asks for no older Node than the one CI runs the tests on, so that the least it takes is one that is tried', () => {
+  const { engines } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const tried = [...readFileSync(join(root, '.github/workflows/check.yml'), 'utf8').matchAll(/node-version: (\d+)/g)]
+  expect(tried.length).toBeGreaterThan(0)
+  expect(engines.node).toBe(`>=${Math.min(...tried.map(([, version]) => Number(version)))}`)
+})
+
+it('the example asks for this version of Earshot, and for the tools Earshot itself is tested with', () => {
+  const own = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const example = JSON.parse(readFileSync(join(root, 'example/package.json'), 'utf8'))
+  expect(example.version).toBe(own.version)
+  const { earshot, ...tools } = { ...example.dependencies, ...example.devDependencies }
+  expect(earshot).toBe(`github:jarekbird/earshot#v${own.version}`)
+  expect(tools).toEqual(Object.fromEntries(Object.keys(tools).map(name => [name, own.devDependencies[name]])))
 })
 
 it("the README's install line pins this version: a stale one installs an Earshot the README does not describe", () => {
   const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-  expect(readFileSync(join(root, 'README.md'), 'utf8').match(/earshot#v[\d.]+/g)).toEqual([`earshot#v${version}`])
+  const readme = readFileSync(join(root, 'README.md'), 'utf8')
+  expect(readme.match(/earshot#v[\d.]+/g)).toEqual([`earshot#v${version}`])
+  expect(readme.match(/--branch v[\d.]+/g)).toEqual([`--branch v${version}`])
 })

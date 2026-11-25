@@ -12,7 +12,8 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "paths": { "earshot": ["./src/index.ts"], "earshot/relay": ["./relay/relay.ts"] }
   },
   "include": ["src", "check", "sim", "relay", "example", "workerd", "installed"]
 }

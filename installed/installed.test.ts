@@ -132,6 +132,25 @@ describe('Earshot as an app installs it', () => {
     expect(loaded.filter(count => count === 0)).toEqual([])
   })
 
+  it('takes the example app copied out: it type-checks by its own settings, builds by its own script and passes the store check', async () => {
+    const copy = join(app, 'copied')
+    cpSync(join(root, 'example'), copy, { recursive: true, filter: from => !/[\\/](node_modules|dist|build)$/.test(from) })
+    mkdirSync(join(copy, 'node_modules'))
+    symlinkSync(join(root, 'node_modules', '@evenrealities'), join(copy, 'node_modules', '@evenrealities'), 'junction')
+    const settings = ts.getParsedCommandLineOfConfigFile(join(copy, 'tsconfig.json'), undefined, {
+      ...ts.sys,
+      onUnRecoverableConfigFileDiagnostic: diagnostic => {
+        throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '))
+      },
+    })!
+    expect(settings.fileNames.map(file => relative(copy, file)).sort()).toEqual(['main.ts', 'worker.ts'])
+    expect(problems(ts.getPreEmitDiagnostics(ts.createProgram(settings.fileNames, settings.options)))).toEqual([])
+    await import(pathToFileURL(join(copy, 'build.mjs')).href)
+    const find = createRequire(join(copy, 'main.js'))
+    const { checkApp } = await import(pathToFileURL(find.resolve('earshot/check')).href)
+    expect(checkApp({ root: copy, manifest: 'build/app.json', dist: 'dist' })).toEqual({ problems: [], files: 2, whitelist: [] })
+  })
+
   it('compiles every example of the README as an app would write it, given only the names the README leaves to the app', () => {
     const readme = readFileSync(join(root, 'README.md'), 'utf8')
     const examples = [...readme.matchAll(/^```ts\n([\s\S]*?)^```/gm)].map(match => ({

@@ -6,7 +6,7 @@ const SCHEME = /\b[a-z][a-z0-9+.-]*:\/\/|^\/\/(?=[a-z0-9-]+\.|\u0000)/gi
 const END = /[\s"'`<>\\]/
 const UNKNOWN = '\u0000'
 
-export function allowed(whitelist: readonly string[], text: string): boolean {
+function allowed(whitelist: readonly string[], text: string): boolean {
   const authority = text
     .replace(/^[a-z][a-z0-9+.-]*:/i, '')
     .slice(2)
@@ -75,7 +75,7 @@ function program(code: string): Node | null {
   return null
 }
 
-export function stringsOf(code: string): string[] | null {
+function stringsOf(code: string): string[] | null {
   const root = program(code)
   if (!root) return null
   const out: string[] = []

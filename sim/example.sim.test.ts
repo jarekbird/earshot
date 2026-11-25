@@ -50,6 +50,7 @@ describe('the example app in the real Even Hub simulator', () => {
     })
     const bundle = await build({
       entryPoints: ['example/main.ts'],
+      tsconfig: 'tsconfig.json',
       bundle: true,
       format: 'esm',
       write: false,
@@ -247,6 +248,7 @@ describe('the example app while its relay cannot reach the speech service', () =
     })
     const bundle = await build({
       entryPoints: ['example/main.ts'],
+      tsconfig: 'tsconfig.json',
       bundle: true,
       format: 'esm',
       write: false,
