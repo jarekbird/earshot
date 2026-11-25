@@ -132,6 +132,8 @@ export class Shell {
   #asking: { yes: () => void; no?: () => void } | null = null
   #overlaid = false
   #noticed = false
+  #card: string | null = null
+  #spared: HoldSource | undefined
   #slow: Timer | undefined
   #fading: Timer | undefined
   #recording: {
@@ -268,12 +270,13 @@ export class Shell {
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
     if (stale()) return
     this.#places.set(showing, Object.assign(place, reached))
+    if (drew) this.#frames.drawing(showing, drew.view, last)
     const frame = this.#glasses.draw({ boxes, pictures, menu })
     this.#pending = [...this.#pending.filter(asked => asked === progressOf(this.#glasses).sending || asked > frame), frame]
     if (this.#life.ended || !showings.onPath(showing)) return progressOf(this.#glasses).drop([frame])
     if (!this.#drawn || frame > this.#drawn.frame)
       this.#drawn = { frame, screen, showing, view: kept, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
-    this.#frames.asked(frame, showing, drew, view.kind, last)
+    this.#frames.asked(frame, showing, drew, view.kind)
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
@@ -353,16 +356,17 @@ export class Shell {
     this.#fading = ms === undefined ? undefined : this.#life.timeout(() => this.#clear(), ms)
     this.#asking = null
     this.#overlaid = true
+    this.#card = text
     this.#glasses.overlay(text)
   }
 
-  #clear(): void {
+  #clear(mine = true): void {
     this.#noticed = false
     this.#fading?.cancel()
     this.#fading = undefined
     this.#asking = null
     this.#overlaid = false
-    this.#glasses.overlay(null)
+    if (mine) this.#glasses.overlay(null)
   }
 
   #item(id: string): number {
@@ -437,10 +441,12 @@ export class Shell {
     this.#deciding = null
     this.#decidingOn = null
     serve(() => deciding?.end(), TURN_END)
+    const pressed = this.#recording?.source
     try {
       this.#recording?.end()
     } finally {
-      if (this.#overlaid && !(moved && this.#noticed)) this.#clear()
+      if (moved && this.#noticed) this.#spared = pressed
+      else if (this.#overlaid) this.#clear(!moved || progressOf(this.#glasses).card() === this.#card)
     }
   }
 
@@ -448,6 +454,7 @@ export class Shell {
     for (const lost of this.#down.values()) lost.cancel()
     this.#down.clear()
     this.#spent.clear()
+    this.#spared = undefined
     this.#held?.letGo()
     this.#held = null
   }
@@ -458,6 +465,10 @@ export class Shell {
     this.#down.get(touchpad)?.cancel()
     this.#down.delete(touchpad)
     this.#spent.delete(touchpad)
+    if (this.#spared === touchpad) {
+      this.#spared = undefined
+      if (this.#overlaid) this.#clear()
+    }
     const mine = this.#recording?.source === touchpad
     if (this.#down.size === 0) this.#letGo()
     if (mine) this.#finish()
@@ -733,7 +744,11 @@ export class Shell {
       if (moves !== this.#moves) return
       let left = false
       const still = () => (moves === this.#moves && !this.#life.ended) || ((left = true), false)
-      const act = () => unless(chosen)?.(targetId, still) ?? chosen.run(targetId)
+      const act = () => {
+        const run = chosen.run
+        const asking = unless(chosen, run)
+        return asking ? asking(targetId, still) : Reflect.apply(run, chosen, [targetId])
+      }
       this.#said = said
       const running = jumps ? this.#router.jumping(act) : act()
       this.#said = false

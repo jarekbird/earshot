@@ -26,9 +26,9 @@ type Unless = (targetId: string | undefined, still: () => boolean) => Promise<Ou
 
 const UNLESS = new WeakMap<Action, { run: Action['run']; unless: Unless }>()
 
-export function unless(made: Action): Unless | undefined {
+export function unless(made: Action, run: Action['run']): Unless | undefined {
   const kept = UNLESS.get(made)
-  return kept && kept.run === made.run ? kept.unless : undefined
+  return kept?.run === run ? kept.unless : undefined
 }
 
 export interface Action {
@@ -93,8 +93,8 @@ export function action<T = never>(spec: PlainSpec | TargetSpec<T>): Action {
     if (targetId === undefined) return { done: false, why: 'target' }
     const target = spec.targets().find(t => t.id === targetId)
     if (!target) return { done: false, why: 'gone' }
-    const { value } = target
     const work = spec.run
+    const { value } = target
     if (!still()) return { done: false, why: 'gone' }
     await Reflect.apply(work, spec, [value])
     return { done: true }

@@ -197,7 +197,8 @@ describe('the frames a shell asked for', () => {
         const view = some()
         const laid = layoutText(view)(place)
         Object.assign(place, laid.state)
-        frames.asked(frame, log, { view, state: { ...laid.state } }, 'text', laid.last)
+        frames.drawing(log, view, laid.last)
+        frames.asked(frame, log, { view, state: { ...laid.state } })
       }
       const reached = after(frames.read(log)!.since, from)
       expect([reached.top, reached.away === true], `round ${round}`).toEqual([place.top, place.away === true])

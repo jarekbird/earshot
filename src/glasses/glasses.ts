@@ -288,6 +288,7 @@ export class Glasses {
       get sending() {
         return progress.sending
       },
+      card: () => this.#overlay,
       has: box => this.#from.get(box) ?? 0,
       onChange: told => {
         this.#following.add(told)

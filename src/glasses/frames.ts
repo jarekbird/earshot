@@ -41,6 +41,7 @@ export interface Sent {
   readonly shown: number
   readonly menu: number
   readonly sending: number
+  card(): string | null
   has(box: string): number
   onChange(told: () => void): () => void
   drop(frames: readonly number[]): void
@@ -89,16 +90,18 @@ export class Frames {
     if (!this.#ended) this.#swiped.set(showing, { frame: Infinity, to, since })
   }
 
-  asked(frame: number, showing: unknown, drew: Read | null, kind: View['kind'] = 'text', last = 0): void {
-    if (this.#ended) return
+  drawing(showing: unknown, view: Read['view'], last: number): void {
+    const drawn = { last, end: view.end === true }
+    for (const asked of this.#asked) if (asked.showing === showing) asked.since = and(asked.since, drawn)
     const swiped = this.#swiped.get(showing)
-    if (drew) {
-      const drawn = { last, end: drew.view.end === true }
-      for (const asked of this.#asked) if (asked.showing === showing && asked.frame < frame) asked.since = and(asked.since, drawn)
-      if (swiped) swiped.since = and(swiped.since, drawn)
-    }
+    if (swiped) swiped.since = and(swiped.since, drawn)
+  }
+
+  asked(frame: number, showing: unknown, drew: Read | null, kind: View['kind'] = 'text'): void {
+    if (this.#ended) return
     const later = this.#asked.findIndex(asked => asked.frame > frame)
     this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, showing, kind, drew, since: NONE })
+    const swiped = this.#swiped.get(showing)
     if (swiped?.frame === Infinity) swiped.frame = frame
     this.forget()
   }

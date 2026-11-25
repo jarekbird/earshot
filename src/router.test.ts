@@ -365,6 +365,10 @@ describe('what the framework keeps to itself', () => {
     }
     expect(Object.keys(named)).toHaveLength(8)
     expect([made, router, Router.prototype].flatMap(of => Object.getOwnPropertySymbols(of))).toEqual([])
-    expect([typeof unless(made), unless({ ...made }), typeof showingsOf(router).onPath]).toEqual(['function', undefined, 'function'])
+    expect([typeof unless(made, made.run), unless({ ...made }, made.run), typeof showingsOf(router).onPath]).toEqual([
+      'function',
+      undefined,
+      'function',
+    ])
   })
 })

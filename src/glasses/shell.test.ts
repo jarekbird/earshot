@@ -565,6 +565,67 @@ describe('drawing', () => {
     expect(last()).toBe(read)
   })
 
+  it('asks an action for its work once at a tap, also one made by `action()` whose work the app then gave through a getter', async () => {
+    const ran: number[] = []
+    let asked = 0
+    const act = action({ id: 'act', say: 'Act', run: () => {} })
+    Object.defineProperty(act, 'run', {
+      get: () => {
+        const at = ++asked
+        return async () => (ran.push(at), { done: true as const })
+      },
+    })
+    const { fake } = world({ home: () => ({ id: 'home', view: () => text({ body: 'Home' }), actions: () => [act] }) })
+    await settle()
+    asked = 0
+    fake.pick('Act')
+    await settle()
+    expect([asked, ran]).toEqual([1, [1]])
+  })
+
+  it('reads the work of an action before the value of the row it is for, as it always did', async () => {
+    const order: string[] = []
+    const act = action({
+      id: 'act',
+      say: 'Act',
+      targets: () => [
+        {
+          id: 'a',
+          say: 'A',
+          get value() {
+            order.push('value')
+            return 'a'
+          },
+        },
+      ],
+      get run() {
+        order.push('work')
+        return () => {}
+      },
+    })
+    await act.run('a')
+    expect(order).toEqual(['work', 'value'])
+  })
+
+  it('leaves a card the app drew over a question of the shell when the router is closed', async () => {
+    const ran: string[] = []
+    const wipe = action({ id: 'wipe', say: 'Wipe', risk: 'confirm', run: () => void ran.push('wipe') })
+    const { fake, front, glasses, router } = world({
+      home: () => ({ id: 'home', view: () => text({ body: 'Home' }), actions: () => [wipe] }),
+    })
+    await settle()
+    fake.pick('Wipe')
+    await settle(100)
+    expect(front()).toContain('Wipe?')
+    glasses.overlay('Paused')
+    await settle(100)
+    router.close()
+    await settle(100)
+    fake.tap()
+    await settle(100)
+    expect([front(), ran]).toEqual(['Paused', []])
+  })
+
   it('runs an action an app made by hand, as it always did', async () => {
     const ran: string[] = []
     const own: Action = {
@@ -1084,6 +1145,78 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     done()
     await settle()
     expect(fake.lines()[1]).toBe('Line 30')
+  })
+
+  it('lays the texts that came in the meantime out in the order they were asked for, also when one was asked for from inside the telling of another', async () => {
+    let lines = 30
+    let end = true
+    let again = false
+    const places: { shell?: Shell } = {}
+    const watch = (event: Drawing) => {
+      if (!again || event.at !== 'ask') return
+      again = false
+      lines = 24
+      end = true
+      places.shell?.redraw()
+    }
+    const { fake, router, shell } = world({ watch })
+    places.shell = shell
+    router.open({
+      id: 'log',
+      view: () => text({ title: 'Log', body: Array.from({ length: lines }, (_, at) => `Line ${at + 1}`).join('\n'), end }),
+    })
+    await settle()
+    expect(fake.lines().at(-1)).toBe('Line 30')
+    const release = held(fake)
+    lines = 15
+    end = false
+    again = true
+    shell.redraw()
+    fake.up()
+    release()
+    await settle()
+    const nested = fake.lines()
+
+    lines = 30
+    end = true
+    router.back()
+    router.open({
+      id: 'log',
+      view: () => text({ title: 'Log', body: Array.from({ length: lines }, (_, at) => `Line ${at + 1}`).join('\n'), end }),
+    })
+    await settle()
+    fake.up()
+    await settle()
+    lines = 15
+    end = false
+    shell.redraw()
+    await settle()
+    lines = 24
+    end = true
+    shell.redraw()
+    await settle()
+    expect(nested).toEqual(fake.lines())
+  })
+
+  it('takes swipes on a frame though the shell was asked something else while that frame was being asked for', async () => {
+    let poke = false
+    const places: { fake?: ReturnType<typeof fakeBridge> } = {}
+    const watch = (event: Drawing) => {
+      if (!poke || event.at !== 'ask') return
+      poke = false
+      places.fake?.menu(999)
+    }
+    const { fake, router, shell } = world({ watch })
+    places.fake = fake
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join('\n') }) })
+    await settle()
+    poke = true
+    shell.redraw()
+    await settle(4_000)
+    expect(fake.lines()[1]).toBe('Line 1')
+    fake.down()
+    await settle()
+    expect(fake.lines()[1]).toBe('Line 3')
   })
 
   it('takes swipes on the screen an app opened from inside the telling of a draw of the screen before', async () => {
@@ -3219,6 +3352,21 @@ describe('a hold', () => {
     await settle()
     expect([said, ran]).toEqual([['heard'], ['refresh']])
     expect((await act.run()).done).toBe(true)
+  })
+
+  it('takes a notice away at the release of a press whose hold a change of screen had ended, as it always did', async () => {
+    const { voice } = hearing('refresh')
+    const { fake, front, router, shell } = world({ voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    shell.notice('Of the screen before')
+    router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+    await settle(100)
+    expect(front()).toBe('Of the screen before')
+    fake.release()
+    await settle(100)
+    expect(front()).toBe('')
   })
 
   it('records nothing for a hold when the screen was replaced as the app was asked how long a hold may be', async () => {
