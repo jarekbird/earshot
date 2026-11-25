@@ -292,14 +292,20 @@ describe('the calls, when the upstream answers with another address', () => {
 
   it('let go of a redirect that goes on sending: what the relay will not read does not stay open', async () => {
     let letGo = false
+    let sent = 0
     const going = new ReadableStream<Uint8Array>({
-      pull: controller => controller.enqueue(new Uint8Array(1_024)),
+      async pull(controller) {
+        await new Promise(resolve => setTimeout(resolve, 5))
+        if (++sent > 40) controller.close()
+        else controller.enqueue(new Uint8Array(1_024))
+      },
       cancel: () => void (letGo = true),
     })
     const moved = new Response(going, { status: 307, headers: { location: 'https://elsewhere.example/api' } })
     const handle = relay({ key: 'sk-developer', upstream: 'https://upstream.example', fetch: async () => moved })
     expect((await handle(call())).status).toBe(502)
     expect(letGo).toBe(true)
+    expect(sent).toBeLessThan(40)
   })
 
   it('answer the same when the host gives no more than that it was a redirect', async () => {
