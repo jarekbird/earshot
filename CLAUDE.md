@@ -27,6 +27,10 @@ Checks cite these IDs. Changing one needs Jarek's OK.
 - **E13** The relay's hosts, the Node server and the example's Worker, are one server: each only hands requests to
   `relay`, and a setting or a feature of one is in the other in the same change. Only where a host listens, and how
   it takes and opens a WebSocket, is its own.
+- **E14** Input that Earshot could not read in full runs nothing. A gesture, a pick or a value it does not know,
+  cannot parse, or stopped reading before the end of, is no input: never a default, never a guess.
+- **E15** A touch acts only on what the glasses are known to show: not on a row a notice still covers, and not as
+  the answer to a question that is not on show yet.
 
 ## Code rules
 
