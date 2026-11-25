@@ -1,3 +1,4 @@
+import { evenHubEventFromJson } from '@evenrealities/even_hub_sdk'
 import { describe, expect, it } from 'vitest'
 import { decode } from './input.js'
 
@@ -39,6 +40,37 @@ describe('decode', () => {
 
   it('reads event types given by name', () => {
     expect(decode({ sysEvent: { eventType: 'DOUBLE_CLICK_EVENT' } })).toEqual({ kind: 'double' })
+  })
+
+  it('reads no tap into a gesture the SDK did not know: a tap runs what the cursor is on, and that may be a write', () => {
+    const fromHost = (jsonData: object) => evenHubEventFromJson({ type: 'sysEvent', jsonData })
+    expect(decode(fromHost({ eventType: 42, eventSource: 1 }))).toBeNull()
+    expect(decode(fromHost({ eventType: 'TRIPLE_CLICK_EVENT' }))).toBeNull()
+    expect(decode(fromHost({ eventType: '3' }))).toBeNull()
+    expect(decode(fromHost({ Event_Type: 42 }))).toBeNull()
+    expect(decode(fromHost({ sysEvent: { eventType: 3 } }))).toBeNull()
+    expect(decode(evenHubEventFromJson({ type: 'text_event', data: { Container_ID: 1, Event_Type: 11 } }))).toBeNull()
+    expect(decode(evenHubEventFromJson(['list_event', { containerID: 1, eventType: 99 }]))).toBeNull()
+  })
+
+  it('still reads what the SDK knew, however the host spelled it', () => {
+    const fromHost = (jsonData: object) => evenHubEventFromJson({ type: 'sysEvent', jsonData })
+    expect(decode(fromHost({ eventSource: 1 }))).toEqual({ kind: 'tap' })
+    expect(decode(fromHost({ eventType: 0 }))).toEqual({ kind: 'tap' })
+    expect(decode(fromHost({ Event_Type: 'DOUBLE_CLICK' }))).toEqual({ kind: 'double' })
+    expect(decode(fromHost({ eventType: 9, eventSource: 3 }))).toEqual({ kind: 'hold', source: 'left' })
+    expect(decode(evenHubEventFromJson({ type: 'text_event', data: { Container_ID: 1, Event_Type: 2 } }))).toEqual({ kind: 'down' })
+  })
+
+  it('reads nothing into an event whose parts name different gestures, and one gesture into parts that agree', () => {
+    expect(decode({ sysEvent: { eventType: 3 }, textEvent: { eventType: 1 } })).toBeNull()
+    expect(decode({ sysEvent: { eventType: 3 }, listEvent: { containerID: 1 } })).toBeNull()
+    expect(decode({ jsonData: { eventType: 2 }, textEvent: { eventType: 1 } })).toBeNull()
+    expect(decode({ sysEvent: { eventType: 3 }, textEvent: { eventType: 3 } })).toEqual({ kind: 'double' })
+  })
+
+  it('reads a gesture that arrives with sound', () => {
+    expect(decode({ audioEvent: { audioPcm: new Uint8Array(2) }, sysEvent: { eventType: 3 } })).toEqual({ kind: 'double' })
   })
 
   it('is not input when it is sound, motion or nothing', () => {

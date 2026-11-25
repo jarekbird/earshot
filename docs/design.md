@@ -81,7 +81,10 @@ own test.
 The only code that imports the SDK (E1). It owns the device limits as tested constants, redraws a page only when its
 containers change, and maps the touchpad to actions: swipe moves, tap runs, double tap goes up (E10).
 
-`Glasses` draws frames of boxes and reports input.
+`Glasses` draws frames of boxes and reports input. A tap arrives with no event type, and so does a gesture the SDK
+did not know, whose type the SDK leaves out; the host's own words for the event tell them apart. An event that names
+a type the SDK did not read, or whose parts name different gestures, is no input: a tap runs what the cursor is on,
+and nothing is taken for one.
 
 - One draw at a time, and only the newest frame waits. Text and brightness change in place; anything else about a box,
   or a change of menu, rebuilds the page, at most once in 300 ms. A refused draw is retried after 0.5, 1, 2 and then
