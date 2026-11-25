@@ -81,7 +81,13 @@ own test.
 The only code that imports the SDK (E1). It owns the device limits as tested constants, redraws a page only when its
 containers change, and maps the touchpad to actions: swipe moves, tap runs, double tap goes up (E10).
 
-`Glasses` draws frames of boxes and reports input.
+`Glasses` draws frames of boxes and reports input. A tap arrives with no event type, and so does a gesture the SDK
+did not know, whose type the SDK leaves out; the host's own words for the event tell them apart. An event that names
+a type the SDK did not read, or whose parts name different gestures, is no input: a tap runs what the cursor is on,
+and nothing is taken for one. The host's words are read all the way down, each part once; an event of more than a
+thousand parts is no input, since what was not read may name a type. A pick from the menu is held to the same: no
+input when the event also names a type the SDK did not read, carries a gesture, or names an item the SDK could not
+read, which would otherwise be taken for item 0.
 
 - One draw at a time, and only the newest frame waits. Text and brightness change in place; anything else about a box,
   or a change of menu, rebuilds the page, at most once in 300 ms. A refused draw is retried after 0.5, 1, 2 and then
@@ -450,7 +456,7 @@ The line, as states:
   had. The transport numbers the turns itself, one by one and on across lines: the upstream's number only says
   which turn of its line a message is about. A message about a turn before the newest of its line is not taken, nor
   one numbered with anything but a count (a fraction, a negative, a number too large to count with), so no number
-  the upstream sends can hide the turns of the next line. Nor is a turn taken whose number is more than 2^32 ahead of the newest turn of its line (of nothing, at a line's start), so a number gone wild does not become the newest of its line. Two things are promised about the upstream's numbers (Jarek, 2026-11-24, "Two promises only"): an upstream that counts its turns from 0, one by one, as Flux does, has every turn told; and no number it sends can keep the turns of a later line from being told. What else an upstream that sends wild numbers gets is not promised, and is not held to what the transport did when it made its ids from those numbers: that was an accident of its arithmetic, and six rounds of review showed that every simple rule differs from it somewhere near 2^32 or 2^53.
+  the upstream sends can hide the turns of the next line. Nor is a turn taken whose number is more than 2^32 ahead of the newest turn of its line (of nothing, at a line's start), so a number gone wild does not become the newest of its line. Two things are promised about the upstream's numbers (Jarek, 2026-11-24, "Two promises only"): an upstream that counts its turns from 0, one by one, as Flux does, has every message that carries words told (a message with no words is not taken, so a turn whose end carries none is told as cut when the next turn begins, as it always was); and no number it sends can keep the turns of a later line from being told. What else an upstream that sends wild numbers gets is not promised, and is not held to what the transport did when it made its ids from those numbers: that was an accident of its arithmetic, and six rounds of review showed that every simple rule differs from it somewhere near 2^32 or 2^53.
 - While the line is up, sound goes out as it comes. Only sound that cannot be sent yet is held: the last ten
   seconds of it, to the sample, in memory of its own (a long piece is copied, not kept whole), and let go of when the
   lifetime ends. It is sent however long the line was away, unless the app set `staleMs`: then sound held longer is

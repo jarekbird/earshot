@@ -847,6 +847,40 @@ describe('live speech from Flux, through the relay', () => {
     ])
   })
 
+  it('hears the next line from 0 after a line on which a turn numbered far ahead was taken', () => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(2 ** 32 - 1, 'ahead', 'EndOfTurn'))
+    lines[0].says(info(2 ** 33 - 1, 'further ahead', 'EndOfTurn'))
+    lines[0].drops()
+    hear(sound(100))
+    vi.advanceTimersByTime(retryDelay(1))
+    lines[1].connects()
+    lines[1].says(info(0, 'one', 'EndOfTurn'))
+    lines[1].says(info(1, 'two', 'EndOfTurn'))
+    expect(turns.map(turn => [turn.id, turn.words])).toEqual([
+      [0, 'ahead'],
+      [1, 'further ahead'],
+      [2, 'one'],
+      [3, 'two'],
+    ])
+  })
+
+  it('tells a turn whose end carries no words as cut when the next turn begins, as it always did', () => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(0, 'hello'))
+    lines[0].says(info(0, ' ', 'EndOfTurn'))
+    lines[0].says(info(1, 'next', 'EndOfTurn'))
+    expect(turns.map(turn => [turn.id, turn.words, turn.final, turn.cut])).toEqual([
+      [0, 'hello', false, false],
+      [0, 'hello', true, true],
+      [1, 'next', true, false],
+    ])
+  })
+
   it('takes a turn numbered as far ahead as a line may go, and tells its end', () => {
     const { lines, turns, hear } = listening()
     hear(sound(100))

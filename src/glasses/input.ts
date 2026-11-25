@@ -1,4 +1,4 @@
-import { EventSourceType, OsEventTypeList } from '@evenrealities/even_hub_sdk'
+import { EventSourceType, MenuItemClickEvent, normalizeLooseKey, OsEventTypeList } from '@evenrealities/even_hub_sdk'
 
 export type HoldSource = 'right' | 'left' | 'ring' | 'unknown'
 
@@ -42,16 +42,55 @@ const SOURCES: Partial<Record<EventSourceType, HoldSource>> = {
   [EventSourceType.TOUCH_EVENT_FROM_RING]: 'ring',
 }
 
+const MOST_PARTS = 1_000
+
+function said(data: unknown): { types: unknown[]; items: unknown[] } | undefined {
+  const types: unknown[] = []
+  const items: unknown[] = []
+  const seen = new Set<unknown>()
+  const open = [data]
+  let read = 0
+  while (open.length) {
+    const part = open.pop()
+    if (!part || typeof part !== 'object' || ArrayBuffer.isView(part) || seen.has(part)) continue
+    seen.add(part)
+    if (Array.isArray(part) && part.length > MOST_PARTS - read) return undefined
+    for (const key in part) {
+      if (!Object.hasOwn(part, key)) continue
+      if (++read > MOST_PARTS) return undefined
+      const value: unknown = (part as Record<string, unknown>)[key]
+      const name = normalizeLooseKey(key)
+      if (name === 'eventtype') types.push(value)
+      else if (name === 'itemid') items.push(value)
+      if (value && typeof value === 'object') open.push(value)
+    }
+  }
+  return { types, items }
+}
+
 export function decode(event: GlassesEvent): Input | null {
-  if (event.audioEvent) return null
-  if (event.menuItemClickEvent) return { kind: 'menu', item: event.menuItemClickEvent.itemID ?? 0 }
-  const envelope: Envelope | undefined = event.sysEvent ?? event.textEvent ?? event.listEvent
-  if (!envelope) return null
-  // A tap is event type 0, which the glasses leave out.
-  const type = envelope.eventType === undefined ? OsEventTypeList.CLICK_EVENT : OsEventTypeList.fromJson(envelope.eventType)
-  const kind = type === undefined ? undefined : KINDS[type]
+  const menu = event.menuItemClickEvent
+  const envelopes = [event.sysEvent, event.textEvent, event.listEvent].filter((part): part is Envelope => part !== undefined)
+  if (!menu && !envelopes.length) return null
+  // Fact: the SDK leaves out a type or an item it cannot read, and keeps the host's own words for the event in jsonData.
+  const host = said(event.jsonData)
+  if (!host) return null
+  if (menu) {
+    if (envelopes.length || host.types.some(named => OsEventTypeList.fromJson(named) === undefined)) return null
+    const items = host.items.map(item => MenuItemClickEvent.fromJson({ itemID: item }).itemID)
+    if (items.some(item => item === undefined || item !== menu.itemID)) return null
+    return { kind: 'menu', item: menu.itemID ?? 0 }
+  }
+  // Fact: a tap is event type 0, which the glasses leave out.
+  const types = [
+    ...envelopes.map(({ eventType }) => (eventType === undefined ? OsEventTypeList.CLICK_EVENT : OsEventTypeList.fromJson(eventType))),
+    ...host.types.map(named => OsEventTypeList.fromJson(named)),
+  ]
+  const [type] = types
+  if (type === undefined || types.some(other => other !== type)) return null
+  const kind = KINDS[type]
   if (!kind) return null
   if (kind !== 'hold' && kind !== 'release') return { kind }
-  const source = EventSourceType.fromJson(envelope.eventSource)
+  const source = EventSourceType.fromJson(envelopes[0].eventSource)
   return { kind, source: (source === undefined ? undefined : SOURCES[source]) ?? 'unknown' }
 }
