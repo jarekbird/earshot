@@ -1,4 +1,4 @@
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { execFileSync, spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { closeSync, constants, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -40,13 +40,19 @@ export interface SimulatorOptions {
   startMs?: number
 }
 
+// Fact: Windows has no process groups to signal. taskkill /t ends a process and every process it started.
+export function ending(platform: string, pid: number): [string, string[]] | undefined {
+  return platform === 'win32' ? ['taskkill', ['/pid', String(pid), '/t', '/f']] : undefined
+}
+
 export function limited(platform: string, command: string, args: string[], seconds: number): [string, string[]] {
   return platform === 'linux' ? ['timeout', ['--kill-after=10', String(seconds), command, ...args]] : [command, args]
 }
 
 export function findBinary(from: string, platform: string = process.platform, arch: string = process.arch): string {
   for (let dir = from; ; dir = dirname(dir)) {
-    const binary = join(dir, 'node_modules', '@evenrealities', `sim-${platform}-${arch}`, 'bin', 'evenhub-simulator')
+    const name = platform === 'win32' ? 'evenhub-simulator.exe' : 'evenhub-simulator'
+    const binary = join(dir, 'node_modules', '@evenrealities', `sim-${platform}-${arch}`, 'bin', name)
     if (existsSync(binary)) return binary
     if (dirname(dir) === dir)
       throw new Error(`No Even Hub simulator for ${platform} ${arch} here. Install @evenrealities/evenhub-simulator.`)
@@ -113,6 +119,13 @@ function signal(group: number, name: NodeJS.Signals | 0): boolean {
 async function end(child: ChildProcess | undefined): Promise<void> {
   const group = child?.pid
   if (!child || group === undefined) return
+  const tree = ending(process.platform, group)
+  if (tree) {
+    const exited = over(child) ? Promise.resolve() : new Promise<void>(done => child.once('exit', () => done()))
+    spawnSync(tree[0], tree[1], { stdio: 'ignore' })
+    await Promise.race([exited, pause(5_000, undefined, { ref: false })])
+    return
+  }
   if (!over(child)) {
     const exited = new Promise<void>(done => child.once('exit', () => done()))
     signal(group, 'SIGTERM')
@@ -129,7 +142,13 @@ interface Started {
 
 function launch(command: string, args: string[], env: NodeJS.ProcessEnv, cwd: string, log: number, seconds: number, pipe = false): Started {
   const [limiter, limitedArgs] = limited(process.platform, command, args, seconds)
-  const child = spawn(limiter, limitedArgs, { cwd, env, detached: true, stdio: ['ignore', log, log, ...(pipe ? (['pipe'] as const) : [])] })
+  const child = spawn(limiter, limitedArgs, {
+    cwd,
+    env,
+    detached: process.platform !== 'win32',
+    windowsHide: true,
+    stdio: ['ignore', log, log, ...(pipe ? (['pipe'] as const) : [])],
+  })
   let failure: Error | undefined
   child.once('error', error => (failure = error))
   if (limiter === command) setTimeout(() => void end(child), seconds * 1000).unref()
@@ -190,6 +209,7 @@ export class Simulator {
         XDG_CONFIG_HOME: join(home, '.config'),
         XDG_DATA_HOME: join(home, '.local/share'),
         XDG_CACHE_HOME: join(home, '.cache'),
+        WEBVIEW2_USER_DATA_FOLDER: join(home, 'webview'),
         ...options.env,
       }
       const sim = launch(binary, ['--no-aid', '--no-glow', '--automation-port', String(port), options.url], env, home, log, seconds)
@@ -210,7 +230,7 @@ export class Simulator {
       else {
         quiet()
         await end(display?.child)
-        rmSync(home, { recursive: true, force: true })
+        rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
       }
       throw error
     } finally {
@@ -340,7 +360,7 @@ export class Simulator {
       this.quiet()
       await end(this.sim.child)
       await end(this.display)
-      rmSync(this.home, { recursive: true, force: true })
+      rmSync(this.home, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
     })()
     return this.#stopping
   }
