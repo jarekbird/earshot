@@ -8,7 +8,7 @@ import type { Router, Screen } from '../router.js'
 import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
-import type { Glasses } from './glasses.js'
+import { OVERLAY, type Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { layoutList, layoutText, type Stride, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
@@ -131,6 +131,7 @@ export class Shell {
   #drawn: Drawn | null = null
   #asking: { yes: () => void; no?: () => void } | null = null
   #overlaid = false
+  #over: string | null = null
   #fading: Timer | undefined
   #recording: { chunks: Uint8Array[]; screen: Screen; source: HoldSource; hear: (sound: Sound) => void; end: () => void } | null = null
   readonly #down = new Map<HoldSource, Timer>()
@@ -282,6 +283,7 @@ export class Shell {
     this.#fading = ms === undefined ? undefined : this.#life.timeout(() => this.#clear(), ms)
     this.#asking = null
     this.#overlaid = true
+    this.#over = text
     this.#glasses.overlay(text)
   }
 
@@ -290,6 +292,7 @@ export class Shell {
     this.#fading = undefined
     this.#asking = null
     this.#overlaid = false
+    this.#over = null
     this.#glasses.overlay(null)
   }
 
@@ -329,6 +332,10 @@ export class Shell {
       return
     }
     const asking = this.#asking
+    const onShow = this.#glasses[OVERLAY]
+    const aimed = input.kind === 'tap' || input.kind === 'up' || input.kind === 'down'
+    if (asking && aimed && onShow !== this.#over) return
+    const covered = this.#overlaid || onShow !== null
     if (this.#overlaid) this.#clear()
     if (asking) return input.kind === 'tap' ? asking.yes() : input.kind === 'up' || input.kind === 'down' ? asking.no?.() : undefined
     if (input.kind === 'double') {
@@ -336,6 +343,7 @@ export class Shell {
       return
     }
     if (input.kind === 'menu') return this.#picked(input.item)
+    if (covered) return
     const drawn = this.#drawn
     const screen = this.#router.current
     const place = this.#places.get(screen)

@@ -6,11 +6,18 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.44 (2026-11-24)
+## 0.0.45 (2026-11-24)
 
 - No relay is made for an upstream of the three calls that is named with a fragment (`#`): everything after it
   never reached the upstream, so the calls went somewhere other than the address said.
 - **An app must** name its relay's upstream without a fragment. One named with a query of its own is taken as before.
+
+## 0.0.44 (2026-11-24)
+
+- A tap or a swipe that takes a notice away does nothing else. It also ran the row under the cursor, which the
+  notice covered. A double tap still goes up, and a pick from Even's menu still runs.
+- A tap or a swipe reaches the page only once the glasses have taken a notice away in full, and answers a question
+  only once the glasses show that question.
 
 ## 0.0.43 (2026-11-24)
 

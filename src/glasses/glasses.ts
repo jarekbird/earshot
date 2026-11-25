@@ -106,9 +106,12 @@ interface Page {
   boxes: Placed[]
   pictures: Hung[]
   menu: MenuItem[]
+  over: string | null
 }
 
-const layoutOf = ({ boxes, pictures }: Page) =>
+export const OVERLAY = Symbol('the overlay the glasses are known to show')
+
+const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
     boxes.map(({ box }) => [box.id, box.x, box.y, box.w, box.h]),
     pictures.map(({ picture }) => [picture.id, picture.x, picture.y, picture.w, picture.h]),
@@ -206,6 +209,7 @@ export class Glasses {
   #retryAt = 0
   #traced = ''
   #shown = 0
+  #over: string | null | undefined = null
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
@@ -224,6 +228,10 @@ export class Glasses {
 
   get shown(): number {
     return this.#shown
+  }
+
+  get [OVERLAY](): string | null | undefined {
+    return this.#over
   }
 
   get micOpen(): boolean {
@@ -306,7 +314,7 @@ export class Glasses {
       .filter(fits)
       .slice(0, MAX_IMAGE_BOXES)
       .map((picture, index) => ({ id: FIRST_PICTURE + index, name: picture.id.slice(0, MAX_NAME_CHARS), picture }))
-    this.#wanted = { frame: this.#frames, boxes, pictures, menu }
+    this.#wanted = { frame: this.#frames, boxes, pictures, menu, over: this.#overlay }
     void this.#run()
   }
 
@@ -376,6 +384,7 @@ export class Glasses {
         }
         this.#watch({ at: 'end', frame, drawn })
         this.#shown = frame
+        this.#over = page.over
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
         this.#report(page)
@@ -408,7 +417,7 @@ export class Glasses {
     return ok
   }
 
-  async #build({ frame, boxes, pictures, menu }: Page, shape: string): Promise<boolean> {
+  async #build({ frame, boxes, pictures, menu, over }: Page, shape: string): Promise<boolean> {
     const menuItems = menu.map(({ id, name }) => new MenuItemProperty({ itemID: id, itemName: name }))
     const page = {
       containerTotalNum: boxes.length + pictures.length,
@@ -419,20 +428,26 @@ export class Glasses {
     const create = () => this.#bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page))
     const rebuild = () => this.#bridge.rebuildPageContainer(new RebuildPageContainer(page))
     const shown = boxes.length - 1
+    if (over !== this.#over) this.#over = undefined
     let drawn = !this.#created && (await this.#ask(frame, 'create', shown, create, StartUpPageCreateResult.success))
     // A reloaded web view already owns a page, so a create is refused and a rebuild takes it over.
     if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, rebuild, true)
-    if (!drawn) return false
+    if (!drawn) {
+      this.#sent.clear()
+      this.#shape = ''
+      this.#layout = ''
+      return false
+    }
     this.#created = true
     this.#shape = shape
-    this.#layout = layoutOf({ frame, boxes, pictures, menu })
+    this.#layout = layoutOf({ boxes, pictures })
     this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
     this.#hung = new Map()
     this.#rebuildAt = this.#now() + REBUILD_GAP_MS
     return true
   }
 
-  async #update({ frame, boxes }: Page): Promise<boolean> {
+  async #update({ frame, boxes, over }: Page): Promise<boolean> {
     let drawn = true
     for (const box of boxes) {
       if (this.#sent.get(box.id) === stateOf(box)) continue
@@ -442,10 +457,14 @@ export class Glasses {
         content: box.text,
         textColor: box.brightness,
       })
+      if (over !== this.#over) this.#over = undefined
       const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name)
       if (this.#life.ended) return false
       if (accepted) this.#sent.set(box.id, stateOf(box))
-      else drawn = false
+      else {
+        this.#sent.delete(box.id)
+        drawn = false
+      }
     }
     return drawn
   }
