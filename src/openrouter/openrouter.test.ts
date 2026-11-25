@@ -1,3 +1,4 @@
+import { getEventListeners } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Lifetime, LifetimeEnded } from '../lifetime.js'
 import { RelayError, SayError } from '../say.js'
@@ -179,6 +180,18 @@ describe('a relay that asks for a secret', () => {
     const router = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: async () => answers.shift() ?? json({}) })
     expect(await router.transcribe({ pcm: tone(), seconds: 0.1 }, life).catch((error: Error) => error)).toBeInstanceOf(LifetimeEnded)
     expect(await router.transcribe({ pcm: tone(), seconds: 0.1 })).toBe('the next turn')
+  })
+
+  it('leaves nothing listening on a call once its answer is read, with a turn or without', async () => {
+    const signals: AbortSignal[] = []
+    const fetcher = async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.signal) signals.push(init.signal)
+      return json({ text: 'x', choices: [{ message: { content: 'short' } }] })
+    }
+    const router = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: fetcher })
+    await router.compact('a long text', 40)
+    await router.transcribe({ pcm: tone(), seconds: 0.1 }, new Lifetime())
+    expect(signals.map(signal => getEventListeners(signal, 'abort').length)).toEqual([0, 0])
   })
 
   it.each([undefined, SECRET])('ends with its turn while it reads an answer that never ends (secret: %s)', async secret => {
