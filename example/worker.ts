@@ -1,4 +1,4 @@
-import { relay, relayOptions, type Line, type Sockets } from '../relay/relay.js'
+import { relay, relayOptions, type Line, type Sockets } from 'earshot/relay'
 
 interface Env {
   OPENROUTER_KEY?: string

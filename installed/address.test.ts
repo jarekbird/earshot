@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { relayAddress } from './address.mjs'
+import { relayAddress } from '../example/address.mjs'
 
 describe("the relay's address, as the example's build takes it", () => {
   it.each([

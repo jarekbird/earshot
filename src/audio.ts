@@ -1,6 +1,6 @@
 export const SAMPLE_RATE = 16_000
-export const MIN_SPEECH_MS = 500
-export const SILENCE_PEAK = 250
+const MIN_SPEECH_MS = 500
+const SILENCE_PEAK = 250
 const BYTES_PER_SECOND = SAMPLE_RATE * 2
 
 export interface Audio {
