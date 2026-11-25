@@ -548,7 +548,7 @@ describe('an action that cannot run', () => {
     expect(front()).toBe('')
   })
 
-  it('runs nothing on a tap or a swipe that takes a notice away: the notice covered the rows it would have chosen from', async () => {
+  it('E15: runs nothing on a tap or a swipe that takes a notice away: the notice covered the rows it would have chosen from', async () => {
     const { fake, front, cursor, ran, shell } = world()
     await settle()
     shell.notice('Saved')
@@ -568,7 +568,7 @@ describe('an action that cannot run', () => {
     expect(ran).toEqual([`open ${names[0]}`])
   })
 
-  it('runs nothing on a tap while the glasses still show a notice they have not taken away yet', async () => {
+  it('E15: runs nothing on a tap while the glasses still show a notice they have not taken away yet', async () => {
     const { fake, front, ran, shell } = world()
     await settle()
     shell.notice('Saved')
@@ -587,7 +587,7 @@ describe('an action that cannot run', () => {
     expect(ran).toEqual([`open ${names[0]}`])
   })
 
-  it('runs nothing on a tap under a notice the glasses took only part of, also when an older draw was answered meanwhile', async () => {
+  it('E15: runs nothing on a tap under a notice the glasses took only part of, also when an older draw was answered meanwhile', async () => {
     const { fake, front, ran, shell } = world()
     await settle()
     const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
@@ -616,7 +616,7 @@ describe('an action that cannot run', () => {
     expect(ran).toEqual([`open ${names[1]}`])
   })
 
-  it('runs nothing on a second tap while the notice is still on its way to the glasses, which have not answered yet', async () => {
+  it('E15: runs nothing on a second tap while the notice is still on its way to the glasses, which have not answered yet', async () => {
     const { fake, front, ran, shell } = world()
     await settle()
     const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
@@ -656,7 +656,7 @@ describe('an action that cannot run', () => {
     expect(ran).toEqual([`open ${names[0]}`])
   })
 
-  it('runs nothing on a tap after the card of a notice is gone but before the rows it cut are back', async () => {
+  it('E15: runs nothing on a tap after the card of a notice is gone but before the rows it cut are back', async () => {
     const { fake, front, ran, shell } = world()
     await settle()
     shell.notice('Saved')
@@ -677,7 +677,7 @@ describe('an action that cannot run', () => {
     expect(ran).toEqual([`open ${names[0]}`])
   })
 
-  it('takes no tap for a yes to a question the glasses do not show yet: an older notice is still there', async () => {
+  it('E15: takes no tap for a yes to a question the glasses do not show yet: an older notice is still there', async () => {
     const sent: string[] = []
     const { fake, front, shell } = world({
       home: () => ({
