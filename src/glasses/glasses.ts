@@ -106,9 +106,12 @@ interface Page {
   boxes: Placed[]
   pictures: Hung[]
   menu: MenuItem[]
+  over: boolean
 }
 
-const layoutOf = ({ boxes, pictures }: Page) =>
+export const COVERED = Symbol('whether the glasses may still show an overlay')
+
+const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
     boxes.map(({ box }) => [box.id, box.x, box.y, box.w, box.h]),
     pictures.map(({ picture }) => [picture.id, picture.x, picture.y, picture.w, picture.h]),
@@ -206,6 +209,7 @@ export class Glasses {
   #retryAt = 0
   #traced = ''
   #shown = 0
+  #covered = false
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
@@ -224,6 +228,10 @@ export class Glasses {
 
   get shown(): number {
     return this.#shown
+  }
+
+  get [COVERED](): boolean {
+    return this.#covered
   }
 
   get micOpen(): boolean {
@@ -306,7 +314,8 @@ export class Glasses {
       .filter(fits)
       .slice(0, MAX_IMAGE_BOXES)
       .map((picture, index) => ({ id: FIRST_PICTURE + index, name: picture.id.slice(0, MAX_NAME_CHARS), picture }))
-    this.#wanted = { frame: this.#frames, boxes, pictures, menu }
+    if (over) this.#covered = true
+    this.#wanted = { frame: this.#frames, boxes, pictures, menu, over: over !== null }
     void this.#run()
   }
 
@@ -376,6 +385,7 @@ export class Glasses {
         }
         this.#watch({ at: 'end', frame, drawn })
         this.#shown = frame
+        this.#covered = page.over
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
         this.#report(page)
@@ -425,7 +435,7 @@ export class Glasses {
     if (!drawn) return false
     this.#created = true
     this.#shape = shape
-    this.#layout = layoutOf({ frame, boxes, pictures, menu })
+    this.#layout = layoutOf({ boxes, pictures })
     this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
     this.#hung = new Map()
     this.#rebuildAt = this.#now() + REBUILD_GAP_MS
