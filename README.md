@@ -22,7 +22,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.40
+npm install github:jarekbird/earshot#v0.0.41
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -32,7 +32,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.40 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.41 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -470,7 +470,7 @@ npx vitest run --config vitest.sim.config.ts -t "<test name>"   # one test again
 
 The Worker's runtime is installed apart, in `workerd/`, because it runs on fewer machines than the rest: an app that installs Earshot from Git builds it with the tools in `package.json`, and must never need this one. `npm run check` says so when it is missing.
 
-A change goes through a pull request. Run `npm run check` yourself before every commit. It also builds the package as an app gets it and compiles every example on this page against it, so an example that no longer compiles fails. The whole simulator suite (`npm run check:sim`, the job `sim`) runs on the pull request, not on your machine. No test may call an outside service (E4): a guard refuses the usual ways on your machine, and CI runs the tests with no network but its own. The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
+A change goes through a pull request. Run `npm run check` yourself before every commit. It also builds the package as an app gets it and compiles every example on this page against it, so an example that no longer compiles fails. The whole simulator suite (`npm run check:sim`, the job `sim`) runs on the pull request, not on your machine. No test may call an outside service (E4): a guard refuses the usual ways on your machine, and on Linux CI runs the tests with no network but its own. CI also runs `check` on macOS, on Windows and on the newest Node, where the guard is all there is. The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
 
 MIT licensed.
 
@@ -521,4 +521,5 @@ await sim.stop()
 - Input reaches the app only when its page has a container that captures events.
 - `Simulator.start({ url, mic: true })` gives the simulator a microphone that hears a steady tone, on Linux, and `await sim.hold(1200)` holds the touchpad that long. With `transcribe: scriptedSpeech(['open voice', 'go back'])` in your app, which hears one line a recording and calls no service, that tests a voice command end to end.
 - `new Glasses(life, bridge, { trace: true })` writes what the glasses show to the console. Then `await sim.shows('Threads')` waits for it, `sim.shown()` gives the lines, `sim.menu()` the items of Even's menu, and `await sim.pick('Refresh')` picks one.
+- The driver is tried on Linux with the real simulator, and on macOS with a stand-in for it. It does not run on Windows yet.
 - The simulator is not the glasses: check fonts, scrolling and timing on the device.

@@ -65,6 +65,8 @@ else
 
 let dir: string
 let binary: string
+// Fact: Windows starts only programs, and the stand-in for the simulator is a script.
+const started = it.skipIf(process.platform === 'win32')
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), 'earshot-sim-test-'))
@@ -94,31 +96,31 @@ const facts = (sim: Simulator) => {
 }
 
 describe('start', () => {
-  it('opens the page in the simulator and waits until it answers', async () => {
+  started('opens the page in the simulator and waits until it answers', async () => {
     const sim = await start()
     await sim.read()
     expect(sim.entries[0].message).toMatch(/^started --no-aid --no-glow --automation-port \d+ http:\/\/127\.0\.0\.1:1\/app$/)
     expect(sim.api).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
   })
 
-  it('gives the simulator a home folder of its own', async () => {
+  started('gives the simulator a home folder of its own', async () => {
     const sim = await start()
     await sim.read()
     expect(facts(sim).home).toContain('earshot-sim-')
     expect(existsSync(facts(sim).home)).toBe(true)
   })
 
-  it('reports a simulator that exits, with what it printed, and leaves nothing behind', async () => {
+  started('reports a simulator that exits, with what it printed, and leaves nothing behind', async () => {
     await expect(start('exits')).rejects.toThrow(/exited[\s\S]*cannot open display/)
   })
 
-  it('reports a simulator that never answers, and stops it', async () => {
+  started('reports a simulator that never answers, and stops it', async () => {
     await expect(start('silent', { startMs: 400 })).rejects.toThrow(/Timed out waiting for the simulator to answer/)
   })
 })
 
 describe('input', () => {
-  it('sends each touchpad action', async () => {
+  started('sends each touchpad action', async () => {
     const sim = await start()
     for (const input of ['tap', 'double', 'up', 'down', 'press', 'release', 'menu'] as const) await sim.input(input)
     await sim.read()
@@ -133,14 +135,14 @@ describe('input', () => {
     ])
   })
 
-  it('fails when the simulator refuses it', async () => {
+  started('fails when the simulator refuses it', async () => {
     const sim = await start('refuses')
     await expect(sim.input('tap')).rejects.toThrow(/tap/)
   })
 })
 
 describe('the console', () => {
-  it('reads each entry once', async () => {
+  started('reads each entry once', async () => {
     const sim = await start()
     expect((await sim.read()).length).toBe(2)
     expect(await sim.read()).toEqual([])
@@ -149,12 +151,12 @@ describe('the console', () => {
     expect(sim.entries.length).toBe(3)
   })
 
-  it('waits for an entry that comes later', async () => {
+  started('waits for an entry that comes later', async () => {
     const sim = await start('later')
     expect((await sim.logged('ready later')).message).toBe('ready later')
   })
 
-  it('finds the next matching entry each time it is asked', async () => {
+  started('finds the next matching entry each time it is asked', async () => {
     const sim = await start()
     await sim.input('tap')
     await sim.input('up')
@@ -167,39 +169,39 @@ describe('the console', () => {
 })
 
 describe('until', () => {
-  it('gives what the check found', async () => {
+  started('gives what the check found', async () => {
     const sim = await start()
     await sim.input('down')
     expect(await sim.until('a down', () => sim.entries.find(entry => entry.message === 'input down')?.id)).toBe(2)
   })
 
-  it('says what it waited for and what the console last said when time runs out', async () => {
+  started('says what it waited for and what the console last said when time runs out', async () => {
     const sim = await start()
     await expect(sim.until('the moon', () => false, 300)).rejects.toThrow(/Timed out waiting for the moon\.[\s\S]*home=/)
   })
 
-  it('stops waiting when the simulator exits', async () => {
+  started('stops waiting when the simulator exits', async () => {
     const sim = await start('dies')
     await expect(sim.until('the moon', () => false, 10_000)).rejects.toThrow(/exited while waiting for the moon/)
   })
 })
 
 describe('what the glasses show', () => {
-  it('is the lines of the last frame the app traced', async () => {
+  started('is the lines of the last frame the app traced', async () => {
     const sim = await start('frames')
     expect(sim.shown()).toEqual([])
     await sim.read()
     expect(sim.shown()).toEqual(['Threads', 'One'])
   })
 
-  it('can be waited for', async () => {
+  started('can be waited for', async () => {
     const sim = await start('frames')
     await sim.input('tap')
     expect(await sim.shows('after click')).toEqual(['Threads', 'after click'])
     await expect(sim.shows('never', 300)).rejects.toThrow(/Timed out waiting for the glasses to show "never"/)
   })
 
-  it("picks an item from Even's menu by its name", async () => {
+  started("picks an item from Even's menu by its name", async () => {
     const sim = await start('frames')
     expect(sim.menu()).toEqual([])
     await sim.pick('About')
@@ -212,15 +214,19 @@ describe('what the glasses show', () => {
     await expect(sim.pick('Missing')).rejects.toThrow(/No menu item "Missing"/)
   })
 
-  it('presses for the menu again when the first press was ignored', async () => {
-    const sim = await start('frames-deaf')
-    await sim.pick('Refresh')
-    expect(sim.entries.map(entry => entry.message).filter(message => message.startsWith('input '))).toEqual([
-      'input context_menu',
-      'input context_menu',
-      'input click',
-    ])
-  }, 15_000)
+  started(
+    'presses for the menu again when the first press was ignored',
+    async () => {
+      const sim = await start('frames-deaf')
+      await sim.pick('Refresh')
+      expect(sim.entries.map(entry => entry.message).filter(message => message.startsWith('input '))).toEqual([
+        'input context_menu',
+        'input context_menu',
+        'input click',
+      ])
+    },
+    15_000,
+  )
 
   it('uses the tags the renderer writes', () => {
     expect(readFileSync(new URL('./simulator.ts', import.meta.url), 'utf8')).toContain(`const INPUT_TAG = '${INPUT_TAG}'`)
@@ -238,7 +244,7 @@ describe('a stand-in microphone', () => {
     expect((await sim.logged('mic heard enough', 5_000)).message).toBe('mic heard enough')
   })
 
-  it('holds the touchpad for a while and lets go', async () => {
+  started('holds the touchpad for a while and lets go', async () => {
     const sim = await start()
     const before = Date.now()
     await sim.hold(300)
@@ -252,7 +258,7 @@ describe('a stand-in microphone', () => {
 })
 
 describe('screenshot', () => {
-  it('gives the picture of the glasses or of the phone page', async () => {
+  started('gives the picture of the glasses or of the phone page', async () => {
     const sim = await start()
     expect(Buffer.from(await sim.screenshot('glasses')).toString()).toBe('png of glasses')
     expect(Buffer.from(await sim.screenshot('phone')).toString()).toBe('png of webview')
@@ -260,7 +266,7 @@ describe('screenshot', () => {
 })
 
 describe('stop', () => {
-  it('ends the simulator and removes its home folder, however often it is called', async () => {
+  started('ends the simulator and removes its home folder, however often it is called', async () => {
     const sim = await start()
     await sim.read()
     const { home, pid } = facts(sim)
@@ -271,7 +277,7 @@ describe('stop', () => {
     expect(existsSync(home)).toBe(false)
   })
 
-  it('ends a simulator that would not start', async () => {
+  started('ends a simulator that would not start', async () => {
     const before = new Set(homes())
     await expect(start('silent', { startMs: 300 })).rejects.toThrow()
     expect(homes().filter(home => !before.has(home))).toEqual([])
