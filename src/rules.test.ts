@@ -137,9 +137,16 @@ function exportsAndUses(file: string, text: string): { exported: string[]; used:
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.ES2023, true)
   const exported: string[] = []
   const used: { file: string; name: string }[] = []
+  const bound = (name: ts.BindingName): string[] =>
+    ts.isIdentifier(name) ? [name.text] : name.elements.flatMap(one => (ts.isOmittedExpression(one) ? [] : bound(one.name)))
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && ts.isStringLiteralLike(node.arguments[0])) {
       if (node.arguments[0].text.startsWith('.')) used.push({ file: from(node.arguments[0].text), name: '*' })
+    }
+    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
+      let first = node.qualifier
+      while (first && ts.isQualifiedName(first)) first = first.left
+      if (node.argument.literal.text.startsWith('.')) used.push({ file: from(node.argument.literal.text), name: first?.text ?? '*' })
     }
     ts.forEachChild(node, visit)
   }
@@ -161,8 +168,7 @@ function exportsAndUses(file: string, text: string): { exported: string[]; used:
       used.push(...(taken.length ? taken : ['']).map(name => ({ file: from(specifier), name })))
     } else if (ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some(one => one.kind === ts.SyntaxKind.ExportKeyword)) {
       if (ts.getModifiers(statement)?.some(one => one.kind === ts.SyntaxKind.DefaultKeyword)) exported.push('default')
-      else if (ts.isVariableStatement(statement))
-        exported.push(...statement.declarationList.declarations.map(one => one.name.getText(source)))
+      else if (ts.isVariableStatement(statement)) exported.push(...statement.declarationList.declarations.flatMap(one => bound(one.name)))
       else if ('name' in statement && statement.name && ts.isIdentifier(statement.name as ts.Node))
         exported.push((statement.name as ts.Identifier).text)
     }
@@ -192,6 +198,10 @@ it('C2: the check knows each way to export and each way to use what another file
   expect(of("import * as all from './there.js'").used).toEqual([{ file: 'src/there.ts', name: '*' }])
   expect(of("import './there.js'").used).toEqual([{ file: 'src/there.ts', name: '' }])
   expect(of("const later = await import('./there.js')").used).toEqual([{ file: 'src/there.ts', name: '*' }])
+  expect(of('export const { a, b: c, ...rest } = thing, [d, , e] = list').exported).toEqual(['a', 'c', 'rest', 'd', 'e'])
+  expect(of("export type B = import('./there.js').A")).toEqual({ exported: ['B'], used: [{ file: 'src/there.ts', name: 'A' }] })
+  expect(of("let deep: import('./there.js').A.B").used).toEqual([{ file: 'src/there.ts', name: 'A' }])
+  expect(of("let all: typeof import('./there.js')").used).toEqual([{ file: 'src/there.ts', name: '*' }])
   expect(of("import { expect } from 'vitest'")).toEqual({ exported: [], used: [] })
 })
 
