@@ -10,6 +10,8 @@ each version's commits say: they name what a version added, and may miss a chang
 
 - A tap or a swipe that takes a notice away does nothing else. It also ran the row under the cursor, which the
   notice covered. A double tap still goes up, and a pick from Even's menu still runs.
+- A tap or a swipe reaches the page only once the glasses have taken a notice away in full, and answers a question
+  only once the glasses show that question.
 
 ## 0.0.43 (2026-11-24)
 

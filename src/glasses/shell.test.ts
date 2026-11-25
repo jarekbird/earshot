@@ -656,6 +656,54 @@ describe('an action that cannot run', () => {
     expect(ran).toEqual([`open ${names[0]}`])
   })
 
+  it('runs nothing on a tap after the card of a notice is gone but before the rows it cut are back', async () => {
+    const { fake, front, ran, shell } = world()
+    await settle()
+    shell.notice('Saved')
+    await settle()
+    const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
+    let cardOnly = true
+    fake.bridge.textContainerUpgrade = async upgrade => (cardOnly && upgrade.containerID !== 1 ? false : send(upgrade))
+    fake.tap()
+    await settle()
+    expect(front()).toBe('')
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([])
+    cardOnly = false
+    await settle(10_000)
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[0]}`])
+  })
+
+  it('takes no tap for a yes to a question the glasses do not show yet: an older notice is still there', async () => {
+    const sent: string[] = []
+    const { fake, front, shell } = world({
+      home: () => ({
+        id: 'home',
+        actions: () => [action({ id: 'send', say: 'Send', risk: 'confirm', run: () => void sent.push('sent') })],
+        view: () => text({ title: 'Home', body: 'Hello' }),
+      }),
+    })
+    await settle()
+    shell.notice('Saved')
+    await settle()
+    fake.refuse('update', 100)
+    fake.pick('Send')
+    await settle()
+    expect(front()).toBe('Saved')
+    fake.tap()
+    await settle()
+    expect(sent).toEqual([])
+    fake.refuse('update', 0)
+    await settle(10_000)
+    expect(front()).toContain('Send?')
+    fake.tap()
+    await settle()
+    expect(sent).toEqual(['sent'])
+  })
+
   it('still goes up at a double tap, and still runs a pick from the menu, while a notice shows: neither chooses from what it covers', async () => {
     const { fake, front, ran, shell, router } = world()
     await settle()
