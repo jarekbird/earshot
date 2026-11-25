@@ -480,8 +480,12 @@ it("E4: a pull request runs check and the simulator suite with no network but th
 it('E4: on the other systems CI has only the guard, since only Linux can take the network away; on Linux it always does', () => {
   const workflow = readFileSync(join(root, '.github/workflows/check.yml'), 'utf8')
   const elsewhere = [...workflow.matchAll(/^ {10}- \{ os: (\w+)-latest, node: \d+, run: (.+) \}$/gm)].map(([, os, run]) => `${os}: ${run}`)
-  expect(elsewhere.filter(leg => !/^(macos|windows): npm run check$|^ubuntu: \.github\/offline\.sh npm run check$/.test(leg))).toEqual([])
-  expect(elsewhere.map(leg => leg.split(':')[0]).sort()).toEqual(['macos', 'ubuntu', 'windows'])
+  expect(elsewhere.sort()).toEqual([
+    'macos: npm run check',
+    'ubuntu: .github/offline.sh npm run check',
+    'windows: npm run check',
+    'windows: npm run check:sim',
+  ])
   expect(workflow).toMatch(/^ {2}elsewhere:\n(?: {4,}.*\n)*? {6}- run: \$\{\{ matrix\.run \}\}$/m)
   expect(workflow.match(/npm run check/g)?.length).toBe(2 + elsewhere.length)
 })
