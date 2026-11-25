@@ -9,6 +9,8 @@ Open an issue. Say what you did, what you expected and what happened, with the v
 glasses drew or heard wrong, a short test with `fakeBridge` from `earshot/testing` that shows it is the best report
 there is.
 
+A security hole is not for an issue: report it privately, as [SECURITY.md](SECURITY.md) says.
+
 ## A change
 
 Ask first, in an issue, before anything that adds to the API or changes what an app sees. The framework is kept small
