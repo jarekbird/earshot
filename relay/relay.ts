@@ -266,8 +266,9 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
         signal: control.signal,
       })
       const moved = response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)
-      if (moved) return refuse(502, 'The upstream could not be reached.')
-      return answer(response.status, await response.text())
+      if (!moved) return answer(response.status, await response.text())
+      await response.body?.cancel().catch(() => {})
+      return refuse(502, 'The upstream could not be reached.')
     } catch {
       return refuse(502, 'The upstream could not be reached.')
     } finally {

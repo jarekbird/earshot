@@ -290,6 +290,18 @@ describe('the calls, when the upstream answers with another address', () => {
     expect(await answered.text()).toBe('{"error":"The upstream could not be reached."}')
   })
 
+  it('let go of a redirect that goes on sending: what the relay will not read does not stay open', async () => {
+    let letGo = false
+    const going = new ReadableStream<Uint8Array>({
+      pull: controller => controller.enqueue(new Uint8Array(1_024)),
+      cancel: () => void (letGo = true),
+    })
+    const moved = new Response(going, { status: 307, headers: { location: 'https://elsewhere.example/api' } })
+    const handle = relay({ key: 'sk-developer', upstream: 'https://upstream.example', fetch: async () => moved })
+    expect((await handle(call())).status).toBe(502)
+    expect(letGo).toBe(true)
+  })
+
   it('answer the same when the host gives no more than that it was a redirect', async () => {
     const hidden = Object.defineProperty(new Response(null), 'type', { value: 'opaqueredirect' })
     const handle = relay({ key: 'sk-developer', upstream: 'https://upstream.example', fetch: async () => hidden })
