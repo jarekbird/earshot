@@ -68,6 +68,46 @@ interface Parts {
 }
 
 describe('drawing', () => {
+  it('draws the screen an app opened from a field of a box it was asked for, never that box over it', async () => {
+    const places: { router?: Router } = {}
+    let armed = false
+    const status = {
+      id: 'status',
+      x: 0,
+      y: 0,
+      w: 576,
+      h: 27,
+      get text() {
+        if (!armed) return 'Idle'
+        armed = false
+        places.router?.open({ id: 'other', view: () => text({ body: 'Other' }) })
+        return 'Left behind'
+      },
+    }
+    const { fake, router, shell } = world({ home: () => ({ id: 'home', view: () => boxes([status]) }) })
+    places.router = router
+    await settle()
+    expect(fake.lines()).toEqual(['Idle'])
+    armed = true
+    shell.redraw()
+    await settle()
+    expect(fake.lines()).toEqual(['Other'])
+  })
+
+  it('draws a screen with what a listener the app set on the router before the shell made ready for it', async () => {
+    const life = new Lifetime()
+    const fake = fakeBridge()
+    const router = new Router({ home: { id: 'home', view: () => text({ body: 'Home' }) } })
+    let label = 'Placeholder'
+    router.onChange(current => void (current.id === 'timer' && (label = 'Timer ready')))
+    new Shell(life, new Glasses(life, fake.bridge), router)
+    await settle()
+    router.open({ id: 'timer', view: () => text({ body: label }) })
+    await settle()
+    expect(fake.lines()).toEqual(['Timer ready'])
+    life.end()
+  })
+
   it('draws the list of the current screen, with the cursor on the first item', async () => {
     const { fake, cursor } = world()
     await settle()
@@ -2099,6 +2139,184 @@ describe('a hold', () => {
     life.end()
   })
 
+  it('starts no second recording for a press whose hold a change of screen ended, until the touchpad is let go', async () => {
+    const { voice, asked } = hearing('refresh', 'refresh')
+    const { fake, router } = world({ voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+    fake.hold()
+    await settle(50)
+    expect(fake.mic).toBeNull()
+    fake.sound(tone(400))
+    fake.sound(tone(400))
+    fake.release()
+    await settle(50)
+    expect(asked).toEqual([])
+    await say(fake)
+    expect(asked).toHaveLength(1)
+  })
+
+  it('takes a press again after a hold was ended by leaving the app, though no release came', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake } = world({ voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.background()
+    fake.foreground()
+    await say(fake)
+    expect(asked).toHaveLength(1)
+  })
+
+  it('takes a press again after a hold that a change of screen ended, once the wearer left the app and came back', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, router } = world({ voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+    fake.background()
+    fake.foreground()
+    await say(fake)
+    expect(asked).toHaveLength(1)
+  })
+
+  it("calls the transcriber and the model as the app's own, so that one written as a class still reads its own fields", async () => {
+    class Heard {
+      words = 'something else entirely'
+      async transcribe() {
+        return this.words
+      }
+    }
+    class Chooser {
+      asked: string[] = []
+      async choose(question: { words: string }) {
+        this.asked.push(question.words)
+        return {}
+      }
+    }
+    const model = new Chooser()
+    const voice: VoiceOptions = new Heard()
+    voice.model = model
+    const { fake } = world({ voice })
+    await settle()
+    await say(fake)
+    await settle()
+    expect(model.asked).toEqual(['something else entirely'])
+  })
+
+  it('records nothing for a hold when the screen was replaced as the app was asked how long a hold may be', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, router, front } = world({ voice })
+    await settle()
+    let once = true
+    Object.defineProperty(voice, 'maxHoldMs', {
+      get: () => {
+        if (once) router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+        once = false
+        return 5_000
+      },
+    })
+    fake.hold()
+    await settle(50)
+    expect([fake.mic, front()]).toEqual([null, ''])
+    fake.sound(tone(400))
+    fake.sound(tone(400))
+    fake.release()
+    await settle()
+    expect(asked).toEqual([])
+  })
+
+  it('takes a press again once that touchpad is let go after its hold was called off, though the other one is still down', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, router } = world({ voice })
+    await settle()
+    fake.hold('right')
+    fake.hold('left')
+    await settle(50)
+    router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+    fake.release('right')
+    fake.hold('right')
+    await settle(50)
+    fake.sound(tone(400))
+    fake.sound(tone(400))
+    fake.release('right')
+    await settle(50)
+    expect(asked).toHaveLength(1)
+  })
+
+  it('runs nothing that was said when what a turn left behind opens a screen and goes back as the turn ends', async () => {
+    const places: { router?: Router } = {}
+    const { fake, ran, router } = world({
+      voice: {
+        transcribe: async (_audio, turn) => {
+          turn?.own(() => {
+            places.router?.open({ id: 'child', view: () => text({ body: 'Child' }) })
+            places.router?.back()
+          })
+          return 'refresh'
+        },
+      },
+    })
+    places.router = router
+    await settle()
+    await say(fake)
+    await settle()
+    expect(ran).toEqual([])
+  })
+
+  it('hands no sound to a transcriber that the app gave only as the screen was replaced', async () => {
+    const asked: number[] = []
+    const { voice } = hearing()
+    const { fake, router } = world({ voice })
+    await settle()
+    Object.defineProperty(voice, 'transcribe', {
+      get: () => {
+        router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+        return async (audio: { seconds: number }) => (asked.push(audio.seconds), 'refresh')
+      },
+    })
+    await say(fake)
+    await settle()
+    expect(asked).toEqual([])
+  })
+
+  it('asks no model that the app gave only as the screen was replaced', async () => {
+    const questions: string[] = []
+    const { voice } = hearing('something else entirely')
+    const { fake, router } = world({ voice })
+    await settle()
+    voice.model = {
+      get choose() {
+        router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+        return async (question: { words: string }) => (questions.push(question.words), {})
+      },
+    }
+    await say(fake)
+    await settle()
+    expect(questions).toEqual([])
+  })
+
+  it('hands what was not transcribed to an agent without reading the model of the app, which only navigation needs', async () => {
+    const got: string[] = []
+    const voice: VoiceOptions = {
+      transcribe: async () => null,
+      agents: [async heard => (got.push(heard.words), { kind: 'handled' })],
+    }
+    Object.defineProperty(voice, 'model', {
+      get: () => {
+        throw new Error('no model without the network')
+      },
+    })
+    const { fake } = world({ voice })
+    await settle()
+    await say(fake)
+    await settle()
+    expect(got).toEqual([''])
+  })
+
   it('sends nothing to the transcriber when a screen was opened and left as the app was asked how long a turn may take', async () => {
     const { voice, asked } = hearing('open ben')
     const { fake, router } = world({ voice })
@@ -3193,6 +3411,19 @@ describe('a hold', () => {
       view: () => text({ title: 'Home', body: 'Hello' }),
     })
     const ASKED = 'Allow: Run the migration?\nTap to confirm'
+
+    it('asks the app for its transcriber once a turn, not again when the words it gave are handed on', async () => {
+      const { voice, got } = noting('allow run the migration')
+      const { transcribe } = voice
+      let fetched = 0
+      Object.defineProperty(voice, 'transcribe', { get: () => (fetched++, transcribe) })
+      const { fake } = world({ voice, home: allowing })
+      await settle()
+      await say(fake)
+      fake.down()
+      await settle()
+      expect([got.length, fetched]).toEqual([1, 1])
+    })
 
     it("hands the words to the app's agents at a swipe, and does not run what the navigator chose", async () => {
       const { voice, got, asked, choose } = noting('allow run the migration')

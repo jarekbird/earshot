@@ -9,7 +9,7 @@ import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
 import { copied, Frames, PROGRESS, type Read } from './frames.js'
-import type { Glasses } from './glasses.js'
+import { plainFrame, type Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { BODY, layoutList, layoutText, type LaidText, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
@@ -136,6 +136,7 @@ export class Shell {
     end: () => void
   } | null = null
   readonly #down = new Map<HoldSource, Timer>()
+  readonly #spent = new Set<HoldSource>()
   #held: Held | null = null
   #turn = 0
   #said = false
@@ -192,12 +193,12 @@ export class Shell {
         const spoken = this.#recording?.showing ?? this.#decidingOn
         try {
           if (spoken !== undefined && spoken !== null && spoken !== router[SHOWINGS].current) this.#callOff()
-          if (this.#asking) this.#clear()
         } finally {
-          this.redraw()
+          if (this.#asking) this.#clear()
         }
       }),
     )
+    this.#life.own(router.onChange(() => this.redraw()))
     this.redraw()
   }
 
@@ -238,8 +239,9 @@ export class Shell {
       drew = { view: words, state: { ...laid.state } }
       boxes = laid.boxes
     } else {
-      boxes = view.boxes
-      pictures = view.pictures ?? []
+      const asked = plainFrame({ boxes: view.boxes, pictures: view.pictures ?? [] })
+      boxes = asked.boxes
+      pictures = asked.pictures ?? []
     }
     const byGesture = new Set(view.kind === 'list' ? [view.action.id] : view.kind === 'boxes' ? this.#bound(view).map(a => a.id) : [])
     const offered = !screen.view || this.#own.has(screen) ? [] : actions.filter(a => !byGesture.has(a.id))
@@ -408,6 +410,8 @@ export class Shell {
 
   #callOff(): void {
     this.#turn++
+    const pressed = this.#recording?.source
+    if (pressed !== undefined && this.#down.has(pressed)) this.#spent.add(pressed)
     const deciding = this.#deciding
     this.#deciding = null
     this.#decidingOn = null
@@ -425,6 +429,7 @@ export class Shell {
   #letGo(): void {
     for (const lost of this.#down.values()) lost.cancel()
     this.#down.clear()
+    this.#spent.clear()
     this.#held?.letGo()
     this.#held = null
   }
@@ -434,12 +439,16 @@ export class Shell {
     if (touchpad === undefined) return
     this.#down.get(touchpad)?.cancel()
     this.#down.delete(touchpad)
+    this.#spent.delete(touchpad)
     const mine = this.#recording?.source === touchpad
     if (this.#down.size === 0) this.#letGo()
     if (mine) this.#finish()
   }
 
   #hold(source: HoldSource): void {
+    if (this.#spent.has(source)) return
+    const showings = this.#router[SHOWINGS]
+    const showing = showings.current
     const voice = this.#voice
     const longest = Math.min(voice?.maxHoldMs ?? MAX_HOLD_MS, LONGEST_HOLD_MS)
     this.#down.get(source)?.cancel()
@@ -453,7 +462,7 @@ export class Shell {
       this.notice(this.#words.noMic)
     }
     this.#held ??= this.#glasses[HOLD](sound => this.#recording?.hear(sound), refused)
-    if (!this.#router[SHOWINGS].onPath(this.#router[SHOWINGS].current)) return
+    if (showings.current !== showing || !showings.onPath(showing)) return
     if (!voice) {
       if (!this.#recording) this.#callOff()
       return this.notice(this.#words.noVoice)
@@ -467,7 +476,7 @@ export class Shell {
     const limit = this.#life.timeout(() => this.#finish(), longest)
     const recording = {
       chunks,
-      showing: this.#router[SHOWINGS].current,
+      showing,
       source,
       hear: ({ pcm }: Sound) => {
         chunks.push(pcm)
@@ -515,10 +524,16 @@ export class Shell {
     const moved = () => this.#router[SHOWINGS].current !== showing || !this.#router[SHOWINGS].onPath(showing)
     const finish = (then: () => void) => {
       if (!mine()) return
-      this.#deciding = null
-      this.#decidingOn = null
       slow.cancel()
-      life.end()
+      try {
+        life.end()
+      } finally {
+        if (mine()) {
+          this.#deciding = null
+          this.#decidingOn = null
+        }
+      }
+      if (!mine()) return
       if (moved()) this.#clear()
       else then()
     }
@@ -529,8 +544,9 @@ export class Shell {
     if (!mine()) return slow.cancel()
     if (passed === undefined) this.#show(this.#words.thinking)
     try {
-      if (moved()) return finish(() => {})
-      const transcript = passed ?? (await voice.transcribe(audio, life))
+      const transcribe = passed === undefined ? voice.transcribe : undefined
+      if (!mine() || moved()) return finish(() => {})
+      const transcript = transcribe ? await transcribe.call(voice, audio, life) : (passed ?? null)
       const words = transcript?.trim() ?? ''
       if (!mine() || moved()) return finish(() => {})
       if (transcript !== null && !words) return finish(() => this.notice(this.#words.missed))
@@ -569,14 +585,14 @@ export class Shell {
     const showings = this.#router[SHOWINGS]
     const showing = showings.current
     const gone = () => said.life.ended || showings.current !== showing || !showings.onPath(showing)
-    const model = voice.model ?? matchWords
-    const asked: NavigatorModel = {
+    const asking = (model: NavigatorModel): NavigatorModel => ({
       choose: (question, life) => {
+        const choose = model.choose
         if (gone()) throw new LifetimeEnded()
-        return model.choose(question, life)
+        return choose.call(model, question, life)
       },
-    }
-    const agents = [...(navigate ? [navigator(asked)] : []), ...(voice.agents ?? [])]
+    })
+    const agents = [...(navigate ? [navigator(asking(voice.model ?? matchWords))] : []), ...(voice.agents ?? [])]
     for (const [index, agent] of agents.entries()) {
       if (gone()) throw new LifetimeEnded()
       const screen = this.#context()
