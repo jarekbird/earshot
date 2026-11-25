@@ -1,9 +1,10 @@
-import { execFileSync } from 'node:child_process'
-import { readdirSync, readFileSync } from 'node:fs'
+import { execFile, execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer, get } from 'node:http'
 import { connect, Socket, type AddressInfo } from 'node:net'
-import { networkInterfaces } from 'node:os'
-import { join, relative, sep } from 'node:path'
+import { networkInterfaces, tmpdir } from 'node:os'
+import { dirname, join, relative, sep } from 'node:path'
+import { promisify } from 'node:util'
 import ts from 'typescript'
 import { expect, it } from 'vitest'
 
@@ -238,7 +239,110 @@ it('C3: a pull request tries its changed tests on the old source, with no networ
   expect(workflow).toMatch(/^ {4}if: \$\{\{ !contains\(github\.event\.pull_request\.labels\.\*\.name, 'no new behaviour'\) \}\}$/m)
   expect(workflow).toMatch(/^ {6}- run: \.github\/offline\.sh \.github\/c3\.sh "\$BASE"$/m)
   expect(workflow.match(/^ {6}- run: /gm)).toHaveLength(3)
-  expect(readFileSync(join(root, '.github/c3.sh'), 'utf8')).toContain('if npx tsc --noEmit && npx vitest run $tests; then')
+  expect(readFileSync(join(root, '.github/c3.sh'), 'utf8')).toContain('if npx tsc -p tsconfig.c3.json && npx vitest run $tests; then')
+})
+
+const KEPT = Array.from({ length: 8 }, (_, n) => `export const kept${n} = ${n}`).join('\n')
+const WAS: Record<string, string> = {
+  'tsconfig.json': JSON.stringify({
+    compilerOptions: {
+      target: 'ES2023',
+      module: 'ESNext',
+      moduleResolution: 'bundler',
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      types: [],
+    },
+    include: ['src', 'example'],
+  }),
+  'src/add.ts': `${KEPT}\nexport const add = (a: number, b: number) => a - b\n`,
+  'src/add.test.ts':
+    "import { expect, it } from 'vitest'\nimport { add } from './add.js'\n\nit('adds nothing', () => expect(add(1, 0)).toBe(1))\n",
+  'example/main.ts': "import { add } from '../src/add.js'\n\nexport const one = add(1, 0)\n",
+}
+const FIXED = WAS['src/add.ts'].replace('a - b', 'a + b')
+const SHOWS = `${WAS['src/add.test.ts']}\nit('adds', () => expect(add(1, 2)).toBe(3))\n`
+const SHOWS_NOTHING = `${WAS['src/add.test.ts']}\nit('adds nothing to two', () => expect(add(2, 0)).toBe(2))\n`
+
+async function c3(changes: Record<string, string | null>): Promise<{ passed: boolean; said: string }> {
+  const dir = mkdtempSync(join(tmpdir(), 'earshot-c3-'))
+  const run = promisify(execFile)
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME }
+  const git = (...args: string[]) =>
+    run('git', ['-c', 'user.name=trial', '-c', 'user.email=trial@example.invalid', ...args], { cwd: dir, env })
+  const write = (files: Record<string, string | null>) => {
+    for (const [file, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, file)), { recursive: true })
+      if (text === null) rmSync(join(dir, file))
+      else writeFileSync(join(dir, file), text)
+    }
+  }
+  try {
+    write({ ...WAS, '.gitignore': 'node_modules\n' })
+    symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'), 'junction')
+    await git('init', '-q')
+    await git('add', '-A')
+    await git('commit', '-q', '-m', 'as it was')
+    const old = (await git('rev-parse', 'HEAD')).stdout.trim()
+    write(changes)
+    await git('add', '-A')
+    await git('commit', '-q', '-m', 'the change')
+    const done = await run('sh', [join(root, '.github/c3.sh'), old], { cwd: dir, env }).then(
+      ({ stdout }) => ({ passed: true, said: stdout }),
+      (failed: { stdout: string }) => ({ passed: false, said: failed.stdout }),
+    )
+    return { passed: done.passed, said: done.said.split('\n').findLast(line => line.includes('C3: ')) ?? done.said }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+it.skipIf(process.platform === 'win32').concurrent.each([
+  ['takes a fix with a test that fails without it', { 'src/add.ts': FIXED, 'src/add.test.ts': SHOWS }, true, 'fail, or do not compile'],
+  [
+    'refuses a fix whose test passes without it too',
+    { 'src/add.ts': FIXED, 'src/add.test.ts': SHOWS_NOTHING },
+    false,
+    'pass on the old source too',
+  ],
+  ['refuses a fix with no test', { 'src/add.ts': FIXED }, false, 'no test did'],
+  ['has nothing to ask of a change to no source', { 'README.md': 'Words.\n' }, true, 'no source changed'],
+  [
+    'takes a test that does not compile without the change',
+    {
+      'src/add.ts': `${FIXED}export type Sum = number\n`,
+      'src/add.test.ts': `${WAS['src/add.test.ts']}import type { Sum } from './add.js'\n\nexport const sum: Sum = add(1, 0)\n`,
+    },
+    true,
+    'fail, or do not compile',
+  ],
+  [
+    'refuses a change that only something else fails to compile without, when its test shows nothing',
+    {
+      'src/add.ts': `${WAS['src/add.ts']}export const sub = (a: number, b: number) => a - b\n`,
+      'src/add.test.ts': SHOWS_NOTHING,
+      'example/main.ts': "import { sub } from '../src/add.js'\n\nexport const one = sub(1, 0)\n",
+    },
+    false,
+    'pass on the old source too',
+  ],
+  [
+    'takes a fix in a file that is renamed in the same change',
+    {
+      'src/add.ts': null,
+      'src/sum.ts': FIXED,
+      'src/add.test.ts': null,
+      'src/sum.test.ts': SHOWS.replace('./add.js', './sum.js'),
+      'example/main.ts': WAS['example/main.ts'].replace('add.js', 'sum.js'),
+    },
+    true,
+    'fail, or do not compile',
+  ],
+] as const)('C3: the job %s', { timeout: 120_000 }, async (_, changes, passed, said) => {
+  const done = await c3(changes)
+  expect(done.said).toContain(said)
+  expect(done.passed).toBe(passed)
 })
 
 const DIRECTIVE = /^((\/\/\/? ?|\/\*+\s*)(@ts-|eslint[- ]|prettier-ignore|<reference|v8 ignore|c8 ignore|istanbul ignore|globals? )|#!)/
