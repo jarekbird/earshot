@@ -6,6 +6,12 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
+## 0.0.45 (2026-11-24)
+
+- A tap on a list runs only the row the glasses show the cursor on, and a gesture a screen of boxes ties to an
+  action runs only what the screen on show ties it to. A touch that comes while that is still changing on its way
+  to the glasses is dropped; it ran what the newest frame held, which was not yet on show.
+
 ## 0.0.44 (2026-11-24)
 
 - A tap or a swipe that takes a notice away does nothing else. It also ran the row under the cursor, which the

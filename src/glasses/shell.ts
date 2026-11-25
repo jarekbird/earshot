@@ -101,10 +101,14 @@ interface Place {
   top: number
 }
 
+type Gesture = 'tap' | 'up' | 'down'
+type Aims = Partial<Record<Gesture, string>>
+
 interface Drawn {
   frame: number
   screen: Screen
   view: View
+  aims: Aims
   targets: readonly TargetInfo[]
   folded: readonly Action[]
   scrolls: boolean
@@ -139,7 +143,7 @@ export class Shell {
   #turn = 0
   #said = false
   #deciding: Lifetime | null = null
-  #asked: Array<{ frame: number; screen: Screen; page: Page }> = []
+  #asked: Array<{ frame: number; screen: Screen; page: Page; aims: Aims }> = []
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -200,10 +204,17 @@ export class Shell {
     const shown = fold ? offered.slice(0, MAX_MENU_ITEMS - 1) : offered
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
+    const aim = (bound: Bound, target?: string) => JSON.stringify([boundTo(bound).action.id, target ?? boundTo(bound).target ?? null])
+    const aims: Aims =
+      view.kind === 'list'
+        ? { tap: aim(view.action, targets[place.cursor]?.id) }
+        : view.kind === 'boxes'
+          ? Object.fromEntries(Object.entries(view.on ?? {}).map(([gesture, bound]) => [gesture, aim(bound)]))
+          : {}
     this.#shown()
     const frame = this.#glasses.draw({ boxes, pictures, menu })
-    this.#drawn = { frame, screen, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls, page }
-    this.#asked.push({ frame, screen, page })
+    this.#drawn = { frame, screen, view, aims, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls, page }
+    this.#asked.push({ frame, screen, page, aims })
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
@@ -216,6 +227,14 @@ export class Shell {
     else if (!up && from.atEnd) Object.assign(place, { top: 0, away: false })
     else Object.assign(place, { top: from.at + lines, away: true })
     this.redraw()
+  }
+
+  #aimed(drawn: Drawn, gesture: Gesture): boolean {
+    this.#shown()
+    const seen = this.#asked[0]
+    return (
+      seen !== undefined && seen.frame <= this.#glasses.shown && seen.screen === drawn.screen && seen.aims[gesture] === drawn.aims[gesture]
+    )
   }
 
   #shown(): Screen | undefined {
@@ -351,7 +370,7 @@ export class Shell {
     const { view } = drawn
     if (view.kind === 'boxes') {
       const bound = view.on?.[input.kind]
-      if (!bound) return
+      if (!bound || !this.#aimed(drawn, input.kind)) return
       const { action: chosen, target } = boundTo(bound)
       return void this.#start(chosen, target)
     }
@@ -359,7 +378,7 @@ export class Shell {
     if (view.kind === 'text') {
       if (input.kind !== 'tap') return this.#scroll(drawn, place, 'swipe', step < 0)
     } else if (input.kind !== 'tap') place.cursor += step
-    else return this.#choose(drawn, place)
+    else return this.#aimed(drawn, 'tap') ? this.#choose(drawn, place) : undefined
     this.redraw()
   }
 
