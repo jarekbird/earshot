@@ -260,7 +260,7 @@ const hear = speech.start(life, showTurn, state => showWhetherWordsCome(state))
 - With `staleMs` set, the age of held sound is told by a clock that cannot go back, and every held piece is checked against one reading of it.
 - If your listener throws, or answers with a promise that fails, only a fixed sentence is reported, never the words it was handed. The same goes for the stand-in.
 - Ending the lifetime closes the line. Sound the browser had already taken for that line may still go out before it closes: a page cannot take it back.
-- A turn that was still growing when the line dropped, or when the sound stopped, is told once more as final and `cut`, with the words it had. The transport numbers the turns it tells itself, one by one and on across lines. Within a line it takes the service's turns in the service's order: a message about a turn before the newest of that line is not taken.
+- A turn that was still growing when the line dropped, or when the sound stopped, is told once more as final and `cut`, with the words it had. The transport numbers the turns it tells itself, one by one and on across lines. Within a line it takes the service's turns in the service's order: a message about a turn before the newest of that line is not taken. Nor is one whose number is too high to count on from the turns already told.
 - `speaker` is whoever the glasses said was speaking for most of the stretch of sound the turn was made from.
 
 ### What the navigator is offered

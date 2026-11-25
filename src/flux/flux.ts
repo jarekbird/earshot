@@ -179,7 +179,7 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
       const turned = (message: Record<string, unknown>) => {
         const { turn_index: index, transcript, audio_window_start: from, audio_window_end: to } = message
         if (message.type !== 'TurnInfo' || typeof index !== 'number' || typeof transcript !== 'string') return
-        if (!Number.isSafeInteger(index) || index < 0) return
+        if (!Number.isSafeInteger(index) || index < 0 || !Number.isSafeInteger(index + next)) return
         const words = transcript.trim()
         const same = growing !== null && index === last
         if (!words || (!same && index <= last)) return
