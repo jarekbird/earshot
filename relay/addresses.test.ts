@@ -185,12 +185,12 @@ function strays(outcome: Outcome, protocols: (read: URL) => string, after: (at: 
   )
 }
 
-describe('E15: what carries a key, a secret or sound goes to the address that was checked', () => {
+describe('E16: what carries a key, a secret or sound goes to the address that was checked', () => {
   beforeEach(() => void vi.useFakeTimers())
   afterEach(() => void vi.useRealTimers())
 
   const MESSAGE =
-    'E15: this address was taken and then reached somewhere else than where the check read it. Read an address once, check that reading, and use that reading: never the text again.'
+    'E16: this address was taken and then reached somewhere else than where the check read it. Read an address once, check that reading, and use that reading: never the text again.'
 
   it.each(AWKWARD)(
     "the relay's calls refuse %j or reach it where the check read it, wherever a host's fetch starts from",

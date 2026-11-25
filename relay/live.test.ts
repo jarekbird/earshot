@@ -658,7 +658,7 @@ const BAD: Array<[string, string | Uint8Array]> = [
   ['bytes that are no request', new Uint8Array([0x16, 0x03, 0x01, 0x02, 0x00, 0x01, 0x00, 0xff, 0xff])],
 ]
 
-describe('E17: a host survives a request it cannot take, on the Node server and on the Worker', () => {
+describe('E18: a host survives a request it cannot take, on the Node server and on the Worker', () => {
   const send = (at: string, bytes: string | Uint8Array, leave: 'reset' | 'wait') =>
     new Promise<void>(done => {
       const { hostname, port } = new URL(at)

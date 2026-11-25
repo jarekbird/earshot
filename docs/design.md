@@ -535,7 +535,7 @@ The line, as states:
   `https` (`wss` for live speech), or plain `http` (`ws`) on the same machine (`localhost`, `[::1]`, anything in 127, also as IPv6 writes it: `[::ffff:127.0.0.1]`; no other spelling)
   and no other scheme, so the address that was checked is the one that is used on either host. A host's own `fetch` gets the
   developer's spelling, less what a URL is read without (tabs and line ends, and the spaces at its ends), so that a
-  path added to it lands where the check read it (E15). A host that brings
+  path added to it lands where the check read it (E16). A host that brings
   its own `fetch` names a whole address too. For some rounds of review it could name a path on itself, as it could
   before this change; every way of checking such a name left one that came to mean another host, so it was removed
   (Jarek, 2026-11-23). The live upstream is dialled at the address that was checked.

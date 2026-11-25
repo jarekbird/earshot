@@ -98,7 +98,7 @@ const BOTH: Array<[string, (lines: string[]) => Service]> = [
 beforeEach(() => void vi.useFakeTimers())
 afterEach(() => void vi.useRealTimers())
 
-describe.each(BOTH)('E16: live speech, as %s gives it', (_name, make) => {
+describe.each(BOTH)('E17: live speech, as %s gives it', (_name, make) => {
   function listening(lines: string[], heard: (turn: Turn, feed: (sound: Sound) => void, life: Lifetime) => void = () => {}) {
     const life = new Lifetime()
     onTestFinished(() => life.end())
