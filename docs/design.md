@@ -591,6 +591,16 @@ stack. A hold ends at release; after the phrase, a pause in speech or a longest 
 
 ## Open
 
+- **An app that changes the screen, or ends the shell, from inside something the shell asks it**: a getter of a
+  view, of an action or of a voice setting, a callback, the cleanup of a turn. Rounds 17 to 23 of the review of pull
+  request 11 each found new orders of this, and each was fixed with a test, but review reaches no end of it: on the
+  way to a draw, a hold or an act the shell asks an app for many things, and any of them can run the app's code.
+  What holds: the shell counts every change of screen and every draw, looks at the count after each thing it asked,
+  does nothing more once it has ended, and one press records once. What is not promised: that no order is left in
+  which an act of the screen before still happens. No app of Jarek's changes the screen from a getter. He narrowed
+  the review on 2026-11-24 ("Narrow again, then merge") to the swipe rule and to what works on `main` and breaks
+  here. The answer by structure would be to ask the app for all of it first and act only on the answers (one
+  snapshot for each draw, hold and act); that is a rework of the shell, and his to decide.
 - **What a touch on app-drawn controls runs while the glasses are behind.** A `boxes` view binds a tap or a swipe
   to an action, and its boxes say what that is. The glasses take the boxes of a frame one by one, and a picture
   after them, so for a moment they can show the new label with the old action still bound, or the other way round.
