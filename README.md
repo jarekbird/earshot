@@ -299,9 +299,9 @@ new Shell(life, glasses, router, { voice: { transcribe: service.transcribe, mode
 ```
 
 - `host` is your relay (below), not OpenRouter. List it in your `app.json` whitelist, with the `g2-microphone` permission. Earshot holds no address of its own.
-- `secret` is for a relay that has one (below): `openRouter({ host, secret })` says it with each of the three calls, in the body, where the relay takes it out again. Such a relay is named by its address alone, with `https` (plain only on this device): no query, no fragment, no name or password, or `openRouter` throws. The calls go to the address that was checked and follow it to no other: the secret must not travel in the clear, or on to another host. An error of such a call carries its `status` and no `cause`: what failed may hold the body that was sent. Ship no secret in your app's code; ask the person for it, as the example's page does.
+- `secret` is for a relay that has one (below): `openRouter({ host, secret })` says it with each of the three calls, in the body, where the relay takes it out again. Such a relay is named by its address alone, with `https` (plain only on this device): no query, no fragment, no name or password, or `openRouter` throws. The calls go to the address that was checked and follow it to no other (a redirect is answered with "No connection"): the secret must not travel in the clear, or on to another host. An error of such a call carries the `status` when the relay answered, and never a `cause`: what failed may hold the body that was sent. Ship no secret in your app's code; ask the person for it, as the example's page does.
 - A recording has thirty seconds to come back as words, a question twelve; both fit in the forty-five the shell gives a command. `service.transcribe` and `service.model` end their requests with the turn's lifetime, so a command that is called off stops asking.
-- A lost connection, too many requests and a busy service each say so in a few words. When the relay is refused or out of credit the glasses say "Voice is off for now". After any but the first of those Earshot holds back for thirty seconds. For your log, each error carries what it knows: a `SayError` or `RelayError` has the `status` the relay answered with, and its `cause` is what kept the call from being made or read.
+- A lost connection, too many requests and a busy service each say so in a few words. When the relay is refused or out of credit the glasses say "Voice is off for now". After any but the first of those Earshot holds back for thirty seconds. For your log, each error carries what it knows: a `SayError` or `RelayError` has the `status` the relay answered with, and, for a call that carried no secret, its `cause` is what kept the call from being made or read.
 - `models: { speech, decide, compact }` and `language` change the defaults: `openai/whisper-large-v3-turbo`, `typesafe/jev-1.14` and `mistralai/mistral-nemo`.
 - Tried live on 20 November 2026: Jev answered in about 0.2 seconds, picked the wanted option on 12 of 12 test phrases, and 24 questions cost $0.0006. Through the relay as a Cloudflare Worker, a question took about 0.35 seconds end to end, and eleven seconds of speech became the right words in 1.7 seconds.
 
@@ -345,12 +345,12 @@ export default {
 
 For live speech the relay needs three more settings. It can also run with these alone, and then it forwards none of the three calls. The example's `wrangler.toml` sets `UPSTREAM` for the three calls: take that line out for a Worker with live speech alone, or the relay expects the key of the three calls too and does not start without it.
 
-| Node                          | Worker          | What                                                                                                     |
-| ----------------------------- | --------------- | -------------------------------------------------------------------------------------------------------- |
-| `EARSHOT_RELAY_LIVE_UPSTREAM` | `LIVE_UPSTREAM` | The `wss` address of your Cloudflare AI Gateway's Workers AI path, with no query                         |
-| `EARSHOT_RELAY_LIVE_KEY`      | `LIVE_KEY`      | A Cloudflare token that may run requests through that gateway                                            |
-| `EARSHOT_RELAY_SECRET`        | `SECRET`        | What an app must say before a line opens: 16 to 1,024 characters as JSON writes them, of your own making |
-| `EARSHOT_RELAY_LIVE_MODELS`   | `LIVE_MODELS`   | A comma-separated list, when your app uses another model than `@cf/deepgram/flux`                        |
+| Node                          | Worker          | What                                                                                                |
+| ----------------------------- | --------------- | --------------------------------------------------------------------------------------------------- |
+| `EARSHOT_RELAY_LIVE_UPSTREAM` | `LIVE_UPSTREAM` | The `wss` address of your Cloudflare AI Gateway's Workers AI path, with no query                    |
+| `EARSHOT_RELAY_LIVE_KEY`      | `LIVE_KEY`      | A Cloudflare token that may run requests through that gateway                                       |
+| `EARSHOT_RELAY_SECRET`        | `SECRET`        | What an app must say before a line opens: at least 16 characters, at most 1,024 as JSON writes them |
+| `EARSHOT_RELAY_LIVE_MODELS`   | `LIVE_MODELS`   | A comma-separated list, when your app uses another model than `@cf/deepgram/flux`                   |
 
 A relay has one secret. Once it is set, with live speech or without, the three calls ask for it too: a call that does not say it is answered 401 before its model is looked at and before anything is forwarded, and the glasses then say "Voice is off for now". A secret that is too short or too long makes no relay. Leave it unset, or empty, for a relay that asks for none. The secret is part of the call's body, so it counts toward the four megabytes (`maxBytes`) a call may have. Whatever stands in front of your relay (a proxy, a gateway, a log of requests) sees that body too: have it keep no request bodies, as you turn the gateway's logs off for sound.
 

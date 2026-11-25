@@ -209,3 +209,66 @@ describe('E13: the Node server and the Worker are one relay', () => {
     }
   })
 })
+
+describe('the caller Earshot ships, where a Worker makes the calls', () => {
+  const CALLER = `
+    import { openRouter } from './src/openrouter/openrouter.js'
+    import { SayError } from './src/say.js'
+    export default {
+      async fetch(request: Request, env: { DIRECT: string; MOVED: string; SECRET: string }) {
+        const host = new URL(request.url).pathname === '/moved' ? env.MOVED : env.DIRECT
+        try {
+          return Response.json({ text: await openRouter({ host, secret: env.SECRET }).compact('shift notes', 40) })
+        } catch (error) {
+          return Response.json({ failed: error instanceof SayError ? error.say : String(error) })
+        }
+      },
+    }`
+
+  it("reaches a relay that asks for a secret from Cloudflare's own runtime, and follows it to no other address", async () => {
+    const listening = async (answer: Parameters<typeof createServer>[1]) => {
+      const server = createServer(answer)
+      await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+      onTestFinished(() => void server.close())
+      return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    }
+    const heard: string[] = []
+    const said: string[] = []
+    const elsewhere = await listening((incoming, outgoing) => {
+      heard.push(`${incoming.method} ${incoming.url}`)
+      outgoing.end('{}')
+    })
+    const direct = await listening((incoming, outgoing) => {
+      const parts: Buffer[] = []
+      incoming.on('data', part => parts.push(part))
+      incoming.on('end', () => {
+        said.push(JSON.parse(Buffer.concat(parts).toString()).secret)
+        outgoing
+          .writeHead(200, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ choices: [{ message: { content: 'short' } }] }))
+      })
+    })
+    const moved = await listening(
+      (_incoming, outgoing) => void outgoing.writeHead(307, { location: `${elsewhere}/api/v1/chat/completions` }).end(),
+    )
+    const built = await build({
+      stdin: { contents: CALLER, resolveDir: ROOT, loader: 'ts' },
+      tsconfig: join(ROOT, 'tsconfig.json'),
+      bundle: true,
+      format: 'esm',
+      write: false,
+      logLevel: 'silent',
+    })
+    const runtime = new Miniflare({
+      modules: true,
+      script: built.outputFiles[0].text,
+      compatibilityDate: '2026-07-01',
+      bindings: { DIRECT: direct, MOVED: moved, SECRET: PHRASE },
+    })
+    onTestFinished(() => runtime.dispose())
+    const at = (await runtime.ready).href.replace(/\/$/, '')
+    const answers = [await (await fetch(`${at}/direct`)).json(), await (await fetch(`${at}/moved`)).json()]
+    expect(answers).toEqual([{ text: 'short' }, { failed: 'No connection' }])
+    expect([said, heard]).toEqual([[PHRASE], []])
+  })
+})

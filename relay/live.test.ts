@@ -669,7 +669,7 @@ describe('the settings of live speech', () => {
       secret: undefined,
     }
     expect(relayOptions({ ...settings, liveModels: ' a/one ,b/two' })).toEqual({
-      live: { upstream: live.upstream, key: '', secret: '', models: ['a/one', 'b/two'] },
+      live: { upstream: live.upstream, key: '', models: ['a/one', 'b/two'] },
     })
   })
 

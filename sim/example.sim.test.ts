@@ -60,8 +60,25 @@ describe('the example app in the real Even Hub simulator', () => {
     const script = bundle.outputFiles[0].text
     const page = readFileSync('example/index.html', 'utf8')
     const typed = (secret: string) => page.replace('id="secret"', `id="secret" value="${secret}"`)
-    const pages: Record<string, string> = { [TYPED]: typed(PHRASE), [MISTYPED]: typed(`${PHRASE}, nearly`) }
+    const later = `<script>
+      const asking = setInterval(async () => {
+        const said = await (await fetch('${TYPED_YET}')).text()
+        if (!said) return
+        clearInterval(asking)
+        document.getElementById('secret').value = said
+        await fetch('${TYPED_YET}', { method: 'POST' })
+      }, 200)
+    </script>`
+    const pages: Record<string, string> = {
+      [TYPED]: typed(PHRASE),
+      [MISTYPED]: typed(`${PHRASE}, nearly`),
+      [TYPED_LATER]: `${page}${later}`,
+    }
     server = createServer((request, response) => {
+      if (request.url === TYPED_YET) {
+        if (request.method === 'POST') typing.done = true
+        return void response.end(typing.now ? PHRASE : '')
+      }
       const wanted = request.url === '/main.js'
       response.setHeader('content-type', wanted ? 'text/javascript' : 'text/html')
       response.end(wanted ? script : (pages[request.url ?? ''] ?? page))
@@ -79,6 +96,9 @@ describe('the example app in the real Even Hub simulator', () => {
 
   const TYPED = '/with-the-secret-typed'
   const MISTYPED = '/with-the-secret-mistyped'
+  const TYPED_LATER = '/with-the-secret-typed-later'
+  const TYPED_YET = '/is-the-secret-typed-yet'
+  const typing = { now: false, done: false }
   const start = async (more = '', mic = false, path = '/') => {
     const sim = await Simulator.start({ url: `${url}${path}#${more}`, limitSeconds: 300, mic })
     onTestFinished(() => sim.stop())
@@ -223,6 +243,19 @@ describe('the example app in the real Even Hub simulator', () => {
     await sim.hold(1_200)
     await sim.shows('Voice is off for now')
   })
+
+  it.runIf(process.platform === 'linux')(
+    'takes the secret that is typed while the app runs: the hold after it goes through, with no wait',
+    async () => {
+      const sim = await start('', true, TYPED_LATER)
+      await sim.hold(1_200)
+      await sim.shows('Voice is off for now')
+      typing.now = true
+      await vi.waitFor(() => expect(typing.done).toBe(true), { timeout: 10_000, interval: 100 })
+      await sim.hold(1_200)
+      await sim.shows('Hold the touchpad and say')
+    },
+  )
 })
 
 describe('the example app while its relay cannot reach the speech service', () => {

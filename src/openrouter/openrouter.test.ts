@@ -100,7 +100,19 @@ describe('a relay that asks for a secret', () => {
     expect(open.map(error => (error as Error).cause instanceof Error)).toEqual([true, true])
   })
 
-  it('is followed to no other address: a call that carries the secret refuses a redirect, and one without goes as before', async () => {
+  it.each([
+    ['a redirect', () => new Response(null, { status: 307, headers: { location: 'https://elsewhere.example/api' } })],
+    ['a redirect it may not look into', () => Object.defineProperty(new Response(null), 'type', { value: 'opaqueredirect' })],
+    ['a moved-for-good', () => new Response('{"text":"from elsewhere"}', { status: 301 })],
+  ])('says there is no connection when the relay answers with %s, and reads nothing of it', async (_name, moved) => {
+    const { sent, fetcher } = service(moved())
+    const failed = await openRouter({ host: 'https://relay.example', secret: SECRET, fetch: fetcher })
+      .transcribe({ pcm: tone(), seconds: 0.1 })
+      .catch((error: Error) => error)
+    expect([failed instanceof SayError && failed.say, (failed as Error).cause, sent.length]).toEqual(['No connection', undefined, 1])
+  })
+
+  it('is followed to no other address: a call that carries the secret takes no redirect, and one without goes as before', async () => {
     const modes: (RequestRedirect | undefined)[] = []
     const fetcher = async (_url: string | URL | Request, init?: RequestInit) => (
       modes.push(init?.redirect),
@@ -111,7 +123,7 @@ describe('a relay that asks for a secret', () => {
     await guarded.model.choose({ words: 'open', options: [{ id: 'a', say: 'A' }] })
     await guarded.compact('a long text', 40)
     await openRouter({ host: 'https://relay.example', fetch: fetcher }).transcribe({ pcm: tone(), seconds: 0.1 })
-    expect(modes).toEqual(['error', 'error', 'error', undefined])
+    expect(modes).toEqual(['manual', 'manual', 'manual', undefined])
   })
 })
 

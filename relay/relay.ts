@@ -14,7 +14,7 @@ import {
 export interface LiveOptions {
   upstream: string
   key: string
-  secret: string
+  secret?: string
   models?: string[]
 }
 
@@ -66,7 +66,7 @@ export function relayOptions({ key, upstream, models, liveUpstream, liveKey, liv
     ...(key !== undefined || upstream !== undefined ? { key, upstream } : {}),
     ...listed(models),
     ...(secret ? { secret } : {}),
-    ...(liveUpstream ? { live: { upstream: liveUpstream, key: liveKey ?? '', secret: secret ?? '', ...listed(liveModels) } } : {}),
+    ...(liveUpstream ? { live: { upstream: liveUpstream, key: liveKey ?? '', ...listed(liveModels) } } : {}),
   }
 }
 
@@ -146,15 +146,16 @@ const fits = (secret: unknown) =>
   typeof secret === 'string' && secret.length >= MIN_SECRET && JSON.stringify(secret).length - 2 <= MAX_SECRET
 
 function secretOf({ secret, live }: RelayOptions): string | undefined {
-  if (secret === undefined) return live?.secret
-  if (live && live.secret !== secret) throw new Error('A relay has one secret: its calls and live speech ask for the same one.')
-  if (!fits(secret)) throw new Error(`A relay needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters, or none.`)
-  return secret
+  if (secret !== undefined && live?.secret !== undefined && live.secret !== secret)
+    throw new Error('A relay has one secret: its calls and live speech ask for the same one.')
+  const one = secret ?? live?.secret
+  if (live && !fits(one)) throw new Error(`Live speech needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters.`)
+  if (one !== undefined && !fits(one)) throw new Error(`A relay needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters, or none.`)
+  return one
 }
 
 function checked(live: LiveOptions): LiveOptions {
   if (!live.key) throw new Error('Live speech needs the key of its upstream.')
-  if (!fits(live.secret)) throw new Error(`Live speech needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters.`)
   if (/[?#]/.test(sealed(live.upstream, 'wss', 'Live speech'))) throw new Error('Live speech names its upstream with no query.')
   return { ...live, upstream: new URL(live.upstream).href.replace(/\/+$/, '') }
 }
@@ -166,7 +167,7 @@ function sizeOf(data: unknown): number {
   return typeof size === 'number' ? size : 0
 }
 
-function live(line: Line, sockets: Sockets, { upstream, key, secret, models }: LiveOptions): void {
+function live(line: Line, sockets: Sockets, { upstream, key, models }: LiveOptions, secret: string): void {
   const allowed = new Set(models ?? DEFAULT_LIVE_MODELS)
   const reaching = new AbortController()
   let up: Line | undefined
@@ -250,11 +251,11 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
         },
       })
     }
-    if (pathname === LIVE_PATH && speech) {
+    if (pathname === LIVE_PATH && speech && secret !== undefined) {
       const asksForOne = request.method === 'GET' && request.headers.get('upgrade')?.toLowerCase() === 'websocket'
       if (!asksForOne || !sockets) return refuse(426, 'Only a WebSocket.')
       const { line, response } = await sockets.accept(request)
-      live(line, sockets, speech)
+      live(line, sockets, speech, secret)
       return response
     }
     const fields = forwards ? FIELDS.get(pathname) : undefined

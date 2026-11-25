@@ -93,6 +93,24 @@ describe('a relay with a secret', () => {
     expect(() => guarded([], { live, secret: `${SECRET} of another kind` })).toThrow('one secret')
   })
 
+  it('is one for the calls and for live speech, given once: a host may change what its settings gave before it makes the relay', async () => {
+    const settings = {
+      key: 'sk-developer',
+      upstream: 'https://upstream.example',
+      models: undefined,
+      liveUpstream: 'wss://speech.example/v1',
+      liveKey: 'live-developer',
+      liveModels: undefined,
+      secret: SECRET,
+    }
+    const other = `${SECRET} of another kind`
+    const { post } = guarded([json({})], { ...relayOptions(settings), secret: other })
+    expect((await post('/api/v1/audio/transcriptions', { ...speech, secret: SECRET })).status).toBe(401)
+    expect((await post('/api/v1/audio/transcriptions', { ...speech, secret: other })).status).toBe(200)
+    const { live: lone } = relayOptions({ ...settings, secret: undefined })
+    expect(() => guarded([], { live: lone })).toThrow('Live speech needs a secret')
+  })
+
   it.each(['', 'a'.repeat(15), 'a'.repeat(1_025), 0])('is not made with the secret %j: none is left out, not given empty', secret => {
     expect(() => guarded([], { secret: secret as string })).toThrow('needs a secret')
   })
@@ -112,7 +130,7 @@ describe('a relay with a secret', () => {
     expect(relayOptions({ ...settings, liveUpstream: 'wss://speech.example/v1', liveKey: 'k', secret: SECRET })).toEqual({
       ...calls,
       secret: SECRET,
-      live: { upstream: 'wss://speech.example/v1', key: 'k', secret: SECRET },
+      live: { upstream: 'wss://speech.example/v1', key: 'k' },
     })
   })
 

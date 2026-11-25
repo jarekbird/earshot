@@ -98,13 +98,19 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
     const { signal, done } = within(ms, life)
     let response: Response | undefined
     try {
-      response = await (options.fetch ?? fetch)(`${host}${path}`, {
+      const answered = await (options.fetch ?? fetch)(`${host}${path}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(secret === undefined ? body : { ...body, secret }),
-        ...(secret === undefined ? {} : { redirect: 'error' as const }),
+        // Fact: Cloudflare's runtime refuses redirect: 'error'. With 'manual' every runtime hands back the redirect itself.
+        ...(secret === undefined ? {} : { redirect: 'manual' as const }),
         signal,
       })
+      if (secret !== undefined && (answered.type === 'opaqueredirect' || (answered.status >= 300 && answered.status < 400))) {
+        await answered.body?.cancel().catch(() => {})
+        throw new Error('The relay answered with a redirect.')
+      }
+      response = answered
       if (response.ok) return (await response.json()) as Record<string, unknown>
     } catch (failure) {
       const cause = secret === undefined ? failure : undefined
