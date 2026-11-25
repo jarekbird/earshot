@@ -22,7 +22,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.43
+npm install github:jarekbird/earshot#v0.0.44
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -32,7 +32,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.43 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.44 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -157,7 +157,7 @@ const shell = new Shell(life, glasses, router)
 - A double tap goes up, to the screen the current one was opened from. From the home screen it asks Even to close the app.
 - Even's menu lists the screen's and the app's other actions. Over ten, the rest go behind "More…". An action with targets asks which one in a list, or on the app's own screen when the action has `choose`. A target can carry its own `risk`, so only the targets that write ask first.
 - An action that is blocked says why over the page, which dims for a few seconds. An action with `risk: 'confirm'` asks first, and only a tap confirms.
-- Call `shell.redraw()` when what a screen shows has changed. `shell.notice(text)` says something over the page.
+- Call `shell.redraw()` when what a screen shows has changed. `shell.notice(text)` says something over the page. A tap or a swipe while a notice shows only takes it away, since it covers rows; a double tap still goes up, and a pick from Even's menu still runs.
 - `new Shell(life, glasses, router, { words })` lets you change Earshot's own few words.
 
 ## Hold to talk
