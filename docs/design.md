@@ -551,6 +551,10 @@ The line, as states:
   - A Worker gives a WebSocket's sound as a Blob unless asked for an ArrayBuffer, and takes a message of more than a
     mebibyte, so the limit on a piece of sound is the relay's own.
   - A Worker's `fetch` follows a redirect, headers and all, unless told not to.
+  - A Worker's `fetch` refuses `redirect: 'error'` outright, before it calls anything. So the relay asks for the
+    redirect itself (`manual`), on both hosts, and answers 502 to one. Versions 0.0.36 to 0.0.40 asked for `error`:
+    on a Worker each of the three calls was answered 502 without the upstream being called. The tests ran the
+    Worker's three calls as a function in Node, where `error` is allowed; they run in Cloudflare's runtime now.
   - Node's own WebSocket can send a header, but it asks a second time when answered 401, and it cannot drop a
     connection it is still making. So the Node server opens the upstream with `ws`.
   - `ws` hands on a message that came with the opening before a promise made at the opening is read. So a host hands

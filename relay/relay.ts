@@ -261,9 +261,12 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
         method: 'POST',
         headers: { authorization: `Bearer ${options.key ?? ''}`, 'content-type': 'application/json' },
         body: JSON.stringify(kept),
-        redirect: 'error',
+        // Fact: Cloudflare's runtime refuses redirect: 'error'. With 'manual' a Worker and Node hand back the redirect itself.
+        redirect: 'manual',
         signal: control.signal,
       })
+      const moved = response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)
+      if (moved) return refuse(502, 'The upstream could not be reached.')
       return answer(response.status, await response.text())
     } catch {
       return refuse(502, 'The upstream could not be reached.')
