@@ -22,7 +22,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.45
+npm install github:jarekbird/earshot#v0.0.46
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -32,7 +32,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.45 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.46 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -184,7 +184,7 @@ new Shell(life, glasses, router, {
 - The words show over the page, and the navigator picks from what the app can do now: go back, go home, each action, and the items of the rolling set.
 - When it is sure, the action runs, and one marked `confirm` still asks first. Mark an action `voice` to ask first only when the words chose it: a touch is the person's own act, the model's choice is a guess. A question is dropped when the screen changes before the tap. When it is unsure, the few candidates are listed to tap. When nothing fits, it says "No match". With `instead` (below), the person can turn the navigator's choice down and hand the words to your agents.
 - One hold is one command. The navigator picks one action and one target, so "open the shopping list and delete it" is not carried out as two steps. Its pick is a guess, least sure among items whose names are much alike: give those items text that tells them apart (below), and mark an action that is costly to get wrong `voice` or `confirm`.
-- `agents` get the words the navigator passes on, in order, with the recording (`audio`) and the turn's lifetime (`life`). An agent answers `{ kind: 'handled', say }`, `{ kind: 'notMine' }`, or with an action to run.
+- `agents` get the words the navigator passes on, in order, with the recording (`audio`) and the turn's lifetime (`life`). An agent answers `{ kind: 'handled', say }`, `{ kind: 'notMine' }`, or with an action to run. What a handled turn says is shown also when the agent itself went to another screen.
 - An agent that waits before it acts waits through `life`. Any touch while a command is being decided calls it off and does nothing else; a hold calls it off and listens again. Both end `life`.
 - `model` is what the navigator asks. It gets the question, and the turn's lifetime to end its request with, and gives each option a chance. Over 0.7 the navigator is sure; under that it lists the options over 0.15. The default matches the words against the labels and calls no service.
 - A double tap calls a command off while it listens, and so does leaving the app. What was said is dropped when the screen changed while it listened or was decided.
