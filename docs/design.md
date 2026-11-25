@@ -109,7 +109,9 @@ read, which would otherwise be taken for item 0.
   confirms. An action that needs a target and has none opens a list of its targets.
 - A notice covers the rows under it. A tap or a swipe while one shows only takes it away: nothing is chosen from
   what cannot be seen. A double tap still goes up and a pick from Even's menu still runs, since neither chooses from
-  what the notice covers.
+  what the notice covers. This holds until the glasses have taken the notice away, not only until the shell asked
+  them to: a notice that has faded but is still on show, because its removal was refused or is on its way, still
+  covers its rows.
 - Holds are handed on untouched; slice 3 takes them.
 
 `earshot/testing` is a stand-in bridge for tests, and a traced frame is what `earshot/sim` reads back as the glasses'

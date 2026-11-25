@@ -568,6 +568,25 @@ describe('an action that cannot run', () => {
     expect(ran).toEqual([`open ${names[0]}`])
   })
 
+  it('runs nothing on a tap while the glasses still show a notice they have not taken away yet', async () => {
+    const { fake, front, ran, shell } = world()
+    await settle()
+    shell.notice('Saved')
+    await settle()
+    fake.refuse('update', 100)
+    await settle(3_000)
+    expect(front()).toBe('Saved')
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([])
+    fake.refuse('update', 0)
+    await settle(10_000)
+    expect(front()).toBe('')
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[0]}`])
+  })
+
   it('still goes up at a double tap, and still runs a pick from the menu, while a notice shows: neither chooses from what it covers', async () => {
     const { fake, front, ran, shell, router } = world()
     await settle()

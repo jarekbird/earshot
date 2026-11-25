@@ -8,7 +8,7 @@ import type { Router, Screen } from '../router.js'
 import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
-import type { Glasses } from './glasses.js'
+import { COVERED, type Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { layoutList, layoutText, type Stride, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
@@ -329,7 +329,7 @@ export class Shell {
       return
     }
     const asking = this.#asking
-    const covered = this.#overlaid
+    const covered = this.#overlaid || this.#glasses[COVERED]
     if (covered) this.#clear()
     if (asking) return input.kind === 'tap' ? asking.yes() : input.kind === 'up' || input.kind === 'down' ? asking.no?.() : undefined
     if (input.kind === 'double') {
