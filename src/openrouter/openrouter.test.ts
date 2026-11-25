@@ -136,6 +136,34 @@ describe('a relay that asks for a secret', () => {
     },
   )
 
+  it('leaves unused what it reads of an answer once its turn has ended, and lets go of an answer it will not read', async () => {
+    let finish = (_text: string) => {}
+    const slow = new Response(
+      new ReadableStream<Uint8Array>({
+        start: stream => void (finish = text => (stream.enqueue(new TextEncoder().encode(text)), stream.close())),
+      }),
+    )
+    const read = new Lifetime()
+    const reading = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: async () => slow })
+      .transcribe({ pcm: tone(), seconds: 0.1 }, read)
+      .catch((error: Error) => error)
+    await vi.advanceTimersByTimeAsync(0)
+    read.end()
+    finish('{"text":"late"}')
+    expect(await reading).toBeInstanceOf(LifetimeEnded)
+
+    let let_go = 0
+    let answer = (_response: Response) => {}
+    const late = new Promise<Response>(resolve => (answer = resolve))
+    const unread = new Lifetime()
+    const leaving = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: () => late })
+      .transcribe({ pcm: tone(), seconds: 0.1 }, unread)
+      .catch((error: Error) => error)
+    unread.end()
+    answer(new Response(new ReadableStream({ cancel: () => (let_go++, new Promise<void>(() => {})) }), { status: 200 }))
+    expect([await leaving, let_go].map(seen => (seen instanceof LifetimeEnded ? 'ended' : seen))).toEqual(['ended', 1])
+  })
+
   it('ends with its turn also while it lets go of a redirect that will not be let go of', async () => {
     const stuck = new ReadableStream({ cancel: () => new Promise<void>(() => {}) })
     const life = new Lifetime()

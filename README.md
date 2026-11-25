@@ -315,7 +315,7 @@ On Node 24 or later, on any host that keeps a process running:
 EARSHOT_RELAY_KEY=sk-or-... EARSHOT_RELAY_UPSTREAM=https://openrouter.ai npx earshot-relay
 ```
 
-It listens on `PORT` (8787 unless set) and on `HOST` when set. `EARSHOT_RELAY_MODELS` is a comma-separated list when your app uses other models than the defaults. Put it behind HTTPS: the Even app loads your page over HTTPS and will not call a plain HTTP address.
+It listens on `PORT` (8787 unless set) and on `HOST` when set. `EARSHOT_RELAY_MODELS` is a comma-separated list when your app uses other models than the defaults. `EARSHOT_RELAY_SECRET` (`SECRET` on a Worker) is a secret of your own making that your app must then say with every call; without it the relay answers anyone who finds its address (more below). Put it behind HTTPS: the Even app loads your page over HTTPS and will not call a plain HTTP address.
 
 As a Cloudflare Worker, or on anything else that speaks web requests:
 
@@ -345,12 +345,12 @@ export default {
 
 For live speech the relay needs three more settings. It can also run with these alone, and then it forwards none of the three calls. The example's `wrangler.toml` sets `UPSTREAM` for the three calls: take that line out for a Worker with live speech alone, or the relay expects the key of the three calls too and does not start without it.
 
-| Node                          | Worker          | What                                                                                                |
-| ----------------------------- | --------------- | --------------------------------------------------------------------------------------------------- |
-| `EARSHOT_RELAY_LIVE_UPSTREAM` | `LIVE_UPSTREAM` | The `wss` address of your Cloudflare AI Gateway's Workers AI path, with no query                    |
-| `EARSHOT_RELAY_LIVE_KEY`      | `LIVE_KEY`      | A Cloudflare token that may run requests through that gateway                                       |
-| `EARSHOT_RELAY_SECRET`        | `SECRET`        | What an app must say before a line opens: at least 16 characters, at most 1,024 as JSON writes them |
-| `EARSHOT_RELAY_LIVE_MODELS`   | `LIVE_MODELS`   | A comma-separated list, when your app uses another model than `@cf/deepgram/flux`                   |
+| Node                          | Worker          | What                                                                                                        |
+| ----------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
+| `EARSHOT_RELAY_LIVE_UPSTREAM` | `LIVE_UPSTREAM` | The `wss` address of your Cloudflare AI Gateway's Workers AI path, with no query                            |
+| `EARSHOT_RELAY_LIVE_KEY`      | `LIVE_KEY`      | A Cloudflare token that may run requests through that gateway                                               |
+| `EARSHOT_RELAY_SECRET`        | `SECRET`        | The relay's one secret, required for live speech: at least 16 characters, at most 1,024 as JSON writes them |
+| `EARSHOT_RELAY_LIVE_MODELS`   | `LIVE_MODELS`   | A comma-separated list, when your app uses another model than `@cf/deepgram/flux`                           |
 
 A relay has one secret. Once it is set, with live speech or without, the three calls ask for it too: a call that does not say it is answered 401 before its model is looked at and before anything is forwarded, and the glasses then say "Voice is off for now". A secret that is too short or too long makes no relay. For a relay that asks for none, leave the setting unset or empty (`EARSHOT_RELAY_SECRET`, `SECRET`, and so `relayOptions`); in options you write by hand, leave `secret` out. Anything else that is not a fitting secret makes no relay, an empty `secret` in hand-written options too. The secret is part of the call's body, so it counts toward the four megabytes (`maxBytes`) a call may have. Whatever stands in front of your relay (a proxy, a gateway, a log of requests) sees that body too: have it keep no request bodies, as you turn the gateway's logs off for sound.
 

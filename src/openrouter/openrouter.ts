@@ -107,13 +107,17 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
         ...(secret === undefined ? {} : { redirect: 'manual' as const }),
         signal,
       })
-      if (life?.ended) throw new LifetimeEnded()
       const elsewhere = answered.status >= 300 && answered.status < 400
-      if (secret !== undefined && (answered.type === 'opaqueredirect' || elsewhere)) {
-        void answered.body?.cancel().catch(() => {})
-        moved = elsewhere ? { status: answered.status } : {}
-      } else response = answered
-      if (response?.ok) return (await response.json()) as Record<string, unknown>
+      const redirected = secret !== undefined && (answered.type === 'opaqueredirect' || elsewhere)
+      if (redirected || life?.ended) void answered.body?.cancel().catch(() => {})
+      if (life?.ended) throw new LifetimeEnded()
+      if (redirected) moved = elsewhere ? { status: answered.status } : {}
+      else response = answered
+      if (response?.ok) {
+        const read = (await response.json()) as Record<string, unknown>
+        if (life?.ended) throw new LifetimeEnded()
+        return read
+      }
     } catch (failure) {
       const cause = secret === undefined ? failure : undefined
       if (life?.ended) throw new LifetimeEnded()
