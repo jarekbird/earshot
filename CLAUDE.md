@@ -32,7 +32,7 @@ Checks cite these IDs. Changing one needs Jarek's OK.
 - **E15** A touch acts only on what the glasses are known to show: not on a row a notice still covers, and not as
   the answer to a question that is not on show yet.
 
-- **E14** A change that breaks an app written against the last version is Jarek's to allow. He is asked before it is
+- **E19** A change that breaks an app written against the last version is Jarek's to allow. He is asked before it is
   built, or told as soon as it is found, and the pull request lists what an app must change. A break is what stops
   an app that follows the last version's README and types: a removed or renamed name, a newly required setting, a
   changed default or documented behaviour, a raised Node or SDK need. A new optional setting is not one. _A test

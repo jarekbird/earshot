@@ -556,7 +556,7 @@ const gone = (was: Record<string, string[]>, is: Record<string, string[]>) =>
     is[path] ? names.filter(name => !is[path].includes(name)).map(name => `${path}: ${name}`) : [path],
   )
 
-it('E14: nothing an app could be using has gone, and docs/api.json lists what an app has', () => {
+it('E19: nothing an app could be using has gone, and docs/api.json lists what an app has', () => {
   const was = JSON.parse(readFileSync(join(root, 'docs/api.json'), 'utf8')) as ReturnType<typeof surface>
   const is = surface()
   const broken = [
@@ -567,15 +567,15 @@ it('E14: nothing an app could be using has gone, and docs/api.json lists what an
   ]
   expect(
     broken,
-    'E14: this breaks apps written against the last version. Ask Jarek before going on. With his word, list it in the pull request and bring docs/api.json up to date.',
+    'E19: this breaks apps written against the last version. Ask Jarek before going on. With his word, list it in the pull request and bring docs/api.json up to date.',
   ).toEqual([])
   expect(
     is,
-    `E14: what an app has changed. Nothing went, so no app breaks; bring docs/api.json up to date:\n${JSON.stringify(is, null, 2)}`,
+    `E19: what an app has changed. Nothing went, so no app breaks; bring docs/api.json up to date:\n${JSON.stringify(is, null, 2)}`,
   ).toEqual(was)
 })
 
-it('E14: the check sees a name, a way in or a command that went, and a need that rose', () => {
+it('E19: the check sees a name, a way in or a command that went, and a need that rose', () => {
   const was = { '.': ['Glasses', 'Shell'], './relay': ['relay'] }
   expect(gone(was, { '.': ['Glasses', 'Shell', 'fluxLive'], './relay': ['relay'] })).toEqual([])
   expect(gone(was, { '.': ['Glasses'], './relay': ['relay'] })).toEqual(['.: Shell'])
