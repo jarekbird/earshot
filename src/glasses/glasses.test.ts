@@ -10,6 +10,7 @@ import {
   Glasses,
   INPUT_TAG,
   MIC_SILENT_MS,
+  OVERLAY,
   OVERLAY_DIM,
   progressOf,
   REBUILD_GAP_MS,
@@ -2057,6 +2058,38 @@ describe('watching the draws', () => {
     glasses.draw(frame(box('title', 'Second')))
     await settle(60_000)
     expect([fake.lines(), fake.calls.slice(before)]).toEqual([['First'], []])
+  })
+
+  it('hangs again the picture the glasses had, and no other, when a rebuild they refused is taken back and the page before is built anew', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    const cover = (key: string, data: number[]) => ({ id: 'cover', x: 376, y: 54, w: 200, h: 100, key, data: new Uint8Array(data) })
+    glasses.draw({ ...frame(box('title', 'One')), pictures: [cover('v1', [1, 2, 3])] })
+    await settle(REBUILD_GAP_MS)
+    glasses.draw({ ...frame(box('title', 'One')), pictures: [cover('v2', [4, 5, 6])] })
+    await settle(REBUILD_GAP_MS)
+    expect(fake.pictures().map(picture => [...picture.data])).toEqual([[4, 5, 6]])
+    fake.refuse('rebuild', 1)
+    const third = glasses.draw({ ...frame(box('title', 'Two'), box('more', 'More', { y: 27 })), pictures: [cover('v3', [9, 9, 9])] })
+    await settle(REBUILD_GAP_MS)
+    progressOf(glasses).drop([third])
+    await settle(60_000)
+    expect([fake.lines(), fake.pictures().map(picture => [...picture.data])]).toEqual([['One'], [[4, 5, 6]]])
+  })
+
+  it('knows which overlay the glasses show by the time it tells of the end of the draw that changed it', async () => {
+    const fake = fakeBridge()
+    const known: (string | null | undefined)[] = []
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => void (event.at === 'end' && event.drawn && known.push(glasses[OVERLAY])),
+    })
+    glasses.draw(frame(box('title', 'One')))
+    await settle(REBUILD_GAP_MS)
+    glasses.overlay('Status')
+    await settle(REBUILD_GAP_MS)
+    glasses.overlay(null)
+    await settle(REBUILD_GAP_MS)
+    expect(known).toEqual([null, 'Status', null])
   })
 
   it('builds nothing again for a page whose rebuild was taken back before it was asked of the glasses', async () => {

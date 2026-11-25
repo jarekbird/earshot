@@ -229,7 +229,12 @@ export class Glasses {
   #frame: Frame = { boxes: [] }
   #number = 0
   #whole = 0
-  readonly #have: { boxes: Kept[]; pictures: Picture[]; menu: MenuItem[] } = { boxes: [], pictures: [], menu: [] }
+  readonly #have: { boxes: Kept[]; pictures: Picture[]; hung: Set<number>; menu: MenuItem[] } = {
+    boxes: [],
+    pictures: [],
+    hung: new Set(),
+    menu: [],
+  }
   #left = false
   #going: { number: number; frame: Frame; left: boolean } | null = null
   readonly #dropped = new Set<number>()
@@ -264,7 +269,7 @@ export class Glasses {
       this.#progress.sending = 0
       this.#going = null
       this.#whole = 0
-      Object.assign(this.#have, { boxes: [], pictures: [], menu: [] })
+      Object.assign(this.#have, { boxes: [], pictures: [], hung: new Set(), menu: [] })
       this.#frame = { boxes: [] }
       this.#wanted = null
     })
@@ -496,6 +501,7 @@ export class Glasses {
           this.#watch({ at: 'end', frame, drawn })
           continue
         }
+        if (drawn) this.#over = page.over
         this.#progressed(drawn && !page.left ? { shown: frame, menu: frame, sending: 0 } : { sending: 0 })
         if (!drawn) {
           const inMs = retryDelay(++this.#failures)
@@ -504,7 +510,6 @@ export class Glasses {
           return this.#later(inMs)
         }
         this.#watch({ at: 'end', frame, drawn })
-        this.#over = page.over
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
         this.#report(page)
@@ -589,6 +594,7 @@ export class Glasses {
       Object.assign(this.#have, {
         boxes: boxes.slice(1).map(box => kept(box, frame)),
         pictures: pictures.map(({ picture }) => picture),
+        hung: new Set(),
         menu,
       })
       this.#from.clear()
@@ -649,16 +655,21 @@ export class Glasses {
   }
 
   async #hang({ frame, left, pictures }: Page): Promise<boolean> {
-    if (left) return true
     let drawn = true
-    for (const { id, name, picture } of pictures) {
-      if (this.#hung.get(id) === picture.key) continue
+    for (const [index, { id, name, picture }] of pictures.entries()) {
+      if (this.#hung.get(id) === picture.key || (left && !this.#have.hung.has(id))) continue
       const update = new ImageRawDataUpdate({ containerID: id, containerName: name, imageData: picture.data })
       const send = () => this.#bridge.updateImageRawData(update)
       const accepted = await this.#ask(frame, 'picture', 1, send, ImageRawDataUpdateResult.success, name)
       if (this.#life.ended) return false
-      if (accepted) this.#hung.set(id, picture.key)
-      else drawn = false
+      if (!accepted) drawn = false
+      else {
+        this.#hung.set(id, picture.key)
+        if (!left) {
+          this.#have.pictures[index] = picture
+          this.#have.hung.add(id)
+        }
+      }
     }
     return drawn
   }
