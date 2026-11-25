@@ -40,6 +40,7 @@ export const STALLED_BYTES = 3 * HELD_BYTES
 export const QUIET_MS = 10_000
 export const CONNECT_MS = 10_000
 const RETRY_FIRST_MS = 500
+const ROOM = 2 ** 32
 const RETRY_MAX_MS = 8_000
 const FOR_GOOD = new Set<number>(Object.values(REFUSALS))
 // Fact: a URL writes an IPv4 address inside IPv6 in hex, so 127.0.0.1 there reads [::ffff:7f00:1].
@@ -168,7 +169,7 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
         runs = []
         sent = 0
         last = -1
-        before = reach = Number.isSafeInteger(reach) ? reach : next
+        before = reach = Number.isSafeInteger(reach + ROOM) ? reach : next
         cutTurn()
       }
 
