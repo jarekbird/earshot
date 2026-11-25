@@ -49,16 +49,20 @@ function said(data: unknown): { types: unknown[]; items: unknown[] } | undefined
   const items: unknown[] = []
   const seen = new Set<unknown>()
   const open = [data]
+  let read = 0
   while (open.length) {
     const part = open.pop()
     if (!part || typeof part !== 'object' || ArrayBuffer.isView(part) || seen.has(part)) continue
-    if (seen.size === MOST_PARTS) return undefined
     seen.add(part)
-    for (const [key, value] of Object.entries(part)) {
+    if (Array.isArray(part) && part.length > MOST_PARTS - read) return undefined
+    for (const key in part) {
+      if (!Object.hasOwn(part, key)) continue
+      if (++read > MOST_PARTS) return undefined
+      const value: unknown = (part as Record<string, unknown>)[key]
       const name = normalizeLooseKey(key)
       if (name === 'eventtype') types.push(value)
       else if (name === 'itemid') items.push(value)
-      else open.push(value)
+      if (value && typeof value === 'object') open.push(value)
     }
   }
   return { types, items }

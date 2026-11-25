@@ -64,6 +64,14 @@ describe('decode', () => {
     expect(decode({ jsonData: { rows: Array.from({ length: 5_000 }, () => ({})) }, sysEvent: {} })).toBeNull()
   })
 
+  it('reads no tap past a type named under a name it knows, or in an event too wide to read through', () => {
+    const fromHost = (jsonData: object) => evenHubEventFromJson({ type: 'sysEvent', jsonData })
+    expect(decode(fromHost({ itemID: { eventType: 42 }, eventSource: 1 }))).toBeNull()
+    expect(decode(fromHost({ eventType: { eventType: 42 } }))).toBeNull()
+    expect(decode({ jsonData: { rows: Array.from({ length: 1_000_000 }).fill(0) }, sysEvent: {} })).toBeNull()
+    expect(decode({ jsonData: Object.fromEntries(Array.from({ length: 5_000 }, (_, n) => [`field${n}`, n])), sysEvent: {} })).toBeNull()
+  })
+
   it('reads a tap in what the host said in a circle, and comes to an end', () => {
     const circle: Record<string, unknown> = { eventSource: 1 }
     circle.again = circle
