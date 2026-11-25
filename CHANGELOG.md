@@ -6,6 +6,18 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
+## 0.0.43 (2026-11-24)
+
+- A swipe on a text counts from what the wearer has read. A swipe made before the glasses have drawn the last one
+  goes on from where that one reached, and text that came in the meantime is laid out after them.
+- What belongs to a screen ends with it: a hold, a voice turn and a question that waits for a tap are called off
+  when the screen changes, and a menu pick from the screen before does not reach the next one. A screen opened
+  again after it was left starts at its beginning.
+- One press of a touchpad records once, and a closed router sends the glasses nothing more.
+- Live speech from Flux numbers the turns it tells itself, one by one and on across lines, so one number gone wild
+  no longer hides the turns after it. A turn numbered more than 2^32 ahead of the newest of its line is not told.
+- The router tells every listener of a change of screen, also when one of them throws.
+
 ## 0.0.42 (2026-11-24)
 
 - The simulator driver, `earshot/sim`, runs on Windows.
