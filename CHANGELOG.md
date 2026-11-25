@@ -9,8 +9,8 @@ each version's commits say: they name what a version added, and may miss a chang
 ## 0.0.43 (2026-11-24)
 
 - A gesture Even's SDK does not know is no input. It was read as a tap, and a tap runs what the cursor is on.
-- An event whose parts name different gestures is no input either, and a gesture that arrives with sound is no
-  longer dropped.
+- An event whose parts name different gestures is no input either, nor is a pick from the menu whose item the SDK
+  could not read. A gesture that arrives with sound is no longer dropped.
 
 ## 0.0.42 (2026-11-24)
 

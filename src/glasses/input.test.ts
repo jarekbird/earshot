@@ -53,6 +53,40 @@ describe('decode', () => {
     expect(decode(evenHubEventFromJson(['list_event', { containerID: 1, eventType: 99 }]))).toBeNull()
   })
 
+  it('reads no tap where it could not read all the host said: a type named deep down, or more than it will go through', () => {
+    const fromHost = (jsonData: object) => evenHubEventFromJson({ type: 'sysEvent', jsonData })
+    expect(decode(fromHost({ a: { b: { c: { d: { e: { eventType: 42 } } } } } }))).toBeNull()
+    const deep: Record<string, unknown> = {}
+    let at = deep
+    for (let level = 0; level < 5_000; level++) at = at.next = {}
+    at.eventType = 42
+    expect(decode({ jsonData: deep, sysEvent: {} })).toBeNull()
+    expect(decode({ jsonData: { rows: Array.from({ length: 5_000 }, () => ({})) }, sysEvent: {} })).toBeNull()
+  })
+
+  it('reads a tap in what the host said in a circle, and comes to an end', () => {
+    const circle: Record<string, unknown> = { eventSource: 1 }
+    circle.again = circle
+    expect(decode({ jsonData: circle, sysEvent: { eventSource: 1 } })).toEqual({ kind: 'tap' })
+  })
+
+  it('reads no pick from the menu into an event that also names a type the SDK did not know, or that carries a gesture', () => {
+    expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: { itemID: 7, eventType: 42 } }))).toBeNull()
+    expect(decode({ menuItemClickEvent: { itemID: 7 }, sysEvent: { eventType: 3 } })).toBeNull()
+    expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: { itemID: 7, eventType: 0 } }))).toEqual({
+      kind: 'menu',
+      item: 7,
+    })
+    expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: { itemID: 7 } }))).toEqual({ kind: 'menu', item: 7 })
+  })
+
+  it('reads no pick into a menu event whose item the SDK could not read: it would be taken for the first', () => {
+    expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: { itemID: 'abc' } }))).toBeNull()
+    expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: { Item_ID: 7, itemId: 8 } }))).toBeNull()
+    expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: { itemID: '7' } }))).toEqual({ kind: 'menu', item: 7 })
+    expect(decode(evenHubEventFromJson({ type: 'menuItemClickEvent', jsonData: {} }))).toEqual({ kind: 'menu', item: 0 })
+  })
+
   it('still reads what the SDK knew, however the host spelled it', () => {
     const fromHost = (jsonData: object) => evenHubEventFromJson({ type: 'sysEvent', jsonData })
     expect(decode(fromHost({ eventSource: 1 }))).toEqual({ kind: 'tap' })
