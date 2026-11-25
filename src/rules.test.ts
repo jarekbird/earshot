@@ -550,3 +550,24 @@ it("the README's install line pins this version: a stale one installs an Earshot
   expect(readme.match(/earshot#v[\d.]+/g)).toEqual([`earshot#v${version}`])
   expect(readme.match(/--branch v[\d.]+/g)).toEqual([`--branch v${version}`])
 })
+
+it('the changelog has an entry for this version and for every version before it: an app raises its pin by what it reads there', () => {
+  const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const lines = readFileSync(join(root, 'CHANGELOG.md'), 'utf8').trimEnd().split('\n')
+  const HEADING = /^## (\d+\.\d+\.\d+) \(\d{4}-\d{2}-\d{2}\)$/
+  const first = lines.findIndex(line => HEADING.test(line))
+  expect(lines[0]).toBe('# Changelog')
+  expect(lines.filter(line => /<[a-z!/]|^\s*(```|~~~)/i.test(line))).toEqual([])
+  expect(lines.slice(1, first).filter(line => !/^([A-Za-z].*)?$/.test(line))).toEqual([])
+  expect(lines.slice(first).filter(line => !HEADING.test(line) && !/^(- \S.*| {2}[\w`*].*)?$/.test(line))).toEqual([])
+  const named = lines.flatMap(line => line.match(HEADING)?.[1] ?? [])
+  expect(named[0]).toBe(version)
+  const follows = (newer: string, older: string) => {
+    const [major, minor, patch] = newer.split('.').map(Number)
+    const [olderMajor, olderMinor] = older.split('.').map(Number)
+    return patch > 0 ? older === `${major}.${minor}.${patch - 1}` : olderMajor < major || (olderMajor === major && olderMinor < minor)
+  }
+  expect(named.filter((one, at) => at > 0 && !follows(named[at - 1], one))).toEqual([])
+  expect(named.at(-1)).toBe('0.0.1')
+  expect(lines.filter((line, at) => HEADING.test(line) && !(lines[at + 1] === '' && lines[at + 2]?.startsWith('- ')))).toEqual([])
+})
