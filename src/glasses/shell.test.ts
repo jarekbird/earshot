@@ -836,7 +836,7 @@ function random(seed: number): () => number {
 }
 
 describe('a text that stays at its end, swiped any way while the glasses are behind and more text comes', () => {
-  type Step = 'up' | 'down' | 'elsewhere' | 'drawn' | { more: string[] }
+  type Step = 'up' | 'down' | 'elsewhere' | 'drawn' | { more: string[] } | { keep: number }
   const SEEDS = Array.from({ length: 300 }, (_, seed) => seed + 1)
   const isSwipe = (step: Step) => step === 'up' || step === 'down'
 
@@ -849,6 +849,7 @@ describe('a text that stays at its end, swiped any way while the glasses are beh
       if (pick < 0.6) return 'down'
       if (pick < 0.68) return 'elsewhere'
       if (pick < 0.78) return 'drawn'
+      if (pick < 0.84) return { keep: 1 + Math.floor(next() * 40) }
       return {
         more: Array.from({ length: 1 + Math.floor(next() * 12) }, () => `Line ${++line}${next() < 0.2 ? ' ' + 'í'.repeat(110) : ''}`),
       }
@@ -877,7 +878,8 @@ describe('a text that stays at its end, swiped any way while the glasses are beh
         await settle()
         release = behind ? held(fake) : () => {}
       } else {
-        log.push(...step.more)
+        if ('keep' in step) log.length = Math.min(log.length, step.keep)
+        else log.push(...step.more)
         shell.redraw()
       }
       await settle(behind ? 0 : undefined)
@@ -1814,6 +1816,53 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     fake.pick('Go')
     await settle(100)
     expect(ran).toEqual(['new'])
+  })
+
+  it('lays out after a swipe every text that came in the meantime, a shorter one too, not only the newest', async () => {
+    const { fake, router, shell } = world()
+    let lines = 30
+    const body = () => Array.from({ length: lines }, (_, at) => `Line ${at + 1}`).join('\n')
+    router.open({ id: 'log', view: () => text({ title: 'Log', body: body(), end: true }) })
+    await settle()
+    expect(fake.lines().at(-1)).toBe('Line 30')
+    const release = held(fake)
+    lines = 8
+    shell.redraw()
+    lines = 40
+    shell.redraw()
+    fake.up()
+    release()
+    await settle()
+    expect(fake.lines().at(-1)).toBe('Line 40')
+  })
+
+  it('goes on drawing a screen, and taking its swipes, when the app itself ended the lifetime the screen was given', async () => {
+    const lives: Lifetime[] = []
+    let body = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join('\n')
+    const { fake, router, shell } = world()
+    router.open({ id: 'log', enter: life => void lives.push(life), view: () => text({ body }) })
+    await settle()
+    lives[0].end()
+    body = body.replace('Line 1\n', 'First line\n')
+    shell.redraw()
+    await settle()
+    expect(fake.lines()[0]).toBe('First line')
+    fake.down()
+    await settle()
+    expect(fake.lines()[0]).toBe('Line 3')
+    router.back()
+    await settle()
+    expect(fake.lines()[0]).toBe('People')
+  })
+
+  it('leaves a card an app drew on the glasses itself when the router is closed with nothing of the shell up', async () => {
+    const { fake, glasses, router } = world()
+    await settle()
+    glasses.overlay('Paused')
+    await settle()
+    router.close()
+    await settle()
+    expect(fake.overlay()).toBe('Paused')
   })
 
   it('counts a swipe on the page the wearer saw when the screen has meanwhile turned to following its end', async () => {
@@ -3138,6 +3187,38 @@ describe('a hold', () => {
     await settle()
     await say(fake)
     expect(vi.getTimerCount()).toBeLessThanOrEqual(waiting + 2)
+  })
+
+  it('keeps a press from other listeners for as long as the app now says a hold may be, asked anew at each event of the press', async () => {
+    const { voice } = hearing('')
+    voice.maxHoldMs = 1_000
+    const { fake, glasses, life } = world({ voice })
+    const heard: number[] = []
+    life.own(glasses.listen(sound => void heard.push(sound.pcm.length)))
+    await settle()
+    fake.hold()
+    await settle(500)
+    voice.maxHoldMs = 5_000
+    fake.hold()
+    await settle(2_500)
+    fake.sound(tone(200))
+    expect(heard).toEqual([])
+  })
+
+  it('calls what an app gave as a transcriber, and as the work of an action, though it has a call of its own that is none', async () => {
+    const said: string[] = []
+    const ran: string[] = []
+    const strange = <Given extends (...given: never[]) => unknown>(given: Given): Given => Object.assign(given, { call: undefined })
+    const act = action({ id: 'refresh', say: 'Refresh', run: strange(() => void ran.push('refresh')) })
+    const { fake } = world({
+      voice: { transcribe: strange(async () => (said.push('heard'), 'refresh')) },
+      home: () => ({ id: 'home', view: () => text({ body: 'Home' }), actions: () => [act] }),
+    })
+    await settle()
+    await say(fake)
+    await settle()
+    expect([said, ran]).toEqual([['heard'], ['refresh']])
+    expect((await act.run()).done).toBe(true)
   })
 
   it('records nothing for a hold when the screen was replaced as the app was asked how long a hold may be', async () => {

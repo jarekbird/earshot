@@ -817,40 +817,47 @@ describe('live speech from Flux, through the relay', () => {
     },
   )
 
-  it('numbers its turns itself, so a turn the upstream numbers as high as a number goes hides none on the next line', () => {
+  const FAR = [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER - 1, Number.MAX_SAFE_INTEGER - 2 ** 32, 2 ** 32 + 7]
+
+  it.each(FAR)('takes no turn the upstream numbers %i, far beyond any turn of its line, and such a number hides no turn after it', far => {
     const { lines, turns, hear } = listening()
     hear(sound(100))
     lines[0].connects()
-    lines[0].says(info(Number.MAX_SAFE_INTEGER, 'far', 'EndOfTurn'))
-    lines[0].drops()
-    hear(sound(100))
-    vi.advanceTimersByTime(retryDelay(1))
-    lines[1].connects()
-    lines[1].says(info(0, 'near', 'EndOfTurn'))
-    lines[1].says(info(1, 'nearer', 'EndOfTurn'))
+    lines[0].says(info(far, 'far'))
+    lines[0].says(info(far, 'far away', 'EndOfTurn'))
+    lines[0].says(info(0, 'one', 'EndOfTurn'))
+    lines[0].says(info(3, 'two', 'EndOfTurn'))
+    lines[0].says(info(far, 'far again', 'EndOfTurn'))
+    lines[0].says(info(4, 'three', 'EndOfTurn'))
+    for (const line of [1, 2]) {
+      lines[line - 1].drops()
+      hear(sound(100))
+      vi.advanceTimersByTime(retryDelay(1))
+      lines[line].connects()
+      lines[line].says(info(far - 1, 'far once more', 'EndOfTurn'))
+      lines[line].says(info(0, ' ', 'EndOfTurn'))
+      lines[line].says(info(1, `near ${line}`, 'EndOfTurn'))
+    }
     expect(turns.map(turn => [turn.id, turn.words])).toEqual([
-      [0, 'far'],
-      [1, 'near'],
-      [2, 'nearer'],
+      [0, 'one'],
+      [1, 'two'],
+      [2, 'three'],
+      [3, 'near 1'],
+      [4, 'near 2'],
     ])
   })
 
-  it('takes no turn numbered so high that it could not be counted on from the turns already heard, and hears the line on', () => {
+  it('takes a turn numbered as far ahead as a line may go, and tells its end', () => {
     const { lines, turns, hear } = listening()
     hear(sound(100))
     lines[0].connects()
-    lines[0].says(info(0, 'one', 'EndOfTurn'))
-    lines[0].drops()
-    hear(sound(100))
-    vi.advanceTimersByTime(retryDelay(1))
-    lines[1].connects()
-    lines[1].says(info(Number.MAX_SAFE_INTEGER, 'far', 'EndOfTurn'))
-    lines[1].says(info(0, 'near', 'EndOfTurn'))
-    lines[1].says(info(1, 'nearer', 'EndOfTurn'))
-    expect(turns.map(turn => [turn.id, turn.words])).toEqual([
-      [0, 'one'],
-      [1, 'near'],
-      [2, 'nearer'],
+    lines[0].says(info(2 ** 32 - 1, 'hello'))
+    lines[0].says(info(2 ** 32 - 1, 'hello world', 'EndOfTurn'))
+    lines[0].says(info(2 ** 33 - 1, 'and on', 'EndOfTurn'))
+    expect(turns.map(turn => [turn.id, turn.words, turn.final])).toEqual([
+      [0, 'hello', false],
+      [0, 'hello world', true],
+      [1, 'and on', true],
     ])
   })
 

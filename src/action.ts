@@ -87,7 +87,7 @@ export function action<T = never>(spec: PlainSpec | TargetSpec<T>): Action {
     if (!spec.targets) {
       const work = spec.run
       if (!still()) return { done: false, why: 'gone' }
-      await work.call(spec)
+      await Reflect.apply(work, spec, [])
       return { done: true }
     }
     if (targetId === undefined) return { done: false, why: 'target' }
@@ -96,7 +96,7 @@ export function action<T = never>(spec: PlainSpec | TargetSpec<T>): Action {
     const { value } = target
     const work = spec.run
     if (!still()) return { done: false, why: 'gone' }
-    await work.call(spec, value)
+    await Reflect.apply(work, spec, [value])
     return { done: true }
   }
 }

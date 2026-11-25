@@ -40,6 +40,7 @@ export const STALLED_BYTES = 3 * HELD_BYTES
 export const QUIET_MS = 10_000
 export const CONNECT_MS = 10_000
 const RETRY_FIRST_MS = 500
+const ROOM = 2 ** 32
 const RETRY_MAX_MS = 8_000
 const FOR_GOOD = new Set<number>(Object.values(REFUSALS))
 // Fact: a URL writes an IPv4 address inside IPv6 in hex, so 127.0.0.1 there reads [::ffff:7f00:1].
@@ -179,7 +180,7 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
       const turned = (message: Record<string, unknown>) => {
         const { turn_index: index, transcript, audio_window_start: from, audio_window_end: to } = message
         if (message.type !== 'TurnInfo' || typeof index !== 'number' || typeof transcript !== 'string') return
-        if (!Number.isSafeInteger(index) || index < 0 || !Number.isSafeInteger(index + next)) return
+        if (!Number.isSafeInteger(index) || index < 0 || index - last > ROOM) return
         const words = transcript.trim()
         const same = growing !== null && index === last
         if (!words || (!same && index <= last)) return

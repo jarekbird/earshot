@@ -8,6 +8,28 @@ export interface Read {
   state: TextState
 }
 
+interface Since {
+  follow: number
+  cap: number
+  ends: boolean
+}
+
+const NONE: Since = { follow: Infinity, cap: Infinity, ends: false }
+
+const and = (since: Since, drawn: { last: number; end: boolean }): Since =>
+  drawn.end
+    ? { follow: since.cap >= drawn.last ? Math.min(since.follow, drawn.last) : since.follow, cap: since.cap, ends: true }
+    : { ...since, cap: Math.min(since.cap, drawn.last) }
+
+export const after = (since: Since, { top, away }: TextState): TextState =>
+  away
+    ? top >= since.follow
+      ? { top: 0, away: false }
+      : { top: Math.min(top, since.cap), away: true }
+    : since.ends
+      ? { top: 0, away: false }
+      : { top: Math.min(top, since.cap), away: false }
+
 interface Progress {
   readonly shown: number
   readonly menu: number
@@ -32,11 +54,12 @@ interface Asked {
   showing: unknown
   kind: View['kind']
   drew: Read | null
+  since: Since
 }
 
 export class Frames {
   readonly #progress: Progress
-  readonly #swiped = new Map<unknown, { frame: number; to: Read }>()
+  readonly #swiped = new Map<unknown, { frame: number; to: Read; since: Since }>()
   #asked: Asked[] = []
   #ended = false
 
@@ -62,15 +85,20 @@ export class Frames {
     return this.#asked.find(asked => asked.frame === this.#progress.text)
   }
 
-  swiping(showing: unknown, to: Read): void {
-    if (!this.#ended) this.#swiped.set(showing, { frame: Infinity, to })
+  swiping(showing: unknown, to: Read, since: Since = NONE): void {
+    if (!this.#ended) this.#swiped.set(showing, { frame: Infinity, to, since })
   }
 
-  asked(frame: number, showing: unknown, drew: Read | null, kind: View['kind'] = 'text'): void {
+  asked(frame: number, showing: unknown, drew: Read | null, kind: View['kind'] = 'text', last = 0): void {
     if (this.#ended) return
-    const later = this.#asked.findIndex(asked => asked.frame > frame)
-    this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, showing, kind, drew })
     const swiped = this.#swiped.get(showing)
+    if (drew) {
+      const drawn = { last, end: drew.view.end === true }
+      for (const asked of this.#asked) if (asked.showing === showing && asked.frame < frame) asked.since = and(asked.since, drawn)
+      if (swiped) swiped.since = and(swiped.since, drawn)
+    }
+    const later = this.#asked.findIndex(asked => asked.frame > frame)
+    this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, showing, kind, drew, since: NONE })
     if (swiped?.frame === Infinity) swiped.frame = frame
     this.forget()
   }
@@ -80,12 +108,13 @@ export class Frames {
     for (const asked of this.#asked) if (!onPath(asked.showing)) asked.drew = null
   }
 
-  read(showing: unknown): Read | null {
+  read(showing: unknown): (Read & { since: Since }) | null {
     this.forget()
     const swiped = this.#swiped.get(showing)
-    if (swiped) return swiped.to
+    if (swiped) return { ...swiped.to, since: swiped.since }
     const mine = this.#asked.filter(asked => asked.showing === showing && asked.drew)
-    return (mine.find(asked => asked.frame === this.#progress.text) ?? mine.at(-1))?.drew ?? null
+    const read = mine.find(asked => asked.frame === this.#progress.text) ?? mine.at(-1)
+    return read?.drew ? { ...read.drew, since: read.since } : null
   }
 
   forget(): void {

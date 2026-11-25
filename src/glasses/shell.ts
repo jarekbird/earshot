@@ -9,7 +9,7 @@ import { SayError } from '../say.js'
 import { serve } from '../serve.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
-import { copied, Frames, type Read } from './frames.js'
+import { after, copied, Frames, type Read } from './frames.js'
 import { plainFrame, progressOf, type Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { BODY, layoutList, layoutText, type LaidText, type TextState } from './layout.js'
@@ -103,6 +103,7 @@ const boundTo = (bound: Bound): { action: Action; target?: string } => ('action'
 interface Place {
   cursor: number
   top: number
+  away?: boolean
 }
 
 interface Drawn {
@@ -141,7 +142,7 @@ export class Shell {
     end: () => void
   } | null = null
   readonly #down = new Map<HoldSource, Timer>()
-  readonly #spent = new Map<HoldSource, number>()
+  readonly #spent = new Set<HoldSource>()
   #held: Held | null = null
   #turn = 0
   #said = false
@@ -236,6 +237,7 @@ export class Shell {
     let boxes: Box[]
     let pictures: Picture[] = []
     let scrolls = false
+    let last = 0
     let kept: View = view
     let drew: Read | null = null
     let targets: readonly TargetInfo[] = []
@@ -250,7 +252,8 @@ export class Shell {
       reached = laid.state
       kept = words
       scrolls = laid.scrolls
-      drew = { view: words, state: { ...laid.state } }
+      drew = { view: words, state: { ...(place.away === undefined ? {} : { away: place.away }), ...laid.state } }
+      last = laid.last
       boxes = laid.boxes
     } else {
       const asked = plainFrame({ boxes: view.boxes, pictures: view.pictures ?? [] })
@@ -270,23 +273,23 @@ export class Shell {
     if (this.#life.ended || !showings.onPath(showing)) return progressOf(this.#glasses).drop([frame])
     if (!this.#drawn || frame > this.#drawn.frame)
       this.#drawn = { frame, screen, showing, view: kept, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
-    this.#frames.asked(frame, showing, drew, view.kind)
+    this.#frames.asked(frame, showing, drew, view.kind, last)
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
     const showing = showingsOf(this.#router).current
     const read = showingsOf(this.#router).onPath(showing) ? this.#frames.read(showing) : null
     if (!read) return
-    const { view, state } = read
+    const { view, state, since } = read
     const text = layoutText(view)
     const from = text({ ...state })
     const stride = from.stride(by === 'swipe' ? SCROLL_LINES : SCREENFUL)
     const top = from.at + (up ? -stride.up : stride.down)
     const to = text(view.end && !up && from.atEnd ? { top: 0, away: false } : { top, away: true })
     const ends = drawn.view.kind === 'text' && drawn.view.end === true
-    const follows = ends && view.end === true && to.atEnd
-    Object.assign(place, follows ? { top: 0, away: false } : ends ? { top: to.at, away: true } : { top: to.at })
-    this.#frames.swiping(showing, { view, state: to.state })
+    const swiped = { ...(ends ? { away: true } : state.away === undefined ? {} : { away: state.away }), ...to.state }
+    Object.assign(place, after(since, swiped))
+    this.#frames.swiping(showing, { view, state: swiped }, since)
     this.#draw({ view, laid: text })
   }
 
@@ -437,7 +440,7 @@ export class Shell {
     try {
       this.#recording?.end()
     } finally {
-      if (!(moved && this.#noticed)) this.#clear()
+      if (this.#overlaid && !(moved && this.#noticed)) this.#clear()
     }
   }
 
@@ -469,8 +472,6 @@ export class Shell {
   }
 
   #hold(source: HoldSource): void {
-    const spent = this.#spent.get(source)
-    if (spent !== undefined) return this.#pressed(source, spent)
     const moves = this.#moves
     const showings = showingsOf(this.#router)
     const showing = showings.current
@@ -484,7 +485,8 @@ export class Shell {
       this.notice(this.#words.noMic)
     }
     this.#held ??= this.#glasses[HOLD](sound => this.#recording?.hear(sound), refused)
-    if (moves !== this.#moves) return void this.#spent.set(source, longest)
+    if (this.#spent.has(source)) return
+    if (moves !== this.#moves) return void this.#spent.add(source)
     if (!showings.onPath(showing)) return
     if (!voice) {
       if (!this.#recording) this.#callOff()
@@ -492,7 +494,7 @@ export class Shell {
     }
     if (this.#recording) return
     this.#callOff()
-    if (moves !== this.#moves) return void this.#spent.set(source, longest)
+    if (moves !== this.#moves) return void this.#spent.add(source)
     const chunks: Uint8Array[] = []
     const bars = Array<string>(METER_BARS).fill(QUIET)
     const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`)
@@ -520,7 +522,7 @@ export class Shell {
       },
     }
     this.#recording = recording
-    this.#spent.set(source, longest)
+    this.#spent.add(source)
     this.#held.want(true)
     listening()
     voice.onListen?.()
@@ -570,7 +572,7 @@ export class Shell {
     try {
       const transcribe = passed === undefined ? voice.transcribe : undefined
       if (!mine() || moved()) return finish(() => {})
-      const transcript = transcribe ? await transcribe.call(voice, audio, life) : (passed ?? null)
+      const transcript = transcribe ? await Reflect.apply(transcribe, voice, [audio, life]) : (passed ?? null)
       const words = transcript?.trim() ?? ''
       if (!mine() || moved()) return finish(() => {})
       if (transcript !== null && !words) return finish(() => this.notice(this.#words.missed))
@@ -613,7 +615,7 @@ export class Shell {
       choose: (question, life) => {
         const choose = model.choose
         if (gone()) throw new LifetimeEnded()
-        return choose.call(model, question, life)
+        return Reflect.apply(choose, model, [question, life])
       },
     })
     const agents = [...(navigate ? [navigator(asking(voice.model ?? matchWords))] : []), ...(voice.agents ?? [])]

@@ -40,6 +40,7 @@ export class Router {
   readonly #stack: Entry[]
   readonly #left = new Set<() => void>()
   readonly #moved = new Set<() => void>()
+  readonly #gone = new WeakSet<object>()
   readonly #appActions: () => readonly Action[]
   readonly #listeners = new Set<(current: Screen) => void>()
   #jump: Jump | null = null
@@ -76,11 +77,12 @@ export class Router {
     const stack = this.#stack
     const left = this.#left
     const moved = this.#moved
+    const gone = this.#gone
     return {
       get current() {
         return stack.at(-1)?.life
       },
-      onPath: showing => showing !== undefined && stack.some(entry => entry.life === showing && !entry.life.ended),
+      onPath: showing => showing !== undefined && stack.some(entry => entry.life === showing && !gone.has(entry.life)),
       onLeave: told => {
         left.add(told)
         return () => void left.delete(told)
@@ -201,6 +203,7 @@ export class Router {
   #leave(entries: readonly Entry[], after: () => void): void {
     const errors: unknown[] = []
     for (const entry of [...entries].reverse()) {
+      this.#gone.add(entry.life)
       try {
         entry.life.end()
       } catch (error) {

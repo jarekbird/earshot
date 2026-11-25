@@ -70,6 +70,7 @@ export interface LaidText {
   state: TextState
   scrolls: boolean
   at: number
+  last: number
   atEnd: boolean
   stride: (wanted: number) => Stride
 }
@@ -94,6 +95,7 @@ export function layoutText(view: { title?: string; body: string; end?: boolean }
       state: view.end ? (top >= last ? { top: 0, away: false } : { top, away: true }) : { top },
       scrolls: last > 0,
       at: top,
+      last,
       atEnd: top >= last,
       stride: wanted => {
         if (!view.end) return { up: wanted, down: wanted }

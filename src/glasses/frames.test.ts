@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { text } from '../view.js'
-import { copied, Frames, type Read } from './frames.js'
+import { after, copied, Frames, type Read } from './frames.js'
+import { layoutText, type TextState } from './layout.js'
 
 const screen = (id: string) => ({ id })
 const read = (body: string): Read => {
@@ -171,5 +172,35 @@ describe('the frames a shell asked for', () => {
     expect(frames.menu).toBeUndefined()
     Object.assign(progress, { shown: 1, menu: 1 })
     expect(frames.menu).toBe(home)
+  })
+
+  it('gives, for whatever texts were drawn since, the place a reader reaches when each is laid out in turn', () => {
+    let seed = 7
+    const next = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+    const some = (): Read['view'] => {
+      const view = text({
+        ...(next() < 0.5 ? { title: 'Log' } : {}),
+        body: Array.from({ length: 1 + Math.floor(next() * 60) }, (_, at) => `Line ${at + 1}`).join('\n'),
+        end: next() < 0.6,
+      })
+      if (view.kind !== 'text') throw new Error('not a text')
+      return view
+    }
+    for (let round = 0; round < 500; round++) {
+      const frames = new Frames({ shown: 1, menu: 1, text: 1, sending: 0 })
+      const log = screen('log')
+      const from: TextState = { top: Math.floor(next() * 50), ...(next() < 0.7 ? { away: next() < 0.5 } : {}) }
+      const place: TextState = { ...from }
+      frames.asked(1, log, { view: some(), state: { ...from } })
+      const drawn = 1 + Math.floor(next() * 6)
+      for (let frame = 2; frame < 2 + drawn; frame++) {
+        const view = some()
+        const laid = layoutText(view)(place)
+        Object.assign(place, laid.state)
+        frames.asked(frame, log, { view, state: { ...laid.state } }, 'text', laid.last)
+      }
+      const reached = after(frames.read(log)!.since, from)
+      expect([reached.top, reached.away === true], `round ${round}`).toEqual([place.top, place.away === true])
+    }
   })
 })
