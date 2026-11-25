@@ -76,7 +76,10 @@ describe('the driver on the real Even Hub simulator', () => {
     const port = new URL(sim.api).port
     const found = () => {
       try {
-        return execFileSync('pgrep', ['-f', `automation-port ${port}`], { encoding: 'utf8' }).trim()
+        const listed = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*automation-port ${port}*' } | ForEach-Object { $_.ProcessId }`
+        return process.platform === 'win32'
+          ? execFileSync('powershell', ['-NoProfile', '-Command', listed], { encoding: 'utf8' }).trim()
+          : execFileSync('pgrep', ['-f', `automation-port ${port}`], { encoding: 'utf8' }).trim()
       } catch {
         return ''
       }
