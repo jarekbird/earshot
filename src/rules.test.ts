@@ -232,6 +232,15 @@ it('C2: nothing is exported that nothing uses, and no file is left that nothing 
   ).toEqual([])
 })
 
+it('C3: a pull request tries its changed tests on the old source, with no network, unless it is marked as no new behaviour', () => {
+  const workflow = readFileSync(join(root, '.github/workflows/c3.yml'), 'utf8')
+  expect(workflow).toMatch(/^ {2}pull_request:$/m)
+  expect(workflow).toMatch(/^ {4}if: \$\{\{ !contains\(github\.event\.pull_request\.labels\.\*\.name, 'no new behaviour'\) \}\}$/m)
+  expect(workflow).toMatch(/^ {6}- run: \.github\/offline\.sh \.github\/c3\.sh "\$BASE"$/m)
+  expect(workflow.match(/^ {6}- run: /gm)).toHaveLength(3)
+  expect(readFileSync(join(root, '.github/c3.sh'), 'utf8')).toContain('if npx tsc --noEmit && npx vitest run $tests; then')
+})
+
 const DIRECTIVE = /^((\/\/\/? ?|\/\*+\s*)(@ts-|eslint[- ]|prettier-ignore|<reference|v8 ignore|c8 ignore|istanbul ignore|globals? )|#!)/
 
 interface Comment {

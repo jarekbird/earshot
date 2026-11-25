@@ -1,0 +1,27 @@
+name: c3
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+permissions:
+  contents: read
+concurrency:
+  group: c3-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  old-source:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no new behaviour') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix workerd
+      - run: .github/offline.sh .github/c3.sh "$BASE"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}

@@ -16,7 +16,9 @@ on purpose: an API is added only with an app that uses it (rule E8), and what on
 
 1. Use the Node version `package.json` asks for. Run `npm ci`, then `npm ci --prefix workerd` for the tests of the
    relay's Worker host.
-2. Write the test first and see it fail. A bug fix comes with a test that fails on the old code (C3).
+2. Write the test first and see it fail. A bug fix comes with a test that fails on the old code (C3). CI tries it:
+   the job `c3` runs the tests your pull request changed on the source as it was, and expects one to fail. A change
+   with no new behaviour, a tidying say, gets the label `no new behaviour` from the maintainer.
 3. Run `npm run check` before every commit. It checks the formatting, type-checks, runs the tests and builds;
    `npm run format` fixes the formatting. No test may call an outside service (E4), and a guard refuses one that tries.
 4. Open a pull request into `main`. In the template, fill in **What changed**, **Checks** and **Not verified**, and
