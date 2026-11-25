@@ -8,7 +8,7 @@ import type { Router, Screen } from '../router.js'
 import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
-import { OVERLAY, PARTS, type Glasses } from './glasses.js'
+import { OVERLAY, WHOLE, type Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { layoutList, layoutText, type Stride, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
@@ -236,11 +236,8 @@ export class Shell {
     this.#shown()
     const aim = drawn.aims[gesture]
     const [seen] = this.#asked
-    const shown = this.#glasses.shown
-    if (aim === undefined || !seen || seen.frame > shown) return false
-    const parts = this.#glasses[PARTS]
-    const mayShow = this.#asked.filter(asked => asked.frame <= shown || parts.has(asked.frame))
-    return mayShow.every(asked => asked.screen === drawn.screen && asked.aims[gesture] === aim)
+    if (aim === undefined || !seen || seen.frame > this.#glasses.shown || !this.#glasses[WHOLE]) return false
+    return seen.screen === drawn.screen && seen.aims[gesture] === aim
   }
 
   #shown(): Screen | undefined {

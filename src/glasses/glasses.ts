@@ -110,7 +110,7 @@ interface Page {
 }
 
 export const OVERLAY = Symbol('the overlay the glasses are known to show')
-export const PARTS = Symbol('the frames the glasses were sent a part of since the one they answered in full')
+export const WHOLE = Symbol('whether the glasses show one whole frame, none partly sent since')
 
 const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
@@ -210,7 +210,7 @@ export class Glasses {
   #retryAt = 0
   #traced = ''
   #shown = 0
-  #parts = new Set<number>()
+  #whole = true
   #over: string | null | undefined = null
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
@@ -236,8 +236,8 @@ export class Glasses {
     return this.#over
   }
 
-  get [PARTS](): ReadonlySet<number> {
-    return this.#parts
+  get [WHOLE](): boolean {
+    return this.#whole
   }
 
   get micOpen(): boolean {
@@ -390,7 +390,7 @@ export class Glasses {
         }
         this.#watch({ at: 'end', frame, drawn })
         this.#shown = frame
-        this.#parts.clear()
+        this.#whole = true
         this.#over = page.over
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
@@ -412,7 +412,7 @@ export class Glasses {
   async #ask<T>(frame: number, op: DrawOp, boxes: number, call: () => Promise<T>, accepted: T, box?: string): Promise<boolean> {
     const named = box === undefined ? {} : { box }
     const started = this.#now()
-    this.#parts.add(frame)
+    this.#whole = false
     this.#watch({ at: 'call', frame, op, ...named })
     let got: unknown
     try {
