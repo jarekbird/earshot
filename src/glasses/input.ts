@@ -1,4 +1,4 @@
-import { EventSourceType, OsEventTypeList } from '@evenrealities/even_hub_sdk'
+import { EventSourceType, normalizeLooseKey, OsEventTypeList } from '@evenrealities/even_hub_sdk'
 
 export type HoldSource = 'right' | 'left' | 'ring' | 'unknown'
 
@@ -42,16 +42,27 @@ const SOURCES: Partial<Record<EventSourceType, HoldSource>> = {
   [EventSourceType.TOUCH_EVENT_FROM_RING]: 'ring',
 }
 
+const DEEPEST = 4
+
+function typesNamed(data: unknown, deeper = DEEPEST): unknown[] {
+  if (!data || typeof data !== 'object' || ArrayBuffer.isView(data) || deeper < 0) return []
+  return Object.entries(data).flatMap(([key, value]) => (normalizeLooseKey(key) === 'eventtype' ? [value] : typesNamed(value, deeper - 1)))
+}
+
 export function decode(event: GlassesEvent): Input | null {
-  if (event.audioEvent) return null
   if (event.menuItemClickEvent) return { kind: 'menu', item: event.menuItemClickEvent.itemID ?? 0 }
-  const envelope: Envelope | undefined = event.sysEvent ?? event.textEvent ?? event.listEvent
-  if (!envelope) return null
-  // A tap is event type 0, which the glasses leave out.
-  const type = envelope.eventType === undefined ? OsEventTypeList.CLICK_EVENT : OsEventTypeList.fromJson(envelope.eventType)
-  const kind = type === undefined ? undefined : KINDS[type]
+  const envelopes = [event.sysEvent, event.textEvent, event.listEvent].filter((part): part is Envelope => part !== undefined)
+  if (!envelopes.length) return null
+  // Fact: a tap is event type 0, which the glasses leave out. The SDK leaves out a type it does not know too, and keeps the host's words in jsonData.
+  const types = [
+    ...envelopes.map(({ eventType }) => (eventType === undefined ? OsEventTypeList.CLICK_EVENT : OsEventTypeList.fromJson(eventType))),
+    ...typesNamed(event.jsonData).map(named => OsEventTypeList.fromJson(named)),
+  ]
+  const [type] = types
+  if (type === undefined || types.some(other => other !== type)) return null
+  const kind = KINDS[type]
   if (!kind) return null
   if (kind !== 'hold' && kind !== 'release') return { kind }
-  const source = EventSourceType.fromJson(envelope.eventSource)
+  const source = EventSourceType.fromJson(envelopes[0].eventSource)
   return { kind, source: (source === undefined ? undefined : SOURCES[source]) ?? 'unknown' }
 }

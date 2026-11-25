@@ -1,3 +1,4 @@
+import { evenHubEventFromJson } from '@evenrealities/even_hub_sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Lifetime } from '../lifetime.js'
 import { fakeBridge } from './fake.js'
@@ -414,6 +415,19 @@ describe('input', () => {
     glasses.onInput(input => heard.push(input))
     fake.emit({ audioEvent: { audioPcm: new Uint8Array(4) } })
     expect(heard).toEqual([])
+  })
+
+  it('tells no listener of a gesture the SDK did not know, and hands on the sound and the gesture of one event', () => {
+    const { fake, glasses } = setup()
+    const heard: Input[] = []
+    const sounds: number[] = []
+    glasses.onInput(input => heard.push(input))
+    glasses.listen(sound => sounds.push(sound.pcm.length))
+    fake.emit(evenHubEventFromJson({ type: 'sysEvent', jsonData: { eventType: 42, eventSource: 1 } }))
+    expect(heard).toEqual([])
+    fake.emit({ audioEvent: { audioPcm: new Uint8Array(4) }, sysEvent: { eventType: 3 } })
+    expect(heard).toEqual([{ kind: 'double' }])
+    expect(sounds).toEqual([4])
   })
 
   it('keeps drawing while the app is behind another, which Even also reports around its own menu', async () => {
