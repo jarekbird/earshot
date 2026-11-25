@@ -553,5 +553,6 @@ it('the changelog has an entry for this version and for every version before it:
     return patch > 0 ? older === `${major}.${minor}.${patch - 1}` : olderMajor < major || (olderMajor === major && olderMinor < minor)
   }
   expect(named.filter((one, at) => at > 0 && !follows(named[at - 1], one))).toEqual([])
+  expect(named.at(-1)).toBe('0.0.1')
   expect(entries.filter(entry => !/^- \S/m.test(entry)).map(heading)).toEqual([])
 })
