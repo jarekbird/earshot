@@ -459,7 +459,7 @@ const forTests = createStore([memoryPlace()])
 
 ## Develop
 
-To send a report or a change from outside, start with [CONTRIBUTING.md](CONTRIBUTING.md).
+To send a report or a change from outside, start with [CONTRIBUTING.md](CONTRIBUTING.md). A security hole is reported privately: see [SECURITY.md](SECURITY.md). What each version changed, and what an app must change for it, is in [CHANGELOG.md](CHANGELOG.md).
 
 ```sh
 npm install
