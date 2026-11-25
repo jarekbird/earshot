@@ -41,7 +41,7 @@ and this section and the skills are not its to run.
 
 Follow skill `develop` for every feature and fix; it reviews with skill `review-loop` and ends with skill `release`.
 Write each test first and see it fail. `npm run check` before every commit.
-Nothing reaches `main` but through a pull request with `check` and `sim` green, and no agent merges on its own. When
+Nothing reaches `main` but through a pull request with every required check green, and no agent merges on its own. When
 Jarek corrects an agent, make the correction a rule here and a check, as high up as it can go: architecture, types,
 tests, then prose. The repository is public: no secrets, and nothing about the apps that use it beyond what their own
 READMEs say.

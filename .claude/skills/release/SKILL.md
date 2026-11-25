@@ -15,7 +15,7 @@ goes to npm, and `dist` is built when the app installs (`prepare`).
    package's `exports` or `bin`, or the build configuration. The README's two lines that name a version and `example/package.json` name the same one, and tests
    hold them there. Docs, skills, tests and CI raise nothing, and a merge that raised nothing ends here: no tag,
    no new pin.
-2. **After the merge.** When the merge raised the version, wait for `check` and `sim` to pass on the merge commit on
+2. **After the merge.** When the merge raised the version, wait for every job of the workflow `check` to pass on the merge commit on
    `main`, then tag that commit and push the tag: `git tag v<version> <sha> && git push origin v<version>`. A red
    `main` gets no tag. Never move or reuse a tag: a mistake is fixed by the next version.
 3. **In the app.** The app raises its pin to the new tag in a pull request of its own, with its own checks and review.
