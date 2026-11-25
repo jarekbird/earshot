@@ -128,6 +128,7 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
     }
     if (!response) throw new SayError(NO_CONNECTION, moved)
     void response.body?.cancel().catch(() => {})
+    if (life?.ended) throw new LifetimeEnded()
     const { status } = response
     const say = REFUSALS[status] ?? (status >= 500 ? BUSY : undefined)
     if (!say) throw new RelayError(`The relay answered ${status} to ${path}.`, status)
