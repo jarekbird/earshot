@@ -22,7 +22,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.45
+npm install github:jarekbird/earshot#v0.0.46
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -32,7 +32,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.45 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.46 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -299,7 +299,7 @@ new Shell(life, glasses, router, { voice: { transcribe: service.transcribe, mode
 ```
 
 - `host` is your relay (below), not OpenRouter. List it in your `app.json` whitelist, with the `g2-microphone` permission. Earshot holds no address of its own.
-- `secret` is for a relay that has one (below): `openRouter({ host, secret })` says it with each of the three calls, in the body, where the relay takes it out again. Such a relay is named by its address alone, with `https` (plain only on this device): no query, no fragment, no name or password, or `openRouter` throws. The calls go to the address that was checked and follow it to no other (a redirect is answered with "No connection"): the secret must not travel in the clear, or on to another host. An error of such a call carries the `status` when the relay answered with one the app may see (a redirect a web view hides has none), and never a `cause`: what failed may hold the body that was sent. Ship no secret in your app's code; ask the person for it, as the example's page does.
+- `secret` is for a relay that has one (below): `openRouter({ host, secret })` says it with each of the three calls, in the body, where the relay takes it out again. Such a relay is named by its address alone, with `https` (plain only on this device, and only where the call goes straight to it: on Node, a proxy set for all requests would carry it off the machine unless `NO_PROXY` names the address): no query, no fragment, no name or password, or `openRouter` throws. The calls go to the address that was checked and follow it to no other (a redirect is answered with "No connection"): the secret must not travel in the clear, or on to another host. An error of such a call carries the `status` when the relay answered with one the app may see (a redirect a web view hides has none), and never a `cause`: what failed may hold the body that was sent. Ship no secret in your app's code; ask the person for it, as the example's page does.
 - A recording has thirty seconds to come back as words, a question twelve; both fit in the forty-five the shell gives a command. `service.transcribe` and `service.model` end their requests with the turn's lifetime, so a command that is called off stops asking.
 - A lost connection, too many requests and a busy service each say so in a few words. When the relay is refused or out of credit the glasses say "Voice is off for now". After any but the first of those Earshot holds back for thirty seconds. For your log, each error carries what it knows: a `SayError` or `RelayError` has the `status` the relay answered with, and, for a call that carried no secret, its `cause` is what kept the call from being made or read.
 - `models: { speech, decide, compact }` and `language` change the defaults: `openai/whisper-large-v3-turbo`, `typesafe/jev-1.14` and `mistralai/mistral-nemo`.
@@ -352,7 +352,7 @@ For live speech the relay needs three more settings. It can also run with these 
 | `EARSHOT_RELAY_SECRET`        | `SECRET`        | What an app must say before a line opens: at least 16 characters, at most 1,024 as JSON writes them |
 | `EARSHOT_RELAY_LIVE_MODELS`   | `LIVE_MODELS`   | A comma-separated list, when your app uses another model than `@cf/deepgram/flux`                   |
 
-A relay has one secret. Once it is set, with live speech or without, the three calls ask for it too: a call that does not say it is answered 401 before its model is looked at and before anything is forwarded, and the glasses then say "Voice is off for now". A secret that is too short or too long makes no relay. Leave it unset, or empty, for a relay that asks for none: anything else that is not a fitting secret makes no relay. The secret is part of the call's body, so it counts toward the four megabytes (`maxBytes`) a call may have. Whatever stands in front of your relay (a proxy, a gateway, a log of requests) sees that body too: have it keep no request bodies, as you turn the gateway's logs off for sound.
+A relay has one secret. Once it is set, with live speech or without, the three calls ask for it too: a call that does not say it is answered 401 before its model is looked at and before anything is forwarded, and the glasses then say "Voice is off for now". A secret that is too short or too long makes no relay. For a relay that asks for none, leave the setting unset or empty (`EARSHOT_RELAY_SECRET`, `SECRET`, and so `relayOptions`); in options you write by hand, leave `secret` out. Anything else that is not a fitting secret makes no relay, an empty `secret` in hand-written options too. The secret is part of the call's body, so it counts toward the four megabytes (`maxBytes`) a call may have. Whatever stands in front of your relay (a proxy, a gateway, a log of requests) sees that body too: have it keep no request bodies, as you turn the gateway's logs off for sound.
 
 With no upstream for it the relay has no live path. With one, no relay is made without the key and the secret, whichever way it is started. An upstream is named with `https` (`wss` for live speech), so that no key travels in the clear; one on the same machine may be plain, named `localhost`, `[::1]` or an address in 127 (`[::ffff:127.0.0.1]` too) and no other way. Turn the gateway's logs off: they are on for a new gateway, and they would keep what was said.
 
@@ -473,7 +473,7 @@ npx vitest run --config vitest.sim.config.ts -t "<test name>"   # one test again
 
 The Worker's runtime is installed apart, in `workerd/`, because it runs on fewer machines than the rest: an app that installs Earshot from Git builds it with the tools in `package.json`, and must never need this one. `npm run check` says so when it is missing.
 
-A change goes through a pull request. Run `npm run check` yourself before every commit. It also builds the package as an app gets it and compiles every example on this page against it, so an example that no longer compiles fails. The whole simulator suite (`npm run check:sim`, the job `sim`) runs on the pull request, not on your machine. The job `c3` runs the tests a pull request changed on the source as it was, and expects one to fail (C3). No test may call an outside service (E4): a guard refuses the usual ways on your machine, and on Linux CI runs the tests with no network but its own. CI also runs `check` on macOS, on Windows and on the newest Node, where the guard is all there is. The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
+A change goes through a pull request. Run `npm run check` yourself before every commit. It also builds the package as an app gets it and compiles every example on this page against it, so an example that no longer compiles fails. The whole simulator suite (`npm run check:sim`, the job `sim`) runs on the pull request, not on your machine. The job `c3` runs the tests a pull request changed on the source as it was, and expects one to fail (C3). No test may call an outside service (E4): a guard refuses the usual ways on your machine, and on Linux CI runs the tests with no network but its own. CI also runs `check` on macOS, on Windows and on the newest Node, where the guard is all there is, and the simulator suite on Windows, where nothing catches a call from the simulator's page: Even's simulator there takes no proxy. The rules are in [CLAUDE.md](CLAUDE.md), and the steps in `.claude/skills`: `develop`, `review-loop` and `release`.
 
 MIT licensed.
 
@@ -524,5 +524,5 @@ await sim.stop()
 - Input reaches the app only when its page has a container that captures events.
 - `Simulator.start({ url, mic: true })` gives the simulator a microphone that hears a steady tone, on Linux, and `await sim.hold(1200)` holds the touchpad that long. With `transcribe: scriptedSpeech(['open voice', 'go back'])` in your app, which hears one line a recording and calls no service, that tests a voice command end to end.
 - `new Glasses(life, bridge, { trace: true })` writes what the glasses show to the console. Then `await sim.shows('Threads')` waits for it, `sim.shown()` gives the lines, `sim.menu()` the items of Even's menu, and `await sim.pick('Refresh')` picks one.
-- The driver is tried on Linux with the real simulator, and on macOS with a stand-in for it. It does not run on Windows yet.
+- The driver is tried with the real simulator on Linux and on Windows, and on macOS with a stand-in for it.
 - The simulator is not the glasses: check fonts, scrolling and timing on the device.

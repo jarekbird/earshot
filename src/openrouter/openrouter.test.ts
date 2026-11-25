@@ -120,6 +120,22 @@ describe('a relay that asks for a secret', () => {
     },
   )
 
+  it.each([307, 401])(
+    'leaves an answer of %i unused when it comes after its turn has ended: the next turn is not held back for it',
+    async status => {
+      let answer = (_response: Response) => {}
+      const late = new Promise<Response>(resolve => (answer = resolve))
+      const answers = [late, Promise.resolve(json({ text: 'the next turn' }))]
+      const router = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: async () => answers.shift() ?? json({}) })
+      const life = new Lifetime()
+      const failed = router.transcribe({ pcm: tone(), seconds: 0.1 }, life).catch((error: Error) => error)
+      life.end()
+      answer(new Response(null, { status }))
+      expect(await failed).toBeInstanceOf(LifetimeEnded)
+      expect(await router.transcribe({ pcm: tone(), seconds: 0.1 })).toBe('the next turn')
+    },
+  )
+
   it('ends with its turn also while it lets go of a redirect that will not be let go of', async () => {
     const stuck = new ReadableStream({ cancel: () => new Promise<void>(() => {}) })
     const life = new Lifetime()

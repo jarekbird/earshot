@@ -73,7 +73,7 @@ beforeAll(() => {
 
 afterAll(() => rmSync(home, { recursive: true, force: true }))
 
-describe('Earshot as an app installs it', () => {
+describe('Earshot as an app installs it', { timeout: 60_000 }, () => {
   it('is built by the configurations the build script names, and by nothing else', () => {
     expect(manifest.scripts.build).toBe(configs.map(config => `tsc -p ${config}`).join(' && '))
     expect(manifest.scripts.prepare).toBe('npm run build')

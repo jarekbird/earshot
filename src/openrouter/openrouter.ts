@@ -107,6 +107,7 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
         ...(secret === undefined ? {} : { redirect: 'manual' as const }),
         signal,
       })
+      if (life?.ended) throw new LifetimeEnded()
       const elsewhere = answered.status >= 300 && answered.status < 400
       if (secret !== undefined && (answered.type === 'opaqueredirect' || elsewhere)) {
         void answered.body?.cancel().catch(() => {})

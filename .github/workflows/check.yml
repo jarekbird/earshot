@@ -40,6 +40,7 @@ jobs:
         include:
           - { os: macos-latest, node: 24, run: npm run check }
           - { os: windows-latest, node: 24, run: npm run check }
+          - { os: windows-latest, node: 24, run: npm run check:sim }
           - { os: ubuntu-latest, node: 26, run: .github/offline.sh npm run check }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
