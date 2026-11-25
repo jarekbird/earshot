@@ -21,6 +21,7 @@ One person maintains Earshot, so an answer can take a few days. A fix ships as t
 
 ## Known, and not a hole
 
-The relay cannot tell one user from another. Anyone who finds its address can spend the developer's credit on the
-three calls of a hold, up to the spending limit set on the key, and whoever holds the secret can use live speech
-without a count. The [README](README.md#the-relay) says so, and says to set that limit.
+The relay cannot tell one user from another. Anyone who finds the address of a relay with no secret can spend the
+developer's credit on the three calls of a hold, up to the spending limit set on the key, and whoever holds a
+relay's secret can use its calls and its live speech without a count. A call or a live line that gets through a
+relay with a secret, without saying that secret, is a hole: report it. The [README](README.md#the-relay) says so, and says to set that limit.

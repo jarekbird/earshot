@@ -114,7 +114,11 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
       if (redirected) moved = elsewhere ? { status: answered.status } : {}
       else response = answered
       if (response?.ok) {
-        const read = (await response.json()) as Record<string, unknown>
+        const over = new Promise<never>((_, stop) => {
+          if (signal.aborted) stop(signal.reason)
+          else signal.addEventListener('abort', () => stop(signal.reason), { once: true })
+        })
+        const read = (await Promise.race([response.json(), over])) as Record<string, unknown>
         if (life?.ended) throw new LifetimeEnded()
         return read
       }

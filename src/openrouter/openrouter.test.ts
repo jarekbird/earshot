@@ -181,6 +181,17 @@ describe('a relay that asks for a secret', () => {
     expect(await router.transcribe({ pcm: tone(), seconds: 0.1 })).toBe('the next turn')
   })
 
+  it.each([undefined, SECRET])('ends with its turn while it reads an answer that never ends (secret: %s)', async secret => {
+    const endless = () =>
+      new Response(new ReadableStream<Uint8Array>({ start: stream => stream.enqueue(new TextEncoder().encode('{"text":')) }))
+    const life = new Lifetime()
+    const router = openRouter({ host: 'https://relay.example', ...(secret ? { secret } : {}), fetch: async () => endless() })
+    const failed = router.transcribe({ pcm: tone(), seconds: 0.1 }, life).catch((error: Error) => error)
+    await vi.advanceTimersByTimeAsync(0)
+    life.end()
+    expect(await failed).toBeInstanceOf(LifetimeEnded)
+  })
+
   it('ends with its turn also while it lets go of a redirect that will not be let go of', async () => {
     const stuck = new ReadableStream({ cancel: () => new Promise<void>(() => {}) })
     const life = new Lifetime()
