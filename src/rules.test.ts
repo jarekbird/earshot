@@ -239,7 +239,9 @@ it('C3: a pull request tries its changed tests on the old source, with no networ
   expect(workflow).toMatch(/^ {4}if: \$\{\{ !contains\(github\.event\.pull_request\.labels\.\*\.name, 'no new behaviour'\) \}\}$/m)
   expect(workflow).toMatch(/^ {6}- run: \.github\/offline\.sh \.github\/c3\.sh "\$BASE"$/m)
   expect(workflow.match(/^ {6}- run: /gm)).toHaveLength(3)
-  expect(readFileSync(join(root, '.github/c3.sh'), 'utf8')).toContain('if npx tsc -p tsconfig.c3.json && npx vitest run $tests; then')
+  expect(readFileSync(join(root, '.github/c3.sh'), 'utf8')).toContain(
+    'if npx tsc -p tsconfig.c3.json && xargs -0 npx vitest run < "$lists/tests"; then',
+  )
 })
 
 const KEPT = Array.from({ length: 8 }, (_, n) => `export const kept${n} = ${n}`).join('\n')
@@ -265,7 +267,7 @@ const FIXED = WAS['src/add.ts'].replace('a - b', 'a + b')
 const SHOWS = `${WAS['src/add.test.ts']}\nit('adds', () => expect(add(1, 2)).toBe(3))\n`
 const SHOWS_NOTHING = `${WAS['src/add.test.ts']}\nit('adds nothing to two', () => expect(add(2, 0)).toBe(2))\n`
 
-async function c3(changes: Record<string, string | null>): Promise<{ passed: boolean; said: string }> {
+async function c3(changes: Record<string, string | null>, also: Record<string, string> = {}): Promise<{ passed: boolean; said: string }> {
   const dir = mkdtempSync(join(tmpdir(), 'earshot-c3-'))
   const run = promisify(execFile)
   const env = { PATH: process.env.PATH, HOME: process.env.HOME }
@@ -279,7 +281,7 @@ async function c3(changes: Record<string, string | null>): Promise<{ passed: boo
     }
   }
   try {
-    write({ ...WAS, '.gitignore': 'node_modules\n' })
+    write({ ...WAS, ...also, '.gitignore': 'node_modules\n' })
     symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'), 'junction')
     await git('init', '-q')
     await git('add', '-A')
@@ -298,7 +300,7 @@ async function c3(changes: Record<string, string | null>): Promise<{ passed: boo
   }
 }
 
-it.skipIf(process.platform === 'win32').concurrent.each([
+const C3_CASES: [string, Record<string, string | null>, boolean, string, Record<string, string>?][] = [
   ['takes a fix with a test that fails without it', { 'src/add.ts': FIXED, 'src/add.test.ts': SHOWS }, true, 'fail, or do not compile'],
   [
     'refuses a fix whose test passes without it too',
@@ -339,11 +341,34 @@ it.skipIf(process.platform === 'win32').concurrent.each([
     true,
     'fail, or do not compile',
   ],
-] as const)('C3: the job %s', { timeout: 120_000 }, async (_, changes, passed, said) => {
-  const done = await c3(changes)
-  expect(done.said).toContain(said)
-  expect(done.passed).toBe(passed)
-})
+  [
+    'refuses a fix whose test passes without it too, also when the name of the test has a space in it',
+    { 'src/add.ts': FIXED, 'src/add nothing.test.ts': WAS['src/add.test.ts'] },
+    false,
+    'pass on the old source too',
+  ],
+  [
+    'takes a fix in a file whose name has a space in it',
+    {
+      'src/two words.ts': 'export const two = 2\n',
+      'src/two words.test.ts':
+        "import { expect, it } from 'vitest'\nimport { two } from './two words.js'\n\nit('is two', () => expect(two).toBe(2))\n",
+    },
+    true,
+    'fail, or do not compile',
+    { 'src/two words.ts': 'export const two = 1\n' },
+  ],
+]
+
+it.skipIf(process.platform === 'win32').concurrent.each(C3_CASES)(
+  'C3: the job %s',
+  { timeout: 120_000 },
+  async (_, changes, passed, said, also) => {
+    const done = await c3(changes, also)
+    expect(done.said).toContain(said)
+    expect(done.passed).toBe(passed)
+  },
+)
 
 const DIRECTIVE = /^((\/\/\/? ?|\/\*+\s*)(@ts-|eslint[- ]|prettier-ignore|<reference|v8 ignore|c8 ignore|istanbul ignore|globals? )|#!)/
 
