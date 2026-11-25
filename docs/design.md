@@ -111,7 +111,9 @@ read, which would otherwise be taken for item 0.
   what cannot be seen. A double tap still goes up and a pick from Even's menu still runs, since neither chooses from
   what the notice covers. This holds until the glasses have taken the notice away, not only until the shell asked
   them to: a notice that has faded but is still on show, because its removal was refused or is on its way, still
-  covers its rows.
+  covers its rows. `Glasses` knows it from the box the overlay is written in: an overlay counts as on show from the
+  moment its write is sent until a write without one is accepted there. A write the glasses refuse may have
+  landed, so that box is written again, whatever it is thought to hold.
 - Holds are handed on untouched; slice 3 takes them.
 
 `earshot/testing` is a stand-in bridge for tests, and a traced frame is what `earshot/sim` reads back as the glasses'
