@@ -31,11 +31,13 @@ interface Showings {
   readonly current: object | undefined
   onPath(showing: unknown): boolean
   onLeave(told: () => void): () => void
+  onMove(told: () => void): () => void
 }
 
 export class Router {
   readonly #stack: Entry[]
   readonly #left = new Set<() => void>()
+  readonly #moved = new Set<() => void>()
   readonly #appActions: () => readonly Action[]
   readonly #listeners = new Set<(current: Screen) => void>()
   #jump: Jump | null = null
@@ -70,6 +72,7 @@ export class Router {
   get [SHOWINGS](): Showings {
     const stack = this.#stack
     const left = this.#left
+    const moved = this.#moved
     return {
       get current() {
         return stack.at(-1)?.life
@@ -78,6 +81,10 @@ export class Router {
       onLeave: told => {
         left.add(told)
         return () => void left.delete(told)
+      },
+      onMove: told => {
+        moved.add(told)
+        return () => void moved.delete(told)
       },
     }
   }
@@ -170,7 +177,16 @@ export class Router {
   }
 
   #onChange(current: Screen): void {
-    for (const listener of [...this.#listeners]) listener(current)
+    const errors: unknown[] = []
+    for (const told of [...this.#moved, ...[...this.#listeners].map(listener => () => listener(current))]) {
+      try {
+        told()
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    if (errors.length === 1) throw errors[0]
+    if (errors.length) throw new AggregateError(errors, 'Listeners failed when the screen changed.')
   }
 
   #enter(screen: Screen): Entry {

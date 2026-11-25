@@ -944,6 +944,59 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(router.current.id).toBe('other')
   })
 
+  it('sends the glasses no frame that a draw asked for from inside another, when the router is closed right after', async () => {
+    let nest = false
+    let body = 'Before'
+    const watch = (event: Drawing) => {
+      if (!nest || event.at !== 'ask') return
+      nest = false
+      body = 'Nested'
+      shell.redraw()
+    }
+    const { fake, router, shell } = world({ watch })
+    router.open({ id: 'note', view: () => text({ body }) })
+    await settle()
+    body = 'Outer'
+    nest = true
+    shell.redraw()
+    router.close()
+    await settle()
+    expect(fake.lines()).toEqual(['Before'])
+  })
+
+  it('keeps a notice a home screen gives as it is replaced, for as long as any notice stays', async () => {
+    const fake = fakeBridge()
+    const life = new Lifetime()
+    const made: { shell?: Shell } = {}
+    const router = new Router({
+      home: { id: 'home', enter: left => void left.own(() => made.shell?.notice('Saved')), view: () => text({ body: 'Home' }) },
+    })
+    made.shell = new Shell(life, new Glasses(life, fake.bridge), router)
+    await settle()
+    router.replace({ id: 'next', view: () => text({ body: 'Next home' }) })
+    await settle()
+    expect(fake.overlay()).toBe('Saved')
+    life.end()
+  })
+
+  it('counts a swipe from the very words it drew, also when the app gives them through a getter that later says more', async () => {
+    const { fake, router } = world()
+    let reads = 0
+    const view = {
+      kind: 'text' as const,
+      end: true,
+      get body() {
+        return Array.from({ length: reads++ ? 40 : 30 }, (_, at) => `Line ${at + 1}`).join('\n')
+      },
+    }
+    router.open({ id: 'log', view: () => view })
+    await settle()
+    const first = fake.lines()[0]
+    fake.up()
+    await settle()
+    expect([first, fake.lines()[0]]).toEqual(['Line 21', 'Line 19'])
+  })
+
   it('runs nothing for a tap or a swipe once the router is closed', async () => {
     const ran: string[] = []
     const { fake, router } = world()
@@ -2001,6 +2054,86 @@ describe('a hold', () => {
     await settle()
     expect(shell.busy).toBe(false)
     expect(front()).toBe('')
+    life.end()
+  })
+
+  it('ends a hold when the screen changes, also when a listener the app set on the router before it throws', async () => {
+    const { voice, asked } = hearing('open ben')
+    const life = new Lifetime()
+    const fake = fakeBridge()
+    const router = new Router({ home: { id: 'home', view: () => text({ body: 'Home' }) } })
+    router.onChange(current => {
+      if (current.id === 'child') throw new Error('the listener of the app failed')
+    })
+    new Shell(life, new Glasses(life, fake.bridge), router, { voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    expect(() => router.open({ id: 'child', view: () => text({ body: 'Child' }) })).toThrow()
+    fake.sound(tone(400))
+    fake.sound(tone(400))
+    router.back()
+    fake.release()
+    await settle(50)
+    expect(asked).toEqual([])
+    life.end()
+  })
+
+  it('ends a hold when the screen changes, also when a listener the app set before it goes straight back', async () => {
+    const { voice, asked } = hearing('open ben')
+    const life = new Lifetime()
+    const fake = fakeBridge()
+    const router: Router = new Router({ home: { id: 'home', view: () => text({ body: 'Home' }) } })
+    router.onChange(current => void (current.id === 'child' && router.back()))
+    const shell = new Shell(life, new Glasses(life, fake.bridge), router, { voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(400))
+    router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+    expect(shell.busy).toBe(false)
+    fake.sound(tone(400))
+    fake.release()
+    await settle(50)
+    expect(asked).toEqual([])
+    life.end()
+  })
+
+  it('sends nothing to the transcriber when a screen was opened and left as the app was asked how long a turn may take', async () => {
+    const { voice, asked } = hearing('open ben')
+    const { fake, router } = world({ voice })
+    await settle()
+    Object.defineProperty(voice, 'timeoutMs', {
+      get: () => {
+        router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+        router.back()
+        return 5_000
+      },
+    })
+    await say(fake)
+    await settle()
+    expect(asked).toEqual([])
+  })
+
+  it('draws the screen that was opened, and tells the listeners after it, also when what a turn left behind throws as it is called off', async () => {
+    const { fake, life, router } = world({
+      voice: {
+        transcribe: (_audio, turn) => {
+          turn?.own(() => {
+            throw new Error('cleanup failed')
+          })
+          return new Promise<string>(() => {})
+        },
+      },
+    })
+    const told: string[] = []
+    router.onChange(current => void told.push(current.id))
+    await settle()
+    await say(fake)
+    expect(() => router.open({ id: 'other', view: () => text({ body: 'Other' }) })).toThrow()
+    await settle()
+    expect(told).toEqual(['other'])
+    expect(fake.lines()).toContain('Other')
     life.end()
   })
 

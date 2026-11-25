@@ -1988,6 +1988,24 @@ describe('watching the draws', () => {
     expect([fake.lines(), glasses.shown]).toEqual([['Next'], next])
   })
 
+  it('draws on as before after many frames were taken back one by one while the glasses were held up', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    glasses.draw(frame(box('title', 'Shown')))
+    await settle()
+    let write = () => {}
+    const writing = new Promise<void>(go => (write = go))
+    const real = fake.bridge.textContainerUpgrade
+    fake.bridge.textContainerUpgrade = async upgrade => (await writing, real(upgrade))
+    for (let at = 0; at < 200; at++) glasses[PROGRESS].drop([glasses.draw(frame(box('title', `Frame ${at}`)))])
+    write()
+    await settle()
+    expect(fake.lines()).toEqual(['Shown'])
+    const next = glasses.draw(frame(box('title', 'Next')))
+    await settle()
+    expect([fake.lines(), glasses.shown]).toEqual([['Next'], next])
+  })
+
   it('tells of a frame from its start to its end, with each call to the glasses and its answer', async () => {
     const { glasses, seen, told } = watched()
     glasses.draw(frame(box('title', 'Threads')))

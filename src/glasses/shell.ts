@@ -169,7 +169,7 @@ export class Shell {
         const { onPath, current } = router[SHOWINGS]
         this.#frames.left(onPath)
         const spoken = this.#recording?.showing ?? this.#decidingOn
-        const closed = !onPath(current)
+        const closed = current !== undefined && !onPath(current)
         try {
           if (closed || (spoken !== undefined && spoken !== null && !onPath(spoken))) this.#callOff()
         } finally {
@@ -188,11 +188,14 @@ export class Shell {
       if (this.#overlaid) this.#glasses.overlay(null)
     })
     this.#life.own(
-      router.onChange(() => {
+      router[SHOWINGS].onMove(() => {
         const spoken = this.#recording?.showing ?? this.#decidingOn
-        if (spoken !== undefined && spoken !== null && spoken !== router[SHOWINGS].current) this.#callOff()
-        if (this.#asking) this.#clear()
-        this.redraw()
+        try {
+          if (spoken !== undefined && spoken !== null && spoken !== router[SHOWINGS].current) this.#callOff()
+          if (this.#asking) this.#clear()
+        } finally {
+          this.redraw()
+        }
       }),
     )
     this.redraw()
@@ -228,10 +231,11 @@ export class Shell {
       Object.assign(place, laid.state)
       boxes = laid.boxes
     } else if (view.kind === 'text') {
-      const laid = (read && sameText(read.view, view) ? read.laid : layoutText(view))(place)
+      const words = copied(view)
+      const laid = (read && sameText(read.view, words) ? read.laid : layoutText(words))(place)
       Object.assign(place, laid.state)
       scrolls = laid.scrolls
-      drew = { view: copied(view), state: { ...laid.state } }
+      drew = { view: words, state: { ...laid.state } }
       boxes = laid.boxes
     } else {
       boxes = view.boxes
@@ -245,7 +249,7 @@ export class Shell {
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
     if (showings.current !== showing || !showings.onPath(showing)) return
     const frame = this.#glasses.draw({ boxes, pictures, menu })
-    this.#pending = [...this.#pending.filter(asked => asked === this.#glasses[PROGRESS].sending), frame]
+    this.#pending = [...this.#pending.filter(asked => asked === this.#glasses[PROGRESS].sending || asked > frame), frame]
     if (!showings.onPath(showing)) return this.#glasses[PROGRESS].drop([frame])
     if (!this.#drawn || frame > this.#drawn.frame)
       this.#drawn = { frame, screen, showing, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
@@ -518,9 +522,11 @@ export class Shell {
       if (moved()) this.#clear()
       else then()
     }
-    const slow = life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), voice.timeoutMs ?? VOICE_TIMEOUT_MS)
     this.#deciding = life
     this.#decidingOn = showing ?? null
+    const patience = voice.timeoutMs ?? VOICE_TIMEOUT_MS
+    const slow = life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), patience)
+    if (!mine()) return slow.cancel()
     if (passed === undefined) this.#show(this.#words.thinking)
     try {
       if (moved()) return finish(() => {})

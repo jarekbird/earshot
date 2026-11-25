@@ -260,6 +260,7 @@ export class Glasses {
       },
       drop: frames => {
         const sendable = (frame: number) => frame === this.#number || frame === this.#going?.number || frame === this.#wanted?.frame
+        for (const dropped of this.#dropped) if (!sendable(dropped)) this.#dropped.delete(dropped)
         for (const frame of frames) if (frame > this.#whole.number && sendable(frame)) this.#dropped.add(frame)
         if (!this.#dropped.has(this.#number)) return
         const back = this.#going && !this.#dropped.has(this.#going.number) ? this.#going : this.#whole
