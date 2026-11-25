@@ -3,6 +3,7 @@ import type { Compact } from '../context.js'
 import type { NavigatorModel, Option } from '../navigator.js'
 import { LifetimeEnded, type Lifetime } from '../lifetime.js'
 import { RelayError, SayError } from '../say.js'
+import { onThisDevice } from '../thisDevice.js'
 
 export interface OpenRouterModels {
   speech: string
@@ -12,6 +13,7 @@ export interface OpenRouterModels {
 
 export interface OpenRouterOptions {
   host: string
+  secret?: string
   models?: Partial<OpenRouterModels>
   language?: string
   fetch?: typeof fetch
@@ -59,7 +61,20 @@ function base64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
+function sealed(host: string): void {
+  let relay: URL | undefined
+  try {
+    relay = new URL(host)
+  } catch {
+    relay = undefined
+  }
+  if (relay?.protocol !== 'https:' && !(relay?.protocol === 'http:' && onThisDevice(relay.hostname)))
+    throw new Error('The calls carry a secret, so their relay is named by its whole address, with https.')
+}
+
 export function openRouter(options: OpenRouterOptions): OpenRouter {
+  const { secret } = options
+  if (secret !== undefined) sealed(options.host)
   const host = options.host.replace(/\/+$/, '')
   const models = { ...MODELS, ...options.models }
   const now = options.now ?? Date.now
@@ -83,7 +98,7 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
     }
   }
 
-  async function call(path: string, body: unknown, ms: number, life?: Lifetime): Promise<Record<string, unknown>> {
+  async function call(path: string, body: Record<string, unknown>, ms: number, life?: Lifetime): Promise<Record<string, unknown>> {
     if (heldBack && now() < heldBack.until) throw new SayError(heldBack.say)
     const { signal, done } = within(ms, life)
     let response: Response | undefined
@@ -91,7 +106,7 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
       response = await (options.fetch ?? fetch)(`${host}${path}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(secret === undefined ? body : { ...body, secret }),
         signal,
       })
       if (response.ok) return (await response.json()) as Record<string, unknown>

@@ -2,6 +2,7 @@ import { SAMPLE_RATE, type Speaker } from '../audio.js'
 import { Lifetime, type Timer } from '../lifetime.js'
 import { most, type LiveSpeech, type LiveState, type Turn } from '../live.js'
 import { serve } from '../serve.js'
+import { onThisDevice } from '../thisDevice.js'
 
 export interface FluxSocket {
   binaryType: string
@@ -42,9 +43,6 @@ export const CONNECT_MS = 10_000
 const RETRY_FIRST_MS = 500
 const RETRY_MAX_MS = 8_000
 const FOR_GOOD = new Set<number>(Object.values(REFUSALS))
-// Fact: a URL writes an IPv4 address inside IPv6 in hex, so 127.0.0.1 there reads [::ffff:7f00:1].
-const LOOPBACK = /^(?:127(?:\.\d{1,3}){3}|\[::ffff:7f[\da-f]{2}:[\da-f]{1,4}\])$/
-const onThisDevice = (hostname: string) => hostname === 'localhost' || hostname === '[::1]' || LOOPBACK.test(hostname)
 const HEARD = 'live speech'
 const OPEN = 1
 

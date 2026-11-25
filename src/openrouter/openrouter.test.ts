@@ -31,6 +31,37 @@ function ready(...answers: (Response | Error)[]) {
   return { sent, router: openRouter({ host: 'https://relay.example', fetch: fetcher }) }
 }
 
+describe('a relay that asks for a secret', () => {
+  const SECRET = 'a phrase of the developer'
+
+  it('is told the secret with each of the three calls, in the body and in no header', async () => {
+    const { sent, fetcher } = service(json({ text: 'x' }), json({ answers: {} }), json({ choices: [{ message: { content: 'short' } }] }))
+    const router = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: fetcher })
+    await router.transcribe({ pcm: tone(), seconds: 0.1 })
+    await router.model.choose({ words: 'open', options: [{ id: 'a', say: 'A' }] })
+    await router.compact('a long text', 40)
+    expect(sent.map(call => [call.body.secret, call.key])).toEqual(Array(3).fill([SECRET, null]))
+  })
+
+  it('sends no secret when the app named none', async () => {
+    const { sent, router } = ready(json({ text: 'x' }))
+    await router.transcribe({ pcm: tone(), seconds: 0.1 })
+    expect('secret' in sent[0].body).toBe(false)
+  })
+
+  it.each(['http://relay.example', 'ws://relay.example', 'relay.example', ''])(
+    'is not named %j: a secret travels to it, so its address is whole and with https',
+    host => {
+      expect(() => openRouter({ host, secret: SECRET })).toThrow('https')
+      expect(() => openRouter({ host })).not.toThrow()
+    },
+  )
+
+  it.each(['https://relay.example/', 'http://localhost:8787', 'http://127.0.0.1:8787', 'http://[::1]:8787'])('may be named %j', host => {
+    expect(() => openRouter({ host, secret: SECRET })).not.toThrow()
+  })
+})
+
 describe('speech to text', () => {
   it('sends the recording as a sound file to the host the app named, with no key, and gives the words', async () => {
     const { sent, router } = ready(json({ text: ' open the second note ' }))

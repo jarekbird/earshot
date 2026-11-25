@@ -654,9 +654,9 @@ describe('the settings of live speech', () => {
     expect(Object.values(REFUSALS)).not.toContain(CLOSES.upstream)
   })
 
-  it('a host with no live upstream asks for no live speech, whatever else is set', () => {
+  it('a host with no live upstream asks for no live speech, whatever else is set, and its secret is then for its calls', () => {
     const settings = { ...calls, models: undefined, liveUpstream: undefined, liveKey: LIVE_KEY, liveModels: 'a/one', secret: PHRASE }
-    expect(relayOptions(settings)).toEqual(calls)
+    expect(relayOptions(settings)).toEqual({ ...calls, secret: PHRASE })
   })
 
   it('a host with a live upstream passes on what it has, with the models the developer listed', () => {

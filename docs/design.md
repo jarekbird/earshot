@@ -502,6 +502,12 @@ The line, as states:
   builds its options by hand cannot skip the check. The secret is the user's to type on the phone, never the
   build's, and never part of an address. The relay does not count minutes yet: that comes with the first app that
   needs it.
+- **One secret, for every call.** A relay that has a secret asks its three calls for it too (Jarek, 2026-11-24): a
+  secret that only guarded the live line left the calls open to anyone with the address. The caller says it in the
+  body, as the greeting of a live line does, because a header takes no sign outside Latin-1 and a body takes any
+  secret a greeting can; the relay forwards only the fields it lists, so the secret stays there. It is looked at
+  before the model, so a stranger learns nothing of what the relay allows, and `openRouter` refuses to carry a
+  secret to a relay not named with `https`. A relay with no secret answers as before.
 - **No key travels in the clear.** An upstream is named with `https`, or `wss` for live speech, unless it is on the
   same machine. The relay follows an upstream to no other address, for the three calls as for live speech, so a
   redirect gets no key and no recording.
@@ -558,7 +564,7 @@ The line, as states:
   - Workers AI takes every setting of a speech model as text, a number or a boolean being refused.
 - The app lists the relay twice in its whitelist: `https://` for a hold and `wss://` for live speech. The store
   check cannot see a missing `wss://` entry, because the address is made from the host as the app runs.
-- The example takes the relay's secret from a field on its phone page only. What the glasses show is written to the
+- The example takes the relay's secret from a field on its phone page only, and says it with its three calls as with live speech, anew when the field changes. What the glasses show is written to the
   console only in the build the simulator tests make, never in the packed one: with live speech a frame holds what
   was said.
 - Not tried yet: a deployed Worker, and live speech from inside the Even app.
