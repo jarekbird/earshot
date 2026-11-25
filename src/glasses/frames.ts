@@ -1,14 +1,14 @@
 import { text, type View } from '../view.js'
 import type { TextState } from './layout.js'
 
-export type Words = Extract<View, { kind: 'text' }>
+type Words = Extract<View, { kind: 'text' }>
 
 export interface Read {
   view: Words
   state: TextState
 }
 
-export interface Progress {
+interface Progress {
   readonly shown: number
   readonly menu: number
   readonly text: number
@@ -22,6 +22,7 @@ export interface Sent {
   has(box: string): number
   onChange(told: () => void): () => void
   drop(frame: number): void
+  retract(): void
 }
 
 export const PROGRESS = Symbol('how far the glasses are with the frames asked of them')
@@ -29,21 +30,17 @@ export const PROGRESS = Symbol('how far the glasses are with the frames asked of
 export const copied = (view: Words): Words =>
   text({ ...(view.title === undefined ? {} : { title: view.title }), body: view.body, end: view.end }) as Words
 
-export interface Seen<On> {
+interface Asked {
+  frame: number
   showing: unknown
   kind: View['kind']
-  on: On | undefined
-}
-
-interface Asked<On> extends Seen<On> {
-  frame: number
   drew: Read | null
 }
 
-export class Frames<On = never> {
+export class Frames {
   readonly #progress: Progress
   readonly #swiped = new Map<unknown, { frame: number; to: Read }>()
-  #asked: Asked<On>[] = []
+  #asked: Asked[] = []
   #ended = false
 
   constructor(progress: Progress) {
@@ -63,24 +60,19 @@ export class Frames<On = never> {
     return this.#asked.findLast(asked => asked.frame <= this.#progress.menu)?.showing
   }
 
-  get words(): Seen<On> | undefined {
+  get words(): { showing: unknown; kind: View['kind'] } | undefined {
     this.forget()
     return this.#asked.findLast(asked => asked.frame <= this.#read())
-  }
-
-  get page(): Seen<On> | undefined {
-    this.forget()
-    return this.#asked.findLast(asked => asked.frame <= this.#progress.menu)
   }
 
   swiping(showing: unknown, to: Read): void {
     if (!this.#ended) this.#swiped.set(showing, { frame: Infinity, to })
   }
 
-  asked(frame: number, showing: unknown, drew: Read | null, kind: View['kind'] = 'text', on?: On): void {
+  asked(frame: number, showing: unknown, drew: Read | null, kind: View['kind'] = 'text'): void {
     if (this.#ended) return
     const later = this.#asked.findIndex(asked => asked.frame > frame)
-    this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, showing, kind, drew, on })
+    this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, showing, kind, drew })
     const swiped = this.#swiped.get(showing)
     if (swiped?.frame === Infinity) swiped.frame = frame
     this.forget()
@@ -108,7 +100,7 @@ export class Frames<On = never> {
     if (menu >= 0 && menu < words) this.#asked[menu].drew = null
     this.#asked = this.#asked.filter((asked, at) => at === menu || at === words || at === newest || (at > words && asked.frame === sending))
     for (const [showing, swiped] of this.#swiped) {
-      const drawn = (asked: Asked<On>) => asked.showing === showing && asked.frame >= swiped.frame && asked.frame <= read
+      const drawn = (asked: Asked) => asked.showing === showing && asked.frame >= swiped.frame && asked.frame <= read
       if (this.#asked.some(drawn)) this.#swiped.delete(showing)
     }
   }

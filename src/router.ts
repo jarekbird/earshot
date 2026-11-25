@@ -27,7 +27,7 @@ interface Jump {
 
 export const SHOWINGS = Symbol('the showings of screens on the path from home to the one on show')
 
-export interface Showings {
+interface Showings {
   readonly current: object | undefined
   onPath(showing: unknown): boolean
   onLeave(told: () => void): () => void

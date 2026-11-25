@@ -196,7 +196,7 @@ export class Glasses {
   #number = 0
   #whole: { number: number; frame: Frame } = { number: 0, frame: { boxes: [] } }
   #going: { number: number; frame: Frame } | null = null
-  #dropped = -1
+  #dropped: [from: number, to: number] = [0, -1]
   #overlay: string | null = null
   #wanted: Page | null = null
   #shape = ''
@@ -260,11 +260,13 @@ export class Glasses {
       },
       drop: frame => {
         if (frame !== this.#number || frame === this.#whole.number) return
-        this.#dropped = frame
-        const back = this.#going && this.#going.number !== frame ? this.#going : this.#whole
-        this.#frame = back.frame
-        this.#number = back.number
-        this.#place()
+        this.#dropped = [frame, frame]
+        this.#back(this.#going && this.#going.number !== frame ? this.#going : this.#whole)
+      },
+      retract: () => {
+        if (this.#number === this.#whole.number) return
+        this.#dropped = [this.#whole.number + 1, this.#frames]
+        this.#back(this.#whole)
       },
     }
   }
@@ -310,7 +312,11 @@ export class Glasses {
     const pictures = (frame.pictures ?? []).filter(fits).length - MAX_IMAGE_BOXES
     if (pictures > 0)
       console.error(`Earshot: the glasses take ${MAX_IMAGE_BOXES} pictures. The last ${pictures} of this frame are left out.`)
-    this.#frame = frame
+    this.#frame = {
+      boxes: frame.boxes.map(box => ({ ...box })),
+      ...(frame.pictures ? { pictures: frame.pictures.map(picture => ({ ...picture })) } : {}),
+      ...(frame.menu ? { menu: frame.menu.map(item => ({ ...item })) } : {}),
+    }
     const number = ++this.#frames
     this.#number = number
     this.#watch({ at: 'ask', frame: number, page: frame })
@@ -419,12 +425,13 @@ export class Glasses {
         this.#watch({ at: 'begin', frame, rebuild })
         const written = rebuild ? await this.#build(page, shape) : await this.#update(page, true)
         if (written && !rebuild && !this.#life.ended && this.#progress.menu !== frame) this.#progressed({ menu: frame })
-        const drawn = written && this.#dropped !== frame && (await this.#hang(page))
+        const drawn = written && !this.#takenBack(frame) && (await this.#hang(page))
         if (this.#life.ended) return void (this.#progress.sending = 0)
         this.#going = null
         if (drawn) this.#whole = { number: frame, frame: page.from }
-        if (!drawn && this.#dropped === frame) {
+        if (!drawn && this.#takenBack(frame)) {
           this.#progressed({ sending: 0 })
+          this.#watch({ at: 'end', frame, drawn })
           continue
         }
         this.#progressed(drawn ? { shown: frame, menu: frame, sending: 0 } : { sending: 0 })
@@ -449,6 +456,16 @@ export class Glasses {
     for (const told of [...this.#following]) if (this.#following.has(told)) serve(told)
   }
 
+  #takenBack(frame: number): boolean {
+    return frame >= this.#dropped[0] && frame <= this.#dropped[1]
+  }
+
+  #back(to: { number: number; frame: Frame }): void {
+    this.#frame = to.frame
+    this.#number = to.number
+    this.#place()
+  }
+
   #later(ms: number): void {
     if (!this.#retry) this.#retryAt = this.#now() + ms
     this.#retry ??= this.#life.timeout(() => {
@@ -466,11 +483,11 @@ export class Glasses {
     box?: string,
     taken?: () => void,
   ): Promise<boolean> {
-    if (this.#life.ended || this.#dropped === frame) return false
+    if (this.#life.ended || this.#takenBack(frame)) return false
     const named = box === undefined ? {} : { box }
     const started = this.#now()
     this.#watch({ at: 'call', frame, op, ...named })
-    if (this.#life.ended || this.#dropped === frame) return false
+    if (this.#life.ended || this.#takenBack(frame)) return false
     let got: unknown
     try {
       got = await call()

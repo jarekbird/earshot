@@ -1893,6 +1893,61 @@ describe('watching the draws', () => {
     expect(fake.calls.slice(before).filter(call => call === 'rebuild' || call.startsWith('picture'))).toEqual([])
   })
 
+  it('tells of an end for every begin, also of a frame that was taken back while it was being sent', async () => {
+    const fake = fakeBridge()
+    const seen: string[] = []
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (event.at === 'begin' || event.at === 'end') seen.push(`${event.at} ${event.frame}`)
+      },
+    })
+    glasses.draw(frame(box('title', 'One')))
+    await settle()
+    let write = () => {}
+    const writing = new Promise<void>(go => (write = go))
+    const real = fake.bridge.textContainerUpgrade
+    fake.bridge.textContainerUpgrade = async upgrade => (await writing, real(upgrade))
+    const second = glasses.draw(frame(box('title', 'Two')))
+    await settle(0)
+    glasses[PROGRESS].drop(second)
+    write()
+    await settle()
+    expect(seen.filter(told => told.endsWith(` ${second}`))).toEqual([`begin ${second}`, `end ${second}`])
+  })
+
+  it('shows again what it showed, not what an app has since written into the very boxes it handed over', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    const mine = box('title', 'Before')
+    glasses.draw(frame(mine))
+    await settle()
+    mine.text = 'Unreleased'
+    glasses.overlay('Status')
+    await settle()
+    glasses.overlay(null)
+    await settle()
+    expect(fake.lines()).toEqual(['Before'])
+  })
+
+  it('sends none of the frames asked for and not yet whole once all of them are taken back, also the one on its way', async () => {
+    const fake = fakeBridge()
+    let back = false
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (!back || event.at !== 'begin') return
+        back = false
+        glasses.draw(frame(box('title', 'Third')))
+        glasses[PROGRESS].retract()
+      },
+    })
+    glasses.draw(frame(box('title', 'First')))
+    await settle()
+    back = true
+    glasses.draw(frame(box('title', 'Second')))
+    await settle()
+    expect(fake.lines()).toEqual(['First'])
+  })
+
   it('tells of a frame from its start to its end, with each call to the glasses and its answer', async () => {
     const { glasses, seen, told } = watched()
     glasses.draw(frame(box('title', 'Threads')))

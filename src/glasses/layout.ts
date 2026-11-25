@@ -58,7 +58,7 @@ export function layoutList(
   }
 }
 
-export interface Stride {
+interface Stride {
   up: number
   down: number
 }

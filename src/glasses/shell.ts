@@ -95,9 +95,7 @@ const DOWN = 'earshot.down'
 const CHOOSE = 'earshot.choose'
 const INSTEAD = 'instead'
 
-const boundTo = (bound: Bound): { action: Action; target?: string } => ('action' in bound ? { ...bound } : { action: bound })
-
-type Bindings = Partial<Record<'tap' | 'up' | 'down', { action: Action; target?: string }>>
+const boundTo = (bound: Bound): { action: Action; target?: string } => ('action' in bound ? bound : { action: bound })
 
 interface Place {
   cursor: number
@@ -115,12 +113,6 @@ interface Drawn {
 }
 
 const sameText = (one: Read['view'], other: Read['view']) => one.title === other.title && one.body === other.body && one.end === other.end
-
-const bindings = (view: Extract<View, { kind: 'boxes' }>): Bindings => ({
-  ...(view.on?.tap ? { tap: boundTo(view.on.tap) } : {}),
-  ...(view.on?.up ? { up: boundTo(view.on.up) } : {}),
-  ...(view.on?.down ? { down: boundTo(view.on.down) } : {}),
-})
 
 export class Shell {
   readonly #life: Lifetime
@@ -149,7 +141,7 @@ export class Shell {
   #said = false
   #deciding: Lifetime | null = null
   #decidingOn: object | null = null
-  readonly #frames: Frames<Bindings>
+  readonly #frames: Frames
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -179,7 +171,7 @@ export class Shell {
         if (spoken !== undefined && spoken !== null && !onPath(spoken)) this.#callOff()
         if (onPath(current)) return
         this.#callOff()
-        if (this.#drawn) this.#glasses[PROGRESS].drop(this.#drawn.frame)
+        this.#glasses[PROGRESS].retract()
       }),
     )
     this.#router = router
@@ -250,7 +242,7 @@ export class Shell {
     if (!showings.onPath(showing)) return this.#glasses[PROGRESS].drop(frame)
     if (!this.#drawn || frame > this.#drawn.frame)
       this.#drawn = { frame, screen, showing, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
-    this.#frames.asked(frame, showing, drew, view.kind, view.kind === 'boxes' ? bindings(view) : undefined)
+    this.#frames.asked(frame, showing, drew, view.kind)
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
@@ -387,12 +379,14 @@ export class Shell {
     const place = showing && this.#places.get(showing)
     if (!drawn || drawn.showing !== showing || !place || !this.#router[SHOWINGS].onPath(showing)) return
     const { view } = drawn
-    const seen = view.kind === 'text' ? this.#frames.words : this.#frames.page
-    if (seen && (seen.kind !== view.kind || seen.showing !== showing)) return
     if (view.kind === 'boxes') {
-      const bound = (seen?.on ?? bindings(view))[input.kind]
-      return bound ? void this.#start(bound.action, bound.target) : undefined
+      const bound = view.on?.[input.kind]
+      if (!bound) return
+      const { action: chosen, target } = boundTo(bound)
+      return void this.#start(chosen, target)
     }
+    const seen = this.#frames.words
+    if (view.kind === 'text' && seen && (seen.kind !== 'text' || seen.showing !== showing)) return
     const step = input.kind === 'up' ? -1 : 1
     if (view.kind === 'text') {
       if (input.kind !== 'tap') return this.#scroll(drawn, place, 'swipe', step < 0)
@@ -504,7 +498,6 @@ export class Shell {
     const finish = (then: () => void) => {
       if (!mine()) return
       this.#deciding = null
-      this.#decidingOn = null
       this.#decidingOn = null
       slow.cancel()
       life.end()
@@ -642,16 +635,19 @@ export class Shell {
     const target = targets?.find(candidate => candidate.id === targetId)
     const risk = target?.risk ?? chosen.risk
     if (risk === 'safe' || (risk === 'voice' && !said)) return this.#run(chosen, targetId, said)
-    if (showings.current !== showing || !showings.onPath(showing)) return
+    const still = () => showings.current === showing && showings.onPath(showing)
     const instead = pass && this.#voice?.instead
+    if (!still()) return
     const asked = [
       `${chosen.say}${target ? `: ${target.say}` : ''}?`,
       this.#words.confirm,
       ...(instead ? [`${this.#words.swipe}: ${instead}`] : []),
     ]
     this.#show(asked.join('\n'))
-    const still = () => showings.current === showing && showings.onPath(showing)
-    this.#asking = { yes: () => void (still() && this.#run(chosen, targetId)), ...(instead ? { no: pass } : {}) }
+    this.#asking = {
+      yes: () => void (still() && this.#run(chosen, targetId)),
+      ...(instead ? { no: () => void (still() && pass()) } : {}),
+    }
   }
 
   // An action the shell made (choose, More, which one) starts another: it has to know the words chose it.
