@@ -30,7 +30,7 @@ each version's commits say: they name what a version added, and may miss a chang
 
 ## 0.0.37 (2026-11-23)
 
-- `toWav` has a type that a TypeScript before 5.7 can read.
+- A request takes what `toWav` gives as its body: its type says the bytes are in an `ArrayBuffer`.
 - The package is tested as an app installs it, and every example of the README is compiled against it.
 
 ## 0.0.36 (2026-11-23)
@@ -47,7 +47,7 @@ each version's commits say: they name what a version added, and may miss a chang
 ## 0.0.34 (2026-11-23)
 
 - The microphone is open while anything listens, so an app can hear for longer than a hold: `glasses.listen`.
-- **An app must** use `listen` where it used `openMic`, `closeMic`, `onAudio` or `holdRebuilds`. They are gone.
+- **An app must** use `listen` where it used `openMic`, `closeMic` or `onAudio`. They are gone.
 
 ## 0.0.33 (2026-11-22)
 
