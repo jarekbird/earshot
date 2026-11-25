@@ -97,6 +97,7 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
     if (heldBack && now() < heldBack.until) throw new SayError(heldBack.say)
     const { signal, done } = within(ms, life)
     let response: Response | undefined
+    let moved: { status?: number } | undefined
     try {
       const answered = await (options.fetch ?? fetch)(`${host}${path}`, {
         method: 'POST',
@@ -106,12 +107,12 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
         ...(secret === undefined ? {} : { redirect: 'manual' as const }),
         signal,
       })
-      if (secret !== undefined && (answered.type === 'opaqueredirect' || (answered.status >= 300 && answered.status < 400))) {
-        await answered.body?.cancel().catch(() => {})
-        throw new Error('The relay answered with a redirect.')
-      }
-      response = answered
-      if (response.ok) return (await response.json()) as Record<string, unknown>
+      const elsewhere = answered.status >= 300 && answered.status < 400
+      if (secret !== undefined && (answered.type === 'opaqueredirect' || elsewhere)) {
+        void answered.body?.cancel().catch(() => {})
+        moved = elsewhere ? { status: answered.status } : {}
+      } else response = answered
+      if (response?.ok) return (await response.json()) as Record<string, unknown>
     } catch (failure) {
       const cause = secret === undefined ? failure : undefined
       if (life?.ended) throw new LifetimeEnded()
@@ -120,6 +121,7 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
     } finally {
       done()
     }
+    if (!response) throw new SayError(NO_CONNECTION, moved)
     const { status } = response
     const say = REFUSALS[status] ?? (status >= 500 ? BUSY : undefined)
     if (!say) throw new RelayError(`The relay answered ${status} to ${path}.`, status)

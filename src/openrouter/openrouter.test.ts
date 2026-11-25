@@ -101,15 +101,37 @@ describe('a relay that asks for a secret', () => {
   })
 
   it.each([
-    ['a redirect', () => new Response(null, { status: 307, headers: { location: 'https://elsewhere.example/api' } })],
-    ['a redirect it may not look into', () => Object.defineProperty(new Response(null), 'type', { value: 'opaqueredirect' })],
-    ['a moved-for-good', () => new Response('{"text":"from elsewhere"}', { status: 301 })],
-  ])('says there is no connection when the relay answers with %s, and reads nothing of it', async (_name, moved) => {
-    const { sent, fetcher } = service(moved())
-    const failed = await openRouter({ host: 'https://relay.example', secret: SECRET, fetch: fetcher })
-      .transcribe({ pcm: tone(), seconds: 0.1 })
-      .catch((error: Error) => error)
-    expect([failed instanceof SayError && failed.say, (failed as Error).cause, sent.length]).toEqual(['No connection', undefined, 1])
+    ['a redirect', 307, () => new Response(null, { status: 307, headers: { location: 'https://elsewhere.example/api' } })],
+    ['a redirect it may not look into', undefined, () => Object.defineProperty(new Response(null), 'type', { value: 'opaqueredirect' })],
+    ['a moved-for-good', 301, () => new Response('{"text":"from elsewhere"}', { status: 301 })],
+  ])(
+    'says there is no connection when the relay answers with %s, with the status it could see, and reads nothing of it',
+    async (_name, status, moved) => {
+      const { sent, fetcher } = service(moved())
+      const failed = await openRouter({ host: 'https://relay.example', secret: SECRET, fetch: fetcher })
+        .transcribe({ pcm: tone(), seconds: 0.1 })
+        .catch((error: SayError) => error)
+      expect(failed instanceof SayError && [failed.say, failed.status, failed.cause, sent.length]).toEqual([
+        'No connection',
+        status,
+        undefined,
+        1,
+      ])
+    },
+  )
+
+  it('ends with its turn also while it lets go of a redirect that will not be let go of', async () => {
+    const stuck = new ReadableStream({ cancel: () => new Promise<void>(() => {}) })
+    const life = new Lifetime()
+    const router = openRouter({
+      host: 'https://relay.example',
+      secret: SECRET,
+      fetch: async () => new Response(stuck, { status: 307 }),
+    })
+    const failed = router.transcribe({ pcm: tone(), seconds: 0.1 }, life).catch((error: Error) => error)
+    await vi.advanceTimersByTimeAsync(0)
+    life.end()
+    expect(await failed).toBeInstanceOf(SayError)
   })
 
   it('is followed to no other address: a call that carries the secret takes no redirect, and one without goes as before', async () => {

@@ -14,7 +14,7 @@ import {
 export interface LiveOptions {
   upstream: string
   key: string
-  secret?: string
+  secret: string
   models?: string[]
 }
 
@@ -65,8 +65,11 @@ export function relayOptions({ key, upstream, models, liveUpstream, liveKey, liv
   return {
     ...(key !== undefined || upstream !== undefined ? { key, upstream } : {}),
     ...listed(models),
-    ...(secret ? { secret } : {}),
-    ...(liveUpstream ? { live: { upstream: liveUpstream, key: liveKey ?? '', ...listed(liveModels) } } : {}),
+    ...(liveUpstream
+      ? { live: { upstream: liveUpstream, key: liveKey ?? '', secret: secret ?? '', ...listed(liveModels) } }
+      : secret === undefined || secret === ''
+        ? {}
+        : { secret }),
   }
 }
 
@@ -146,12 +149,11 @@ const fits = (secret: unknown) =>
   typeof secret === 'string' && secret.length >= MIN_SECRET && JSON.stringify(secret).length - 2 <= MAX_SECRET
 
 function secretOf({ secret, live }: RelayOptions): string | undefined {
-  if (secret !== undefined && live?.secret !== undefined && live.secret !== secret)
-    throw new Error('A relay has one secret: its calls and live speech ask for the same one.')
-  const one = secret ?? live?.secret
-  if (live && !fits(one)) throw new Error(`Live speech needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters.`)
-  if (one !== undefined && !fits(one)) throw new Error(`A relay needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters, or none.`)
-  return one
+  if (live && !fits(live.secret)) throw new Error(`Live speech needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters.`)
+  if (secret === undefined) return live?.secret
+  if (live && live.secret !== secret) throw new Error('A relay has one secret: its calls and live speech ask for the same one.')
+  if (!fits(secret)) throw new Error(`A relay needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters, or none.`)
+  return secret
 }
 
 function checked(live: LiveOptions): LiveOptions {

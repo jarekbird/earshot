@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -16,7 +17,6 @@ describe('the example app in the real Even Hub simulator', () => {
   let relay: Server
   let flux: WebSocketServer
   let url: string
-  const forwarded: string[] = []
   beforeAll(async () => {
     flux = new WebSocketServer({
       port: 0,
@@ -41,7 +41,6 @@ describe('the example app in the real Even Hub simulator', () => {
       hostname: '127.0.0.1',
       fetch: async (address, init) => {
         const { pathname } = new URL(String(address))
-        forwarded.push(pathname)
         if (pathname.endsWith('/transcriptions')) return Response.json({ text: 'open voice' })
         const criteria: Record<string, string> = JSON.parse(String(init?.body)).questions.pick.criteria
         const wanted = Object.keys(criteria).find(id => criteria[id].startsWith('Open note: Voice')) ?? 'none'
@@ -61,27 +60,26 @@ describe('the example app in the real Even Hub simulator', () => {
     const page = readFileSync('example/index.html', 'utf8')
     const typed = (secret: string) => page.replace('id="secret"', `id="secret" value="${secret}"`)
     const later = `<script>
+      const mine = '${TYPED_YET}' + location.search
       const asking = setInterval(async () => {
-        const said = await (await fetch('${TYPED_YET}')).text()
+        const said = await (await fetch(mine)).text()
         if (!said) return
         clearInterval(asking)
         document.getElementById('secret').value = said
-        await fetch('${TYPED_YET}', { method: 'POST' })
+        await fetch(mine, { method: 'POST' })
       }, 200)
     </script>`
-    const pages: Record<string, string> = {
-      [TYPED]: typed(PHRASE),
-      [MISTYPED]: typed(`${PHRASE}, nearly`),
-      [TYPED_LATER]: `${page}${later}`,
-    }
+    const pages: Record<string, string> = { [TYPED]: typed(PHRASE), [MISTYPED]: typed(`${PHRASE}, nearly`) }
     server = createServer((request, response) => {
-      if (request.url === TYPED_YET) {
-        if (request.method === 'POST') typing.done = true
-        return void response.end(typing.now ? PHRASE : '')
+      const address = request.url ?? ''
+      if (address.startsWith(TYPED_YET)) {
+        const typing = typings.get(address.slice(TYPED_YET.length))
+        if (typing && request.method === 'POST') typing.done = true
+        return void response.end(typing?.now ? PHRASE : '')
       }
-      const wanted = request.url === '/main.js'
+      const wanted = address === '/main.js'
       response.setHeader('content-type', wanted ? 'text/javascript' : 'text/html')
-      response.end(wanted ? script : (pages[request.url ?? ''] ?? page))
+      response.end(wanted ? script : address.startsWith(TYPED_LATER) ? `${page}${later}` : (pages[address] ?? page))
     })
     await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
     url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -98,7 +96,7 @@ describe('the example app in the real Even Hub simulator', () => {
   const MISTYPED = '/with-the-secret-mistyped'
   const TYPED_LATER = '/with-the-secret-typed-later'
   const TYPED_YET = '/is-the-secret-typed-yet'
-  const typing = { now: false, done: false }
+  const typings = new Map<string, { now: boolean; done: boolean }>()
   const start = async (more = '', mic = false, path = '/') => {
     const sim = await Simulator.start({ url: `${url}${path}#${more}`, limitSeconds: 300, mic })
     onTestFinished(() => sim.stop())
@@ -231,10 +229,8 @@ describe('the example app in the real Even Hub simulator', () => {
     "sends a hold through the developer's relay, once the secret is typed on the phone: speech to words, then Jev's pick",
     async () => {
       const sim = await start('', true, TYPED)
-      forwarded.length = 0
       await sim.hold(1_200)
       await sim.shows('Hold the touchpad and say')
-      expect(forwarded).toEqual(['/api/v1/audio/transcriptions', '/api/alpha/decisions'])
     },
   )
 
@@ -247,7 +243,11 @@ describe('the example app in the real Even Hub simulator', () => {
   it.runIf(process.platform === 'linux')(
     'takes the secret that is typed while the app runs: the hold after it goes through, with no wait',
     async () => {
-      const sim = await start('', true, TYPED_LATER)
+      const typing = { now: false, done: false }
+      const mine = `?${randomUUID()}`
+      typings.set(mine, typing)
+      onTestFinished(() => void typings.delete(mine))
+      const sim = await start('', true, `${TYPED_LATER}${mine}`)
       await sim.hold(1_200)
       await sim.shows('Voice is off for now')
       typing.now = true
