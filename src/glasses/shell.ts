@@ -192,6 +192,7 @@ export class Shell {
     this.#life.own(() => {
       this.#recording?.end()
       this.#letGo()
+      progressOf(this.#glasses).drop(this.#pending)
       if (this.#overlaid) this.#glasses.overlay(null)
     })
     this.#life.own(
@@ -264,7 +265,7 @@ export class Shell {
     this.#places.set(showing, Object.assign(place, reached))
     const frame = this.#glasses.draw({ boxes, pictures, menu })
     this.#pending = [...this.#pending.filter(asked => asked === progressOf(this.#glasses).sending || asked > frame), frame]
-    if (!showings.onPath(showing)) return progressOf(this.#glasses).drop([frame])
+    if (this.#life.ended || !showings.onPath(showing)) return progressOf(this.#glasses).drop([frame])
     if (!this.#drawn || frame > this.#drawn.frame)
       this.#drawn = { frame, screen, showing, view: kept, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
     this.#frames.asked(frame, showing, drew, view.kind)
@@ -423,8 +424,6 @@ export class Shell {
 
   #callOff(): void {
     this.#turn++
-    const pressed = this.#recording?.source
-    if (pressed !== undefined && this.#down.has(pressed)) this.#spent.add(pressed)
     const deciding = this.#deciding
     this.#deciding = null
     this.#decidingOn = null
@@ -462,6 +461,7 @@ export class Shell {
     const showing = showings.current
     const voice = this.#voice
     const longest = Math.min(voice?.maxHoldMs ?? MAX_HOLD_MS, LONGEST_HOLD_MS)
+    if (this.#life.ended) return
     this.#down.get(source)?.cancel()
     this.#down.set(
       source,
@@ -509,6 +509,7 @@ export class Shell {
       },
     }
     this.#recording = recording
+    this.#spent.add(source)
     this.#held.want(true)
     listening()
     voice.onListen?.()
@@ -694,6 +695,7 @@ export class Shell {
     }
     const target = targets?.find(candidate => candidate.id === targetId)
     const risk = target?.risk ?? chosen.risk
+    if (moves !== this.#moves) return
     if (risk === 'safe' || (risk === 'voice' && !said)) return this.#run(chosen, targetId, said)
     const still = () => showings.current === showing && showings.onPath(showing)
     const instead = pass && this.#voice?.instead
@@ -717,7 +719,7 @@ export class Shell {
       const jumps = this.#jumps(chosen, targetId)
       if (moves !== this.#moves) return
       let left = false
-      const still = () => moves === this.#moves || ((left = true), false)
+      const still = () => (moves === this.#moves && !this.#life.ended) || ((left = true), false)
       const act = () => unless(chosen)?.(targetId, still) ?? chosen.run(targetId)
       this.#said = said
       const running = jumps ? this.#router.jumping(act) : act()

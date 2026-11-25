@@ -2195,6 +2195,35 @@ describe('watching the draws', () => {
     expect(fake.lines().at(-1)).toBe('Newer end')
   })
 
+  it('keeps what lies under a notice as it was, though a frame taken back before its first call had the same words in sight', async () => {
+    const fake = fakeBridge()
+    let back = false
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (!back || event.at !== 'begin') return
+        back = false
+        progressOf(glasses).drop([event.frame])
+      },
+    })
+    const rows = (last: string) => [...Array.from({ length: 8 }, (_, at) => `Row ${at + 1}`), last].join('\n')
+    const body = (text: string) => box('body', text, { y: 27, h: 243 })
+    glasses.draw(frame(box('title', 'Title'), body(rows('Last row'))))
+    await settle()
+    const seen = () => fake.boxes().map(({ text, brightness }) => [text, brightness])
+    const before = seen()
+    glasses.overlay('Status')
+    await settle()
+    expect(fake.lines().join(' ')).not.toContain('Last row')
+    back = true
+    glasses.draw(frame(box('title', 'Other title'), body(rows('Other last row'))))
+    await settle()
+    const third = glasses.draw(frame(box('title', 'Third'), body(rows('Third last row'))))
+    progressOf(glasses).drop([third])
+    glasses.overlay(null)
+    await settle(60_000)
+    expect(seen()).toEqual(before)
+  })
+
   it('leaves where it landed what was on its way when its frame was taken back, and sends nothing to cover it', async () => {
     const fake = fakeBridge()
     const glasses = new Glasses(new Lifetime(), fake.bridge)

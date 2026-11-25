@@ -598,7 +598,7 @@ export class Glasses {
         if (index > 0) this.#have.boxes[index - 1] = kept(box, frame)
       }
       if (this.#sent.get(box.id) === stateOf(box)) {
-        if (!left) noted()
+        if (!left && !this.#takenBack(frame)) noted()
         continue
       }
       const upgrade = new TextContainerUpgrade({

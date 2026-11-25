@@ -439,6 +439,86 @@ describe('drawing', () => {
     life.end()
   })
 
+  it("runs the work an app put in place of an action's own, on the very object the action was made as", async () => {
+    const ran: string[] = []
+    const act = action({ id: 'act', say: 'Act', run: () => void ran.push('first') })
+    act.run = async () => (ran.push('put in its place'), { done: true })
+    const { fake, router } = world({ home: () => ({ id: 'home', view: () => text({ body: 'Home' }), actions: () => [act] }) })
+    await settle()
+    fake.pick('Act')
+    await settle()
+    await router.run('act')
+    expect(ran).toEqual(['put in its place', 'put in its place'])
+  })
+
+  it('runs nothing when an action an app made by hand, asked how much care it needs, opens another screen', async () => {
+    const places: { router?: Router } = {}
+    const ran: string[] = []
+    let armed = false
+    const own: Action = {
+      id: 'own',
+      say: 'Own',
+      get risk() {
+        if (armed) places.router?.open({ id: 'other', view: () => text({ body: 'Other' }) })
+        armed = false
+        return 'safe' as const
+      },
+      blocked: () => null,
+      targets: () => null,
+      run: async () => (ran.push('own'), { done: true }),
+    }
+    const { fake, router } = world({ home: () => ({ id: 'home', view: () => text({ body: 'Home' }), actions: () => [own] }) })
+    places.router = router
+    await settle()
+    armed = true
+    fake.pick('Own')
+    await settle()
+    expect([router.current.id, ran]).toEqual(['other', []])
+  })
+
+  it('runs nothing for a shell that the app ended as it was asked for the work of an action', async () => {
+    const life = new Lifetime()
+    const mine = life.child()
+    const fake = fakeBridge()
+    const ran: string[] = []
+    const act = action({
+      id: 'act',
+      say: 'Act',
+      get run() {
+        mine.end()
+        return () => void ran.push('act')
+      },
+    })
+    new Shell(
+      mine,
+      new Glasses(life, fake.bridge),
+      new Router({ home: { id: 'home', view: () => text({ body: 'Home' }), actions: () => [act] } }),
+    )
+    await settle()
+    fake.pick('Act')
+    await settle()
+    expect(ran).toEqual([])
+    life.end()
+  })
+
+  it.each(['at once', 'as whoever watches hears of the draw'])('takes back the frame it asked for when the app ends it %s', async when => {
+    const life = new Lifetime()
+    const mine = life.child()
+    const fake = fakeBridge()
+    let armed = false
+    const glasses = new Glasses(life, fake.bridge, { watch: event => void (armed && event.at === 'ask' && mine.end()) })
+    let body = 'Home'
+    const shell = new Shell(mine, glasses, new Router({ home: { id: 'home', view: () => text({ body }) } }))
+    await settle()
+    body = 'After the end'
+    armed = when !== 'at once'
+    shell.redraw()
+    mine.end()
+    await settle()
+    expect(fake.lines()).toEqual(['Home'])
+    life.end()
+  })
+
   it('runs an action an app made by hand, as it always did', async () => {
     const ran: string[] = []
     const own: Action = {
@@ -2894,6 +2974,49 @@ describe('a hold', () => {
     expect(reported.mock.calls.map(([error]) => String(error))).toEqual([
       'Error: Earshot: a listener of the settings of a voice turn threw.',
     ])
+  })
+
+  it('records once for one press: no second recording after the first ran its full length and its turn was called off', async () => {
+    const asked: number[] = []
+    const { fake, router } = world({
+      voice: { maxHoldMs: 1_000, transcribe: audio => (asked.push(audio.seconds), new Promise<string>(() => {})) },
+    })
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(400))
+    fake.sound(tone(400))
+    await settle(1_000)
+    expect(asked).toHaveLength(1)
+    router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(400))
+    fake.sound(tone(400))
+    fake.release()
+    await settle(50)
+    expect(asked).toHaveLength(1)
+    await say(fake)
+    expect(asked).toHaveLength(2)
+  })
+
+  it('takes no microphone for a shell that the app ended as it was asked how long a hold may be', async () => {
+    const life = new Lifetime()
+    const mine = life.child()
+    const fake = fakeBridge()
+    const glasses = new Glasses(life, fake.bridge)
+    const { voice } = hearing('refresh')
+    Object.defineProperty(voice, 'maxHoldMs', { get: () => (mine.end(), 5_000) })
+    new Shell(mine, glasses, new Router({ home: { id: 'home', view: () => text({ body: 'Home' }) } }), { voice })
+    const heard: number[] = []
+    life.own(glasses.listen(sound => void heard.push(sound.pcm.length)))
+    await settle()
+    fake.hold()
+    await settle(50)
+    fake.release()
+    fake.sound(tone(200))
+    expect(heard).toEqual([tone(200).length])
+    life.end()
   })
 
   it('records nothing for a hold when the screen was replaced as the app was asked how long a hold may be', async () => {

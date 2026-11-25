@@ -24,9 +24,12 @@ export type Outcome =
 
 type Unless = (targetId: string | undefined, still: () => boolean) => Promise<Outcome>
 
-const UNLESS = new WeakMap<Action, Unless>()
+const UNLESS = new WeakMap<Action, { run: Action['run']; unless: Unless }>()
 
-export const unless = (made: Action): Unless | undefined => UNLESS.get(made)
+export function unless(made: Action): Unless | undefined {
+  const kept = UNLESS.get(made)
+  return kept?.run === made.run ? kept.unless : undefined
+}
 
 export interface Action {
   readonly id: string
@@ -75,7 +78,7 @@ export function action<T = never>(spec: PlainSpec | TargetSpec<T>): Action {
     ...(spec.targets && spec.choose ? { choose: spec.choose } : {}),
     run: targetId => run(targetId, () => true),
   }
-  UNLESS.set(made, run)
+  UNLESS.set(made, { run: made.run, unless: run })
   return made
 
   async function run(targetId: string | undefined, still: () => boolean): Promise<Outcome> {
