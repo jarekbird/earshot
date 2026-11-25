@@ -6,11 +6,18 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.45 (2026-11-24)
+## 0.0.46 (2026-11-25)
 
 - No relay is made for an upstream of the three calls that is named with a fragment (`#`): everything after it
   never reached the upstream, so the calls went somewhere other than the address said.
 - **An app must** name its relay's upstream without a fragment. One named with a query of its own is taken as before.
+
+## 0.0.45 (2026-11-25)
+
+- A tap on a list runs only the row the glasses show the cursor on, and a gesture a screen of boxes ties to an
+  action runs only what the screen on show ties it to. A touch that comes while a redraw is still being written to
+  the glasses is dropped; it ran what the newest frame held, which was not yet on show.
+- A picture the glasses refuse is sent again, as a refused text already was.
 
 ## 0.0.44 (2026-11-24)
 

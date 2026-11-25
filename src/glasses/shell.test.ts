@@ -301,6 +301,7 @@ describe('a list', () => {
     const { fake, ran } = world()
     await settle()
     fake.down()
+    await settle()
     fake.tap()
     await settle()
     expect(ran).toEqual(['open Ben'])
@@ -312,6 +313,7 @@ describe('a list', () => {
     await settle()
     fake.down()
     fake.down()
+    await settle()
     fake.tap()
     await settle()
     fake.double()
@@ -414,6 +416,238 @@ describe('a screen of boxes', () => {
   })
 })
 
+describe('a tap while a redraw is on its way to the glasses', () => {
+  const held = (fake: ReturnType<typeof fakeBridge>) => {
+    const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
+    let answer: (() => void) | undefined
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      if (!answer) await new Promise<void>(done => (answer = done))
+      return send(upgrade)
+    }
+    return () => answer!()
+  }
+
+  it('E15: runs no row of a list but the one the glasses show the cursor on', async () => {
+    const { fake, cursor, ran } = world()
+    await settle()
+    const answer = held(fake)
+    fake.down()
+    await settle(0)
+    expect(cursor()).toBe(names[0])
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer()
+    await settle()
+    expect(cursor()).toBe(names[1])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[1]}`])
+  })
+
+  it('E15: runs nothing while a redraw is being written, even one that leaves the row as it is: the glasses show a mix of two frames', async () => {
+    const { fake, ran, people, shell } = world()
+    await settle()
+    const answer = held(fake)
+    people.push('Dee')
+    shell.redraw()
+    await settle(0)
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer()
+    await settle()
+    expect(fake.lines().join(' ')).toContain('Dee')
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[0]}`])
+  })
+
+  it('E15: runs nothing while the marker of a list has moved and its rows have not: the same row is under the cursor in both frames, not in the mix', async () => {
+    const { fake, ran, people } = world()
+    await settle()
+    const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
+    let writes = 0
+    let answer: (() => void) | undefined
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      if (++writes === 2) await new Promise<void>(done => (answer = done))
+      return send(upgrade)
+    }
+    people.splice(0, 2, names[1], names[0])
+    fake.down()
+    await settle(0)
+    expect(answer).toBeDefined()
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer!()
+    await settle()
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[0]}`])
+  })
+
+  it('E15: runs nothing on a gesture of a screen of boxes that the screen on show ties to something else', async () => {
+    let playing = false
+    const { fake, ran, shell } = world({
+      home: ({ ran }) => {
+        const play = action({ id: 'play', say: 'Play', run: () => void ran.push('play') })
+        const pause = action({ id: 'pause', say: 'Pause', run: () => void ran.push('pause') })
+        return {
+          id: 'player',
+          actions: () => [],
+          view: () =>
+            boxes([{ id: 'only', x: 0, y: 0, w: 576, h: 27, text: playing ? 'Playing' : 'Stopped' }], {
+              on: { tap: playing ? pause : play },
+            }),
+        }
+      },
+    })
+    await settle()
+    const answer = held(fake)
+    playing = true
+    shell.redraw()
+    await settle(0)
+    expect(fake.lines()).toEqual(['Stopped'])
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer()
+    await settle()
+    expect(fake.lines()).toEqual(['Playing'])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['pause'])
+  })
+
+  it('E15: runs nothing while a frame between the one answered and the newest may be partly on show', async () => {
+    let playing = false
+    const { fake, ran, shell } = world({
+      home: ({ ran }) => {
+        const play = action({ id: 'play', say: 'Play', run: () => void ran.push('play') })
+        const pause = action({ id: 'pause', say: 'Pause', run: () => void ran.push('pause') })
+        return {
+          id: 'player',
+          actions: () => [],
+          view: () =>
+            boxes(
+              [
+                { id: 'label', x: 0, y: 0, w: 576, h: 27, text: playing ? 'Pause' : 'Play' },
+                { id: 'state', x: 0, y: 27, w: 576, h: 27, text: playing ? 'Playing' : 'Stopped' },
+              ],
+              { on: { tap: playing ? pause : play } },
+            ),
+        }
+      },
+    })
+    await settle()
+    const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
+    let writes = 0
+    let answer: (() => void) | undefined
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      if (++writes === 2) await new Promise<void>(done => (answer = done))
+      return send(upgrade)
+    }
+    playing = true
+    shell.redraw()
+    await settle(0)
+    expect(fake.lines()).toEqual(['Pause', 'Stopped'])
+    playing = false
+    shell.redraw()
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer!()
+    await settle()
+    expect(fake.lines()).toEqual(['Play', 'Stopped'])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['play'])
+  })
+
+  const player = (shows: () => { text: string; picture: string; playing: boolean }) =>
+    world({
+      home: ({ ran }) => {
+        const play = action({ id: 'play', say: 'Play', run: () => void ran.push('play') })
+        const pause = action({ id: 'pause', say: 'Pause', run: () => void ran.push('pause') })
+        return {
+          id: 'player',
+          actions: () => [],
+          view: () =>
+            boxes([{ id: 'status', x: 0, y: 0, w: 576, h: 27, text: shows().text }], {
+              on: { tap: shows().playing ? pause : play },
+              pictures: [
+                { id: 'button', x: 300, y: 54, w: 200, h: 100, key: shows().picture, data: new Uint8Array([shows().picture.length]) },
+              ],
+            }),
+        }
+      },
+    })
+
+  it('E15: runs nothing while a picture of a frame between the one answered and the newest may be on show', async () => {
+    let now = { text: 'Song', picture: 'play', playing: false }
+    const { fake, ran, shell } = player(() => now)
+    await settle()
+    const hang = fake.bridge.updateImageRawData.bind(fake.bridge)
+    let answer: (() => void) | undefined
+    fake.bridge.updateImageRawData = async update => {
+      const result = await hang(update)
+      if (!answer) await new Promise<void>(done => (answer = done))
+      return result
+    }
+    now = { text: 'Song', picture: 'pause', playing: true }
+    shell.redraw()
+    await settle(0)
+    expect(answer).toBeDefined()
+    now = { text: 'Song', picture: 'play', playing: false }
+    shell.redraw()
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer!()
+    await settle()
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['play'])
+  })
+
+  it('still runs what a tap is tied to while newer frames are asked for and none of them is sent yet: the glasses show the old one whole', async () => {
+    let now = { text: 'One', picture: 'play', playing: false }
+    const { fake, ran, shell } = player(() => now)
+    await settle()
+    now = { text: 'One', picture: 'play', playing: true }
+    shell.redraw()
+    now = { text: 'Two', picture: 'play', playing: false }
+    shell.redraw()
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['play'])
+    expect(fake.lines()).toEqual(['Two'])
+  })
+
+  it('E15: runs nothing on a tap of an empty list, also when the screen is on its way to tying a tap to that action', async () => {
+    let listed = true
+    const { fake, ran, shell } = world({
+      home: ({ refresh }) => ({
+        id: 'home',
+        actions: () => [],
+        view: () =>
+          listed
+            ? list({ title: 'Home', action: refresh })
+            : boxes([{ id: 'only', x: 0, y: 0, w: 576, h: 27, text: 'Refresh' }], { on: { tap: refresh } }),
+      }),
+    })
+    await settle()
+    fake.refuse('rebuild', 100)
+    listed = false
+    shell.redraw()
+    await settle(0)
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+  })
+})
+
 describe('a double tap', () => {
   it('goes back, and from the home screen asks Even to close the app', async () => {
     const { fake, router } = world()
@@ -512,6 +746,7 @@ describe("Even's menu", () => {
     expect(fake.lines()).toEqual(['More…', '> Action 9', 'Action 10', 'Last', 'Go back', 'Go home'])
     fake.down()
     fake.down()
+    await settle()
     fake.tap()
     await settle()
     expect(ran).toEqual(['last'])
@@ -778,6 +1013,7 @@ describe('an action that asks first', () => {
     made.fake.pick('Delete')
     await settle()
     made.fake.down()
+    await settle()
     made.fake.tap()
     await settle()
     return made
@@ -1147,6 +1383,7 @@ describe('a hold', () => {
     await say(fake)
     expect(fake.lines()).toEqual(['Which one?', '> Open: Ana', 'Open: Ben'])
     fake.down()
+    await settle()
     fake.tap()
     await settle()
     expect(ran).toEqual(['open Ben'])
@@ -2092,6 +2329,7 @@ describe('a hold', () => {
       expect(fake.lines()).toEqual(['Which one?', '> Open: Ana', 'Open: Ben', 'Keep as a note'])
       fake.down()
       fake.down()
+      await settle()
       fake.tap()
       await settle()
       expect(got.map(heard => heard.words)).toEqual(['ana ben'])
