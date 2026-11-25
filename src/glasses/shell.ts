@@ -10,7 +10,7 @@ import { serve } from '../serve.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
 import { after, copied, Frames, type Read } from './frames.js'
-import { plainFrame, progressOf, type Glasses } from './glasses.js'
+import { OVERLAY, plainFrame, progressOf, type Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { BODY, layoutList, layoutText, type LaidText, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
@@ -132,7 +132,7 @@ export class Shell {
   #asking: { yes: () => void; no?: () => void } | null = null
   #overlaid = false
   #noticed = false
-  #card: string | null = null
+  #over: string | null = null
   #spared: HoldSource | undefined
   #slow: Timer | undefined
   #fading: Timer | undefined
@@ -356,7 +356,7 @@ export class Shell {
     this.#fading = ms === undefined ? undefined : this.#life.timeout(() => this.#clear(), ms)
     this.#asking = null
     this.#overlaid = true
-    this.#card = text
+    this.#over = text
     this.#glasses.overlay(text)
   }
 
@@ -366,6 +366,7 @@ export class Shell {
     this.#fading = undefined
     this.#asking = null
     this.#overlaid = false
+    this.#over = null
     if (mine) this.#glasses.overlay(null)
   }
 
@@ -405,6 +406,10 @@ export class Shell {
       return
     }
     const asking = this.#asking
+    const onShow = this.#glasses[OVERLAY]
+    const aimed = input.kind === 'tap' || input.kind === 'up' || input.kind === 'down'
+    if (asking && aimed && onShow !== this.#over) return
+    const covered = this.#overlaid || onShow !== null
     if (this.#overlaid) this.#clear()
     if (asking) return input.kind === 'tap' ? asking.yes() : input.kind === 'up' || input.kind === 'down' ? asking.no?.() : undefined
     if (input.kind === 'double') {
@@ -412,6 +417,7 @@ export class Shell {
       return
     }
     if (input.kind === 'menu') return this.#picked(input.item)
+    if (covered) return
     const drawn = this.#drawn
     const showing = showingsOf(this.#router).current
     const place = showing && this.#places.get(showing)
@@ -446,7 +452,7 @@ export class Shell {
       this.#recording?.end()
     } finally {
       if (moved && this.#noticed) this.#spared = pressed
-      else if (this.#overlaid) this.#clear(!moved || progressOf(this.#glasses).card() === this.#card)
+      else if (this.#overlaid) this.#clear(!moved || progressOf(this.#glasses).card() === this.#over)
     }
   }
 

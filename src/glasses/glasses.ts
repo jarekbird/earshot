@@ -109,7 +109,10 @@ interface Page {
   boxes: Placed[]
   pictures: Hung[]
   menu: MenuItem[]
+  over: string | null
 }
+
+export const OVERLAY = Symbol('the overlay the glasses are known to show')
 
 const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
@@ -247,6 +250,7 @@ export class Glasses {
   readonly #progress = { shown: 0, menu: 0, sending: 0 }
   readonly #from = new Map<string, number>()
   readonly #following = new Set<() => void>()
+  #over: string | null | undefined = null
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
@@ -307,6 +311,10 @@ export class Glasses {
         else this.#wanted = null
       },
     }
+  }
+
+  get [OVERLAY](): string | null | undefined {
+    return this.#over
   }
 
   get micOpen(): boolean {
@@ -404,7 +412,7 @@ export class Glasses {
       .filter(fits)
       .slice(0, MAX_IMAGE_BOXES)
       .map((picture, index) => ({ id: FIRST_PICTURE + index, name: picture.id.slice(0, MAX_NAME_CHARS), picture }))
-    this.#wanted = { frame: this.#number, from: this.#frame, left: this.#left, boxes, pictures, menu }
+    this.#wanted = { frame: this.#number, from: this.#frame, left: this.#left, boxes, pictures, menu, over: this.#overlay }
     void this.#run()
   }
 
@@ -496,6 +504,7 @@ export class Glasses {
           return this.#later(inMs)
         }
         this.#watch({ at: 'end', frame, drawn })
+        this.#over = page.over
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
         this.#report(page)
@@ -556,7 +565,7 @@ export class Glasses {
     return ok
   }
 
-  async #build({ frame, left, boxes, pictures, menu }: Page, shape: string): Promise<boolean> {
+  async #build({ frame, left, boxes, pictures, menu, over }: Page, shape: string): Promise<boolean> {
     const menuItems = menu.map(({ id, name }) => new MenuItemProperty({ itemID: id, itemName: name }))
     const page = {
       containerTotalNum: boxes.length + pictures.length,
@@ -567,6 +576,8 @@ export class Glasses {
     const create = () => this.#bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page))
     const rebuild = () => this.#bridge.rebuildPageContainer(new RebuildPageContainer(page))
     const shown = boxes.length - 1
+    if (over !== this.#over) this.#over = undefined
+    let made = false
     const built = () => {
       this.#created = true
       this.#shape = shape
@@ -585,13 +596,22 @@ export class Glasses {
       this.#progressed({ menu: frame })
       this.#landed()
     }
-    let drawn = !this.#created && (await this.#ask(frame, 'create', shown, create, StartUpPageCreateResult.success, undefined, built))
+    const asked =
+      <T>(call: () => Promise<T>) =>
+      () => ((made = true), call())
+    let drawn =
+      !this.#created && (await this.#ask(frame, 'create', shown, asked(create), StartUpPageCreateResult.success, undefined, built))
     // A reloaded web view already owns a page, so a create is refused and a rebuild takes it over.
-    if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, rebuild, true, undefined, built)
+    if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, asked(rebuild), true, undefined, built)
+    if (!drawn && made) {
+      this.#sent.clear()
+      this.#shape = ''
+      this.#layout = ''
+    }
     return drawn && !this.#life.ended
   }
 
-  async #update({ frame, left, boxes }: Page, whole = false): Promise<boolean> {
+  async #update({ frame, left, boxes, over }: Page, whole = false): Promise<boolean> {
     let drawn = true
     for (const [index, box] of boxes.entries()) {
       const noted = () => {
@@ -615,9 +635,15 @@ export class Glasses {
         this.#progressed(whole && boxes.every(other => this.#sent.get(other.id) === stateOf(other)) ? { menu: frame } : {})
         this.#landed()
       }
-      const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name, taken)
+      if (over !== this.#over) this.#over = undefined
+      let made = false
+      const write = () => ((made = true), this.#bridge.textContainerUpgrade(upgrade))
+      const accepted = await this.#ask(frame, 'update', 1, write, true, box.name, taken)
       if (this.#life.ended) return false
-      if (!accepted) drawn = false
+      if (!accepted) {
+        if (made) this.#sent.delete(box.id)
+        drawn = false
+      }
     }
     return drawn
   }

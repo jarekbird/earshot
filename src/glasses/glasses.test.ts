@@ -384,6 +384,26 @@ describe('the menu', () => {
   })
 })
 
+describe('a rebuild the glasses refuse', () => {
+  it('is taken for one that may have landed: the page before it is built again, not only written into', async () => {
+    const { fake, glasses } = setup()
+    glasses.draw(frame(box('body', 'One', { h: 200 })))
+    await settle(1_000)
+    const rebuild = fake.bridge.rebuildPageContainer.bind(fake.bridge)
+    fake.bridge.rebuildPageContainer = async page => {
+      fake.bridge.rebuildPageContainer = rebuild
+      await rebuild(page)
+      return false
+    }
+    glasses.draw(frame(box('body', 'One', { h: 40 })))
+    await settle()
+    expect(fake.boxes().find(drawn => drawn.name === 'body')!.h).toBe(40)
+    glasses.draw(frame(box('body', 'One', { h: 200 })))
+    await settle(10_000)
+    expect(fake.boxes().find(drawn => drawn.name === 'body')!.h).toBe(200)
+  })
+})
+
 describe('input', () => {
   it('tells every listener what the user did', () => {
     const { fake, glasses } = setup()
@@ -1922,10 +1942,13 @@ describe('watching the draws', () => {
     expect([glasses.shown, ends.filter(end => end.startsWith(`${second} `))]).toEqual([first, [`${second} false`]])
   })
 
-  it('hangs nothing on its own objects that an app could see or copy: what it tells the shell is kept beside them', () => {
+  it('adds no key to the glasses for what it tells the shell of its progress: the only two are the hold and the overlay', () => {
     const glasses = new Glasses(new Lifetime(), fakeBridge().bridge)
     const keys = (of: object) => Object.getOwnPropertySymbols(of).map(String)
-    expect([...keys(glasses), ...keys(Glasses.prototype)]).toEqual(['Symbol(the microphone, for a hold alone)'])
+    expect([...keys(glasses), ...keys(Glasses.prototype)].sort()).toEqual([
+      'Symbol(the microphone, for a hold alone)',
+      'Symbol(the overlay the glasses are known to show)',
+    ])
     expect(typeof progressOf(glasses).drop).toBe('function')
   })
 
@@ -2030,9 +2053,29 @@ describe('watching the draws', () => {
     glasses.draw(frame(box('title', 'First')))
     await settle()
     back = true
+    const before = fake.calls.length
     glasses.draw(frame(box('title', 'Second')))
-    await settle()
-    expect(fake.lines()).toEqual(['First'])
+    await settle(60_000)
+    expect([fake.lines(), fake.calls.slice(before)]).toEqual([['First'], []])
+  })
+
+  it('builds nothing again for a page whose rebuild was taken back before it was asked of the glasses', async () => {
+    const fake = fakeBridge()
+    let back = false
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (!back || event.at !== 'begin') return
+        back = false
+        progressOf(glasses).drop([event.frame])
+      },
+    })
+    glasses.draw({ ...frame(box('title', 'First')), menu: [{ id: 1, name: 'A' }] })
+    await settle(REBUILD_GAP_MS)
+    back = true
+    const before = fake.calls.length
+    glasses.draw({ ...frame(box('title', 'Second')), menu: [{ id: 2, name: 'B' }] })
+    await settle(60_000)
+    expect([fake.lines(), fake.calls.slice(before)]).toEqual([['First'], []])
   })
 
   it('draws a box whose fields an app gives through getters, as it always did', async () => {
@@ -2093,7 +2136,7 @@ describe('watching the draws', () => {
     expect([fake.lines(), glasses.shown]).toEqual([['Next'], next])
   })
 
-  it('sends nothing again of the frame last shown when a newer one, part of it already taken, is taken back', async () => {
+  it('sends nothing more of a newer frame that is taken back, part of it already taken: only the box whose write was refused is written again, as it was', async () => {
     const fake = fakeBridge()
     const glasses = new Glasses(new Lifetime(), fake.bridge)
     const body = (text: string) => box('body', text, { y: 27, h: 200 })
@@ -2107,7 +2150,7 @@ describe('watching the draws', () => {
     progressOf(glasses).drop([second])
     await settle(60_000)
     expect(fake.lines()).toEqual(['Before', 'Withheld'])
-    expect(fake.calls.slice(before)).toEqual([])
+    expect(fake.calls.slice(before)).toEqual(['update title'])
     expect([progressOf(glasses).has('title'), progressOf(glasses).has('body')]).toEqual([second - 1, second])
   })
 
