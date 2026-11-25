@@ -106,10 +106,10 @@ interface Page {
   boxes: Placed[]
   pictures: Hung[]
   menu: MenuItem[]
-  over: boolean
+  over: string | null
 }
 
-export const COVERED = Symbol('whether the glasses have an overlay on show')
+export const OVERLAY = Symbol('the overlay the glasses are known to show')
 
 const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
@@ -209,7 +209,7 @@ export class Glasses {
   #retryAt = 0
   #traced = ''
   #shown = 0
-  #covered = false
+  #over: string | null | undefined = null
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
@@ -230,8 +230,8 @@ export class Glasses {
     return this.#shown
   }
 
-  get [COVERED](): boolean {
-    return this.#covered
+  get [OVERLAY](): string | null | undefined {
+    return this.#over
   }
 
   get micOpen(): boolean {
@@ -314,7 +314,7 @@ export class Glasses {
       .filter(fits)
       .slice(0, MAX_IMAGE_BOXES)
       .map((picture, index) => ({ id: FIRST_PICTURE + index, name: picture.id.slice(0, MAX_NAME_CHARS), picture }))
-    this.#wanted = { frame: this.#frames, boxes, pictures, menu, over: over !== null }
+    this.#wanted = { frame: this.#frames, boxes, pictures, menu, over: this.#overlay }
     void this.#run()
   }
 
@@ -384,6 +384,7 @@ export class Glasses {
         }
         this.#watch({ at: 'end', frame, drawn })
         this.#shown = frame
+        this.#over = page.over
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
         this.#report(page)
@@ -427,15 +428,14 @@ export class Glasses {
     const create = () => this.#bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page))
     const rebuild = () => this.#bridge.rebuildPageContainer(new RebuildPageContainer(page))
     const shown = boxes.length - 1
-    if (over) this.#covered = true
+    if (over !== this.#over) this.#over = undefined
     let drawn = !this.#created && (await this.#ask(frame, 'create', shown, create, StartUpPageCreateResult.success))
     // A reloaded web view already owns a page, so a create is refused and a rebuild takes it over.
     if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, rebuild, true)
     if (!drawn) {
-      this.#sent.delete(INPUT)
+      this.#sent.clear()
       return false
     }
-    this.#covered = over
     this.#created = true
     this.#shape = shape
     this.#layout = layoutOf({ boxes, pictures })
@@ -455,13 +455,14 @@ export class Glasses {
         content: box.text,
         textColor: box.brightness,
       })
-      if (box.id === INPUT && over) this.#covered = true
+      if (over !== this.#over) this.#over = undefined
       const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name)
       if (this.#life.ended) return false
       if (accepted) this.#sent.set(box.id, stateOf(box))
-      else drawn = false
-      if (box.id === INPUT && accepted) this.#covered = over
-      if (box.id === INPUT && !accepted) this.#sent.delete(INPUT)
+      else {
+        this.#sent.delete(box.id)
+        drawn = false
+      }
     }
     return drawn
   }
