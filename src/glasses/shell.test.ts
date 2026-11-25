@@ -884,6 +884,66 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     life.end()
   })
 
+  it('takes no swipe on its text while the glasses show a frame the app drew on them itself, in place of its first', async () => {
+    const fake = fakeBridge()
+    const life = new Lifetime()
+    const glasses = new Glasses(life, fake.bridge)
+    const body = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join('\n')
+    new Shell(life, glasses, new Router({ home: { id: 'log', view: () => text({ title: 'Log', body }) } }))
+    glasses.draw({ boxes: [{ id: 'count', x: 0, y: 0, w: 200, h: 40, text: 'Countdown' }] })
+    await settle()
+    expect(fake.lines()).toEqual(['Countdown'])
+    fake.down()
+    await settle()
+    expect(fake.lines()).toEqual(['Countdown'])
+    life.end()
+  })
+
+  it('sends the glasses no empty page when the router is closed by the first screen as it is asked for its view', async () => {
+    const fake = fakeBridge()
+    const life = new Lifetime()
+    let closed = false
+    const router: Router = new Router({
+      home: {
+        id: 'home',
+        view: () => {
+          if (!closed) {
+            closed = true
+            router.close()
+          }
+          return text({ body: 'Home' })
+        },
+      },
+    })
+    new Shell(life, new Glasses(life, fake.bridge), router)
+    await settle()
+    expect(fake.calls).toEqual([])
+    life.end()
+  })
+
+  it('opens no list of rows for an action whose screen was replaced as the app was asked for those rows', async () => {
+    const { fake, router } = world()
+    let moved = false
+    const rows = action({
+      id: 'rows',
+      say: 'Rows',
+      targets: () => {
+        if (!moved) {
+          moved = true
+          router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+        }
+        return [{ id: 'a', say: 'Row', value: 'a' }]
+      },
+      run: () => {},
+    })
+    router.open({ id: 'card', actions: () => [rows], view: () => text({ body: 'Card' }) })
+    await settle()
+    moved = false
+    fake.pick('Rows')
+    await settle()
+    expect(router.current.id).toBe('other')
+  })
+
   it('runs nothing for a tap or a swipe once the router is closed', async () => {
     const ran: string[] = []
     const { fake, router } = world()
@@ -1866,6 +1926,82 @@ describe('a hold', () => {
     expect(router.current.id).toBe('child')
     expect(fake.lines()).not.toContain('Which one?')
     expect(heard).toEqual([])
+  })
+
+  it('keeps what is said in a hold from other listeners also once the router is closed, and records nothing of it', async () => {
+    const { voice, asked } = hearing('open ben')
+    const { fake, glasses, life, router } = world({ voice })
+    await settle()
+    const heard: number[] = []
+    life.own(glasses.listen(sound => void heard.push(sound.pcm.length)))
+    await settle()
+    router.close()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(400))
+    expect(heard).toEqual([])
+    fake.release()
+    await settle(50)
+    expect(asked).toEqual([])
+    fake.sound(tone(100))
+    expect(heard).toHaveLength(1)
+  })
+
+  it('sends nothing to the transcriber when another screen was opened and left during the hold', async () => {
+    const { voice, asked } = hearing('open ben')
+    const { fake, router } = world({ voice })
+    await settle()
+    fake.hold()
+    await settle(50)
+    router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+    fake.sound(tone(400))
+    fake.sound(tone(400))
+    router.back()
+    fake.release()
+    await settle(50)
+    expect(asked).toEqual([])
+  })
+
+  it('sends nothing to the transcriber when the screen was replaced as the app was asked how long a turn may take', async () => {
+    const { voice, asked } = hearing('open ben')
+    const { fake, router } = world({ voice })
+    router.open({ id: 'card', view: () => text({ body: 'Card' }) })
+    await settle()
+    let moved = false
+    Object.defineProperty(voice, 'timeoutMs', {
+      get: () => {
+        if (!moved) {
+          moved = true
+          router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+        }
+        return 5_000
+      },
+    })
+    await say(fake)
+    await settle()
+    expect(asked).toEqual([])
+  })
+
+  it('is no longer busy, and shows nothing over the next screen, when what a turn left behind throws as it is called off', async () => {
+    const { fake, front, life, router, shell } = world({
+      voice: {
+        transcribe: (_audio, turn) => {
+          turn?.own(() => {
+            throw new Error('cleanup failed')
+          })
+          return new Promise<string>(() => {})
+        },
+      },
+    })
+    router.open({ id: 'card', view: () => text({ body: 'Card' }) })
+    await settle()
+    await say(fake)
+    expect(shell.busy).toBe(true)
+    expect(() => router.replace({ id: 'other', view: () => text({ body: 'Other' }) })).toThrow()
+    await settle()
+    expect(shell.busy).toBe(false)
+    expect(front()).toBe('')
+    life.end()
   })
 
   it('goes back when asked to', async () => {

@@ -1948,6 +1948,46 @@ describe('watching the draws', () => {
     expect(fake.lines()).toEqual(['First'])
   })
 
+  it('draws a box whose fields an app gives through getters, as it always did', async () => {
+    class StatusBox {
+      x = 0
+      y = 0
+      w = 200
+      h = 40
+      get id() {
+        return 'status'
+      }
+      get text() {
+        return 'Ready'
+      }
+    }
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    glasses.draw({ boxes: [new StatusBox()] })
+    await settle()
+    expect(fake.lines()).toEqual(['Ready'])
+  })
+
+  it('keeps no more notes of frames taken back than there are frames that could still be sent', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    glasses.draw(frame(box('title', 'Shown')))
+    await settle()
+    let write = () => {}
+    const writing = new Promise<void>(go => (write = go))
+    const real = fake.bridge.textContainerUpgrade
+    fake.bridge.textContainerUpgrade = async upgrade => (await writing, real(upgrade))
+    const asked = Array.from({ length: 200 }, (_, at) => glasses.draw(frame(box('title', `Frame ${at}`))))
+    await settle(0)
+    glasses[PROGRESS].drop(asked)
+    write()
+    await settle()
+    expect(fake.lines()).toEqual(['Shown'])
+    const next = glasses.draw(frame(box('title', 'Next')))
+    await settle()
+    expect([fake.lines(), glasses.shown]).toEqual([['Next'], next])
+  })
+
   it('tells of a frame from its start to its end, with each call to the glasses and its answer', async () => {
     const { glasses, seen, told } = watched()
     glasses.draw(frame(box('title', 'Threads')))

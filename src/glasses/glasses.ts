@@ -259,8 +259,8 @@ export class Glasses {
         return () => void this.#following.delete(told)
       },
       drop: frames => {
-        const mine = frames.filter(frame => frame > this.#whole.number)
-        for (const frame of mine) this.#dropped.add(frame)
+        const sendable = (frame: number) => frame === this.#number || frame === this.#going?.number || frame === this.#wanted?.frame
+        for (const frame of frames) if (frame > this.#whole.number && sendable(frame)) this.#dropped.add(frame)
         if (!this.#dropped.has(this.#number)) return
         const back = this.#going && !this.#dropped.has(this.#going.number) ? this.#going : this.#whole
         this.#frame = back.frame
@@ -313,9 +313,17 @@ export class Glasses {
     if (pictures > 0)
       console.error(`Earshot: the glasses take ${MAX_IMAGE_BOXES} pictures. The last ${pictures} of this frame are left out.`)
     this.#frame = {
-      boxes: frame.boxes.map(box => ({ ...box })),
-      ...(frame.pictures ? { pictures: frame.pictures.map(picture => ({ ...picture })) } : {}),
-      ...(frame.menu ? { menu: frame.menu.map(item => ({ ...item })) } : {}),
+      boxes: frame.boxes.map(({ id, x, y, w, h, text, brightness }) => ({
+        id,
+        x,
+        y,
+        w,
+        h,
+        text,
+        ...(brightness === undefined ? {} : { brightness }),
+      })),
+      ...(frame.pictures ? { pictures: frame.pictures.map(({ id, x, y, w, h, key, data }) => ({ id, x, y, w, h, key, data })) } : {}),
+      ...(frame.menu ? { menu: frame.menu.map(({ id, name }) => ({ id, name })) } : {}),
     }
     const number = ++this.#frames
     this.#number = number
@@ -325,6 +333,7 @@ export class Glasses {
   }
 
   overlay(text: string | null): void {
+    if (text === this.#overlay) return
     this.#overlay = text
     this.#place()
   }

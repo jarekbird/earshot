@@ -56,12 +56,12 @@ export class Frames {
 
   get menu(): unknown {
     this.forget()
-    return this.#asked.findLast(asked => asked.frame <= this.#progress.menu)?.showing
+    return this.#asked.find(asked => asked.frame === this.#progress.menu)?.showing
   }
 
   get words(): { showing: unknown; kind: View['kind'] } | undefined {
     this.forget()
-    return this.#asked.findLast(asked => asked.frame <= this.#read())
+    return this.#asked.find(asked => asked.frame === this.#progress.text)
   }
 
   swiping(showing: unknown, to: Read): void {
@@ -87,19 +87,16 @@ export class Frames {
     const swiped = this.#swiped.get(showing)
     if (swiped) return swiped.to
     const mine = this.#asked.filter(asked => asked.showing === showing && asked.drew)
-    return (mine.findLast(asked => asked.frame <= this.#read()) ?? mine.at(-1))?.drew ?? null
+    return (mine.find(asked => asked.frame === this.#progress.text) ?? mine.at(-1))?.drew ?? null
   }
 
   forget(): void {
-    const { menu: built, sending } = this.#progress
-    const read = this.#read()
-    const menu = this.#asked.findLastIndex(asked => asked.frame <= built)
-    const words = this.#asked.findLastIndex(asked => asked.frame <= read)
-    const newest = this.#asked.length - 1
-    if (menu >= 0 && menu < words) this.#asked[menu].drew = null
-    this.#asked = this.#asked.filter((asked, at) => at === menu || at === words || at === newest || (at > words && asked.frame === sending))
+    const { menu, text, sending } = this.#progress
+    const newest = this.#asked.at(-1)
+    for (const asked of this.#asked) if (asked.frame === menu && asked.frame < text) asked.drew = null
+    this.#asked = this.#asked.filter(asked => asked.frame === menu || asked.frame === text || asked.frame === sending || asked === newest)
     for (const [showing, swiped] of this.#swiped) {
-      const drawn = (asked: Asked) => asked.showing === showing && asked.frame >= swiped.frame && asked.frame <= read
+      const drawn = (asked: Asked) => asked.showing === showing && asked.frame >= swiped.frame && asked.frame === text
       if (this.#asked.some(drawn)) this.#swiped.delete(showing)
     }
   }
@@ -108,9 +105,5 @@ export class Frames {
     this.#ended = true
     this.#asked = []
     this.#swiped.clear()
-  }
-
-  #read(): number {
-    return Math.max(this.#progress.shown, this.#progress.menu, this.#progress.text)
   }
 }

@@ -189,6 +189,8 @@ export class Shell {
     })
     this.#life.own(
       router.onChange(() => {
+        const spoken = this.#recording?.showing ?? this.#decidingOn
+        if (spoken !== undefined && spoken !== null && spoken !== router[SHOWINGS].current) this.#callOff()
         if (this.#asking) this.#clear()
         this.redraw()
       }),
@@ -243,7 +245,7 @@ export class Shell {
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
     if (showings.current !== showing || !showings.onPath(showing)) return
     const frame = this.#glasses.draw({ boxes, pictures, menu })
-    this.#pending = [...this.#pending.filter(asked => asked > this.#glasses.shown), frame]
+    this.#pending = [...this.#pending.filter(asked => asked === this.#glasses[PROGRESS].sending), frame]
     if (!showings.onPath(showing)) return this.#glasses[PROGRESS].drop([frame])
     if (!this.#drawn || frame > this.#drawn.frame)
       this.#drawn = { frame, screen, showing, view, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
@@ -402,11 +404,18 @@ export class Shell {
 
   #callOff(): void {
     this.#turn++
-    this.#deciding?.end()
+    const deciding = this.#deciding
     this.#deciding = null
     this.#decidingOn = null
-    this.#recording?.end()
-    this.#clear()
+    try {
+      deciding?.end()
+    } finally {
+      try {
+        this.#recording?.end()
+      } finally {
+        this.#clear()
+      }
+    }
   }
 
   #letGo(): void {
@@ -427,7 +436,6 @@ export class Shell {
   }
 
   #hold(source: HoldSource): void {
-    if (!this.#router[SHOWINGS].onPath(this.#router[SHOWINGS].current)) return
     const voice = this.#voice
     const longest = Math.min(voice?.maxHoldMs ?? MAX_HOLD_MS, LONGEST_HOLD_MS)
     this.#down.get(source)?.cancel()
@@ -441,6 +449,7 @@ export class Shell {
       this.notice(this.#words.noMic)
     }
     this.#held ??= this.#glasses[HOLD](sound => this.#recording?.hear(sound), refused)
+    if (!this.#router[SHOWINGS].onPath(this.#router[SHOWINGS].current)) return
     if (!voice) {
       if (!this.#recording) this.#callOff()
       return this.notice(this.#words.noVoice)
@@ -514,6 +523,7 @@ export class Shell {
     this.#decidingOn = showing ?? null
     if (passed === undefined) this.#show(this.#words.thinking)
     try {
+      if (moved()) return finish(() => {})
       const transcript = passed ?? (await voice.transcribe(audio, life))
       const words = transcript?.trim() ?? ''
       if (!mine() || moved()) return finish(() => {})
@@ -637,6 +647,7 @@ export class Shell {
     const why = chosen.blocked()
     if (why !== null) return this.notice(why)
     const targets = chosen.targets()
+    if (showings.current !== showing || !showings.onPath(showing)) return
     if (targets !== null && targetId === undefined) {
       if (chosen.choose) return chosen.choose()
       return this.#openOwn({ id: 'earshot.pick', view: () => list({ title: chosen.say, action: chosen }) })
