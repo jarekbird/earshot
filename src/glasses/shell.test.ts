@@ -17,6 +17,7 @@ afterEach(() => {
 })
 
 const settle = async (ms = 400) => void (await vi.advanceTimersByTimeAsync(ms))
+const TURN_END = 'Error: Earshot: a listener of the end of a voice turn threw.'
 const names = ['Ana', 'Ben', 'Cy']
 const tone = (ms: number, loudness = 8_000) => {
   const samples = new Int16Array((16_000 * ms) / 1000)
@@ -92,6 +93,210 @@ describe('drawing', () => {
     shell.redraw()
     await settle()
     expect(fake.lines()).toEqual(['Other'])
+  })
+
+  it('keeps the newer draw when the app, asked for a view, opens a screen and goes back before it answers', async () => {
+    const places: { router?: Router } = {}
+    let armed = false
+    let body = 'Old'
+    const { fake, router, shell } = world({
+      home: () => ({
+        id: 'home',
+        view: () => {
+          const then = body
+          if (armed) {
+            armed = false
+            places.router?.open({ id: 'other', view: () => text({ body: 'Other' }) })
+            body = 'New'
+            places.router?.back()
+          }
+          return text({ body: then })
+        },
+      }),
+    })
+    places.router = router
+    await settle()
+    armed = true
+    shell.redraw()
+    await settle()
+    expect(fake.lines()).toEqual(['New'])
+  })
+
+  it('keeps the newer draw when the app, asked for a view, has the shell draw again before it answers', async () => {
+    const places: { shell?: Shell } = {}
+    let armed = false
+    let body = 'Old'
+    const { fake, shell } = world({
+      home: () => ({
+        id: 'home',
+        view: () => {
+          const then = body
+          if (armed) {
+            armed = false
+            body = 'New'
+            places.shell?.redraw()
+          }
+          return text({ body: then })
+        },
+      }),
+    })
+    places.shell = shell
+    await settle()
+    armed = true
+    shell.redraw()
+    await settle()
+    expect(fake.lines()).toEqual(['New'])
+  })
+
+  it('shows the page as bright and as whole as before once a notice is gone, though the router was closed with a redraw waiting', async () => {
+    let body = Array.from({ length: 9 }, (_, at) => `Old ${at + 1}`).join('\n')
+    const { fake, router, shell } = world({ home: () => ({ id: 'home', view: () => text({ body }) }) })
+    const seen = () => fake.boxes().map(({ text: words, brightness }) => [words, brightness])
+    await settle()
+    const before = seen()
+    shell.notice('Saved')
+    await settle(100)
+    expect(seen()).not.toEqual(before)
+    body = 'New'
+    shell.redraw()
+    router.close()
+    await settle()
+    expect([fake.overlay(), seen()]).toEqual(['', before])
+  })
+
+  it('runs nothing at a pick from the menu when finding its action replaces the screen', async () => {
+    const places: { router?: Router } = {}
+    let finding = false
+    const { fake, ran, router } = world({
+      home: ({ refresh }) => ({
+        id: 'home',
+        view: () => text({ body: 'Home' }),
+        actions: () => {
+          if (finding) places.router?.replace({ id: 'other', view: () => text({ body: 'Other' }), actions: () => [refresh] })
+          finding = false
+          return [refresh]
+        },
+      }),
+    })
+    places.router = router
+    await settle()
+    finding = true
+    fake.pick('Refresh')
+    await settle()
+    expect([router.current.id, ran]).toEqual(['other', []])
+  })
+
+  it('runs nothing at a pick from the menu when finding its action opens another screen over this one', async () => {
+    const places: { router?: Router } = {}
+    let finding = false
+    const { fake, ran, router } = world({
+      home: ({ refresh }) => ({
+        id: 'home',
+        view: () => text({ body: 'Home' }),
+        actions: () => {
+          if (finding) places.router?.open({ id: 'other', view: () => text({ body: 'Other' }), actions: () => [refresh] })
+          finding = false
+          return [refresh]
+        },
+      }),
+    })
+    places.router = router
+    await settle()
+    finding = true
+    fake.pick('Refresh')
+    await settle()
+    expect([router.current.id, ran]).toEqual(['other', []])
+  })
+
+  it('runs nothing when the app, asked whether an action jumps, closes the router', async () => {
+    const places: { router?: Router } = {}
+    const ran: string[] = []
+    let closing = false
+    const shut = action({ id: 'shut', say: 'Shut', blocked: () => ((closing = true), null), run: () => void ran.push('shut') })
+    const { fake, router } = world({
+      home: () => ({
+        id: 'home',
+        view: () => text({ body: 'Home' }),
+        actions: () => {
+          if (closing) places.router?.close()
+          closing = false
+          return [shut]
+        },
+      }),
+    })
+    places.router = router
+    await settle()
+    fake.pick('Shut')
+    await settle()
+    expect(ran).toEqual([])
+  })
+
+  it('runs nothing at a tap when the app, asked what the tap is bound to, replaces the screen', async () => {
+    const places: { router?: Router } = {}
+    let armed = false
+    const { fake, ran, router } = world({
+      home: ({ refresh }) => {
+        const view = boxes([{ id: 'status', x: 0, y: 0, w: 576, h: 27, text: 'Ready' }])
+        Object.defineProperty(view, 'on', {
+          get: () => {
+            if (armed) places.router?.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+            armed = false
+            return { tap: refresh }
+          },
+        })
+        return { id: 'home', view: () => view }
+      },
+    })
+    places.router = router
+    await settle()
+    armed = true
+    fake.tap()
+    await settle()
+    expect([router.current.id, ran]).toEqual(['other', []])
+  })
+
+  it('runs nothing when the app, asked for the rows of an action or whether it jumps, opens a screen and goes back', async () => {
+    const places: { router?: Router } = {}
+    const ran: string[] = []
+    let at = ''
+    const leave = () => {
+      places.router?.open({ id: 'child', view: () => text({ body: 'Child' }) })
+      places.router?.back()
+    }
+    const rows = action({ id: 'rows', say: 'Rows', blocked: () => (at === 'rows' && leave(), null), run: () => void ran.push('rows') })
+    const jump = action({
+      id: 'jump',
+      say: 'Jump',
+      blocked: () => (at === 'jump' && (at = 'jumping'), null),
+      run: () => void ran.push('jump'),
+    })
+    const { fake, router } = world({
+      home: () => ({
+        id: 'home',
+        view: () => text({ body: 'Home' }),
+        actions: () => {
+          if (at === 'jumping') {
+            at = ''
+            leave()
+          }
+          return [rows, jump]
+        },
+      }),
+    })
+    places.router = router
+    await settle()
+    at = 'rows'
+    fake.pick('Rows')
+    await settle()
+    at = 'jump'
+    fake.pick('Jump')
+    await settle()
+    expect(ran).toEqual([])
+    at = ''
+    fake.pick('Rows')
+    fake.pick('Jump')
+    await settle()
+    expect(ran).toEqual(['rows', 'jump'])
   })
 
   it('draws a screen with what a listener the app set on the router before the shell made ready for it', async () => {
@@ -902,7 +1107,10 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     await settle(50)
     body = 'Never to be shown'
     shell.redraw()
-    expect(() => router.close()).toThrow()
+    const reported = vi.fn()
+    vi.stubGlobal('reportError', reported)
+    expect(() => router.close()).not.toThrow()
+    expect(reported.mock.calls.map(([error]) => String(error))).toEqual([TURN_END])
     await settle()
     expect(fake.lines().join(' ')).not.toContain('Never to be shown')
     life.end()
@@ -1997,6 +2205,56 @@ describe('a hold', () => {
     expect([ran, heard]).toEqual([[], []])
   })
 
+  it('puts up no question when a screen was opened and left as the app was asked what to offer instead', async () => {
+    const ran: string[] = []
+    const { voice } = hearing('erase')
+    voice.agents = [() => ({ kind: 'notMine' })]
+    let armed = false
+    const { fake, front, router } = world({ voice })
+    Object.defineProperty(voice, 'instead', {
+      get: () => {
+        if (armed) {
+          armed = false
+          router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+          router.back()
+        }
+        return 'Keep as a note'
+      },
+    })
+    const erase = action({ id: 'erase', say: 'Erase', risk: 'confirm', run: () => void ran.push('erase') })
+    router.open({ id: 'card', actions: () => [erase], view: () => text({ body: 'Card' }) })
+    await settle()
+    armed = true
+    await say(fake)
+    await settle()
+    expect([front(), router.current.id]).toEqual(['"erase"', 'card'])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([])
+  })
+
+  it('opens no list of candidates when a screen was opened and left as the app was asked what to offer instead', async () => {
+    const { voice } = hearing('open')
+    voice.agents = [() => ({ kind: 'notMine' })]
+    voice.model = { choose: async ({ options }) => Object.fromEntries(options.slice(0, 2).map(option => [option.id, 0.5])) }
+    let armed = true
+    const { fake, router } = world({ voice })
+    Object.defineProperty(voice, 'instead', {
+      get: () => {
+        if (armed) {
+          armed = false
+          router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+          router.back()
+        }
+        return 'Keep as a note'
+      },
+    })
+    await settle()
+    await say(fake)
+    await settle()
+    expect([router.current.id, fake.lines().includes('Which one?')]).toEqual(['people', false])
+  })
+
   it('opens no list of candidates, and hands the words to no agent, when the screen moved on as the app was asked what to offer instead', async () => {
     const heard: string[] = []
     const { voice } = hearing('open')
@@ -2090,7 +2348,10 @@ describe('a hold', () => {
     await settle()
     await say(fake)
     expect(shell.busy).toBe(true)
-    expect(() => router.replace({ id: 'other', view: () => text({ body: 'Other' }) })).toThrow()
+    const reported = vi.fn()
+    vi.stubGlobal('reportError', reported)
+    expect(() => router.replace({ id: 'other', view: () => text({ body: 'Other' }) })).not.toThrow()
+    expect(reported.mock.calls.map(([error]) => String(error))).toEqual([TURN_END])
     await settle()
     expect(shell.busy).toBe(false)
     expect(front()).toBe('')
@@ -2205,6 +2466,122 @@ describe('a hold', () => {
     await say(fake)
     await settle()
     expect(model.asked).toEqual(['something else entirely'])
+  })
+
+  it('records nothing for a hold when a screen was opened and left as the app was asked how long a hold may be', async () => {
+    const { voice, asked } = hearing('refresh')
+    const onListen = vi.fn()
+    voice.onListen = onListen
+    const { fake, router } = world({ voice })
+    await settle()
+    Object.defineProperty(voice, 'maxHoldMs', {
+      get: () => {
+        router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+        router.back()
+        return 5_000
+      },
+    })
+    await say(fake)
+    await settle()
+    expect([asked, onListen.mock.calls.length]).toEqual([[], 0])
+  })
+
+  it('records nothing at a second event of a press that was turned away because the screen changed under it', async () => {
+    const { voice, asked } = hearing('refresh')
+    const { fake, router } = world({ voice })
+    await settle()
+    let once = true
+    Object.defineProperty(voice, 'maxHoldMs', {
+      get: () => {
+        if (once) router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+        once = false
+        return 5_000
+      },
+    })
+    fake.hold()
+    fake.hold()
+    await settle(50)
+    fake.sound(tone(400))
+    fake.sound(tone(400))
+    fake.release()
+    await settle()
+    expect(asked).toEqual([])
+    await say(fake)
+    expect(asked).toHaveLength(1)
+  })
+
+  it('lets nothing of what a turn left behind throw reach whoever changed the screen, only a sentence of its own', async () => {
+    const { fake, router } = world({
+      voice: {
+        transcribe: (_audio, turn) => {
+          turn?.own(() => {
+            throw new Error('what was said in the turn')
+          })
+          return new Promise<string>(() => {})
+        },
+      },
+    })
+    await settle()
+    await say(fake)
+    const reported = vi.fn()
+    vi.stubGlobal('reportError', reported)
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let thrown: unknown
+    try {
+      router.open({ id: 'other', view: () => text({ body: 'Other' }) })
+    } catch (error) {
+      thrown = error
+    }
+    await settle()
+    expect(thrown).toBeUndefined()
+    expect(logged).not.toHaveBeenCalled()
+    expect(reported.mock.calls.map(([error]) => String(error))).toEqual([TURN_END])
+    expect(reported.mock.calls.map(([error]) => (error as Error).cause)).toEqual([undefined])
+    expect(fake.lines()).toContain('Other')
+  })
+
+  it('runs what was said, and lets only a sentence of its own out, when what the turn left behind throws as the turn ends', async () => {
+    const { fake, ran } = world({
+      voice: {
+        transcribe: async (_audio, turn) => {
+          turn?.own(() => {
+            throw new Error('what was said in the turn')
+          })
+          return 'refresh'
+        },
+      },
+    })
+    await settle()
+    const reported = vi.fn()
+    vi.stubGlobal('reportError', reported)
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await say(fake)
+    await settle()
+    expect(ran).toEqual(['refresh'])
+    expect(logged).not.toHaveBeenCalled()
+    expect(reported.mock.calls.map(([error]) => String(error))).toEqual([TURN_END])
+  })
+
+  it('runs nothing that was said when finding the action that was meant replaces the screen', async () => {
+    const places: { router?: Router } = {}
+    let finding = false
+    const { fake, ran, router } = world({
+      voice: { transcribe: async () => null, agents: [() => ((finding = true), { kind: 'sure', action: 'refresh' })] },
+      home: ({ refresh }) => ({
+        id: 'home',
+        view: () => text({ body: 'Home' }),
+        actions: () => {
+          if (finding) places.router?.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+          finding = false
+          return [refresh]
+        },
+      }),
+    })
+    places.router = router
+    await settle()
+    await say(fake)
+    await settle()
+    expect([router.current.id, ran]).toEqual(['other', []])
   })
 
   it('records nothing for a hold when the screen was replaced as the app was asked how long a hold may be', async () => {
@@ -2348,7 +2725,10 @@ describe('a hold', () => {
     router.onChange(current => void told.push(current.id))
     await settle()
     await say(fake)
-    expect(() => router.open({ id: 'other', view: () => text({ body: 'Other' }) })).toThrow()
+    const reported = vi.fn()
+    vi.stubGlobal('reportError', reported)
+    expect(() => router.open({ id: 'other', view: () => text({ body: 'Other' }) })).not.toThrow()
+    expect(reported.mock.calls.map(([error]) => String(error))).toEqual([TURN_END])
     await settle()
     expect(told).toEqual(['other'])
     expect(fake.lines()).toContain('Other')

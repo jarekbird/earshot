@@ -6,6 +6,7 @@ import { matchWords, navigator, type Agent, type NavigatorModel, type Pick, type
 import type { Rolling } from '../rolling.js'
 import { SHOWINGS, type Router, type Screen } from '../router.js'
 import { SayError } from '../say.js'
+import { serve } from '../serve.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
 import { copied, Frames, PROGRESS, type Read } from './frames.js'
@@ -94,6 +95,7 @@ const UP = 'earshot.up'
 const DOWN = 'earshot.down'
 const CHOOSE = 'earshot.choose'
 const INSTEAD = 'instead'
+const TURN_END = 'end of a voice turn'
 
 const boundTo = (bound: Bound): { action: Action; target?: string } => ('action' in bound ? bound : { action: bound })
 
@@ -144,6 +146,8 @@ export class Shell {
   #decidingOn: object | null = null
   readonly #frames: Frames
   #pending: number[] = []
+  #moves = 0
+  #draws = 0
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -167,6 +171,7 @@ export class Shell {
     this.#life.own(() => this.#frames.end())
     this.#life.own(
       router[SHOWINGS].onLeave(() => {
+        this.#moves++
         const { onPath, current } = router[SHOWINGS]
         this.#frames.left(onPath)
         const spoken = this.#recording?.showing ?? this.#decidingOn
@@ -190,6 +195,7 @@ export class Shell {
     })
     this.#life.own(
       router[SHOWINGS].onMove(() => {
+        this.#moves++
         const spoken = this.#recording?.showing ?? this.#decidingOn
         try {
           if (spoken !== undefined && spoken !== null && spoken !== router[SHOWINGS].current) this.#callOff()
@@ -215,10 +221,12 @@ export class Shell {
     const showings = this.#router[SHOWINGS]
     const showing = showings.current
     if (showing === undefined) return
+    const asked = ++this.#draws
+    const stale = () => asked !== this.#draws || showings.current !== showing || !showings.onPath(showing)
     const screen = this.#router.current
     const actions = this.#router.actions()
     const view = screen.view?.() ?? list({ action: this.#chooser(actions) })
-    if (showings.current !== showing || !showings.onPath(showing)) return
+    if (stale()) return
     const place = this.#places.get(showing) ?? { cursor: 0, top: 0 }
     this.#places.set(showing, place)
     let boxes: Box[]
@@ -249,7 +257,7 @@ export class Shell {
     const shown = fold ? offered.slice(0, MAX_MENU_ITEMS - 1) : offered
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
-    if (showings.current !== showing || !showings.onPath(showing)) return
+    if (stale()) return
     const frame = this.#glasses.draw({ boxes, pictures, menu })
     this.#pending = [...this.#pending.filter(asked => asked === this.#glasses[PROGRESS].sending || asked > frame), frame]
     if (!showings.onPath(showing)) return this.#glasses[PROGRESS].drop([frame])
@@ -393,8 +401,9 @@ export class Shell {
     if (!drawn || drawn.showing !== showing || !place || !this.#router[SHOWINGS].onPath(showing)) return
     const { view } = drawn
     if (view.kind === 'boxes') {
+      const moves = this.#moves
       const bound = view.on?.[input.kind]
-      if (!bound) return
+      if (!bound || moves !== this.#moves) return
       const { action: chosen, target } = boundTo(bound)
       return void this.#start(chosen, target)
     }
@@ -415,14 +424,11 @@ export class Shell {
     const deciding = this.#deciding
     this.#deciding = null
     this.#decidingOn = null
+    serve(() => deciding?.end(), TURN_END)
     try {
-      deciding?.end()
+      this.#recording?.end()
     } finally {
-      try {
-        this.#recording?.end()
-      } finally {
-        this.#clear()
-      }
+      this.#clear()
     }
   }
 
@@ -447,6 +453,7 @@ export class Shell {
 
   #hold(source: HoldSource): void {
     if (this.#spent.has(source)) return
+    const moves = this.#moves
     const showings = this.#router[SHOWINGS]
     const showing = showings.current
     const voice = this.#voice
@@ -462,7 +469,8 @@ export class Shell {
       this.notice(this.#words.noMic)
     }
     this.#held ??= this.#glasses[HOLD](sound => this.#recording?.hear(sound), refused)
-    if (showings.current !== showing || !showings.onPath(showing)) return
+    if (moves !== this.#moves) return void this.#spent.add(source)
+    if (!showings.onPath(showing)) return
     if (!voice) {
       if (!this.#recording) this.#callOff()
       return this.notice(this.#words.noVoice)
@@ -525,15 +533,10 @@ export class Shell {
     const finish = (then: () => void) => {
       if (!mine()) return
       slow.cancel()
-      try {
-        life.end()
-      } finally {
-        if (mine()) {
-          this.#deciding = null
-          this.#decidingOn = null
-        }
-      }
+      serve(() => life.end(), TURN_END)
       if (!mine()) return
+      this.#deciding = null
+      this.#decidingOn = null
       if (moved()) this.#clear()
       else then()
     }
@@ -618,11 +621,12 @@ export class Shell {
       return this.redraw()
     }
     if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target, true, pass)
+    const moves = this.#moves
     const showings = this.#router[SHOWINGS]
     const showing = showings.current
     const still = () => showings.current === showing && showings.onPath(showing)
     const instead = pass && this.#voice?.instead
-    if (!still()) return
+    if (moves !== this.#moves || !still()) return
     const which = action<Pick | null>({
       id: 'earshot.which',
       say: this.#words.which,
@@ -637,8 +641,10 @@ export class Shell {
   }
 
   #do(id: string, targetId: string | undefined, said: boolean, pass?: () => void): void {
+    const moves = this.#moves
     const rolled = this.#voice?.rolling?.items().find(item => item.action.id === id && item.target === targetId)?.action
     const found = this.#reachable().find(a => a.id === id) ?? rolled
+    if (moves !== this.#moves) return
     if (!found) return this.notice(this.#words.unavailable)
     void this.#start(found, targetId, said, pass)
   }
@@ -658,18 +664,21 @@ export class Shell {
     if (id === MORE && folded.length) {
       return this.#openOwn({ id: MORE, view: () => list({ title: this.#words.more, action: this.#chooser(folded) }) })
     }
+    const moves = this.#moves
     const found = this.#router.actions().find(a => a.id === id)
+    if (moves !== this.#moves) return
     if (!found) return this.notice(this.#words.unavailable)
     void this.#start(found)
   }
 
   async #start(chosen: Action, targetId?: string, said = false, pass?: () => void): Promise<void> {
+    const moves = this.#moves
     const showings = this.#router[SHOWINGS]
     const showing = showings.current
     const why = chosen.blocked()
     if (why !== null) return this.notice(why)
     const targets = chosen.targets()
-    if (showings.current !== showing || !showings.onPath(showing)) return
+    if (moves !== this.#moves || !showings.onPath(showing)) return
     if (targets !== null && targetId === undefined) {
       if (chosen.choose) return chosen.choose()
       return this.#openOwn({ id: 'earshot.pick', view: () => list({ title: chosen.say, action: chosen }) })
@@ -679,7 +688,7 @@ export class Shell {
     if (risk === 'safe' || (risk === 'voice' && !said)) return this.#run(chosen, targetId, said)
     const still = () => showings.current === showing && showings.onPath(showing)
     const instead = pass && this.#voice?.instead
-    if (!still()) return
+    if (moves !== this.#moves || !still()) return
     const asked = [
       `${chosen.say}${target ? `: ${target.say}` : ''}?`,
       this.#words.confirm,
@@ -695,8 +704,11 @@ export class Shell {
   // An action the shell made (choose, More, which one) starts another: it has to know the words chose it.
   async #run(chosen: Action, targetId?: string, said = false): Promise<void> {
     try {
+      const moves = this.#moves
+      const jumps = this.#jumps(chosen, targetId)
+      if (moves !== this.#moves) return
       this.#said = said
-      const running = this.#jumps(chosen, targetId) ? this.#router.jumping(() => chosen.run(targetId)) : chosen.run(targetId)
+      const running = jumps ? this.#router.jumping(() => chosen.run(targetId)) : chosen.run(targetId)
       this.#said = false
       const outcome = await this.#life.guard(running)
       if (outcome.done) return this.redraw()

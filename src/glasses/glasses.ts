@@ -157,7 +157,17 @@ function above(box: Box, top: number): string {
 
 const stateOf = ({ text, brightness }: Placed) => `${brightness}\n${text}`
 
-const asTaken = ({ box, text, brightness }: Placed): Box => ({ id: box.id, x: box.x, y: box.y, w: box.w, h: box.h, text, brightness })
+interface Kept {
+  under: Box
+  taken: Box
+  frame: number
+}
+
+const kept = ({ box, text, brightness }: Placed, frame: number): Kept => ({
+  under: box,
+  taken: { id: box.id, x: box.x, y: box.y, w: box.w, h: box.h, text, brightness },
+  frame,
+})
 
 export const plainFrame = (frame: Frame): Frame => ({
   boxes: frame.boxes.map(({ id, x, y, w, h, text, brightness }) => ({
@@ -212,7 +222,7 @@ export class Glasses {
   #frame: Frame = { boxes: [] }
   #number = 0
   #whole = 0
-  readonly #have: { boxes: Box[]; pictures: Picture[]; menu: MenuItem[] } = { boxes: [], pictures: [], menu: [] }
+  readonly #have: { boxes: Kept[]; pictures: Picture[]; menu: MenuItem[] } = { boxes: [], pictures: [], menu: [] }
   #left = false
   #going: { number: number; frame: Frame; left: boolean } | null = null
   readonly #dropped = new Set<number>()
@@ -285,7 +295,7 @@ export class Glasses {
         if (!this.#dropped.has(this.#number)) return
         const going = this.#going && !this.#dropped.has(this.#going.number) ? this.#going : null
         this.#left = going ? going.left : true
-        this.#frame = going ? going.frame : this.#have
+        this.#frame = going ? going.frame : this.#kept()
         this.#number = going ? going.number : this.#whole
         if (this.#created || this.#overlay !== null) this.#place()
         else this.#wanted = null
@@ -347,6 +357,17 @@ export class Glasses {
   overlay(text: string | null): void {
     if (text === this.#overlay) return
     this.#overlay = text
+    this.#place()
+  }
+
+  #kept(): Frame {
+    const { boxes, pictures, menu } = this.#have
+    return { boxes: boxes.map(({ under, taken, frame }) => (frame <= this.#whole ? under : taken)), pictures, menu }
+  }
+
+  #landed(): void {
+    if (!this.#left) return
+    this.#frame = this.#kept()
     this.#place()
   }
 
@@ -540,11 +561,15 @@ export class Glasses {
       this.#hung = new Map()
       this.#rebuildAt = this.#now() + REBUILD_GAP_MS
       if (left) return
-      Object.assign(this.#have, { boxes: boxes.slice(1).map(asTaken), pictures: pictures.map(({ picture }) => picture), menu })
+      Object.assign(this.#have, {
+        boxes: boxes.slice(1).map(box => kept(box, frame)),
+        pictures: pictures.map(({ picture }) => picture),
+        menu,
+      })
       this.#from.clear()
       for (const box of boxes) this.#from.set(box.name, frame)
       this.#progressed({ menu: frame })
-      if (this.#left) this.#place()
+      this.#landed()
     }
     let drawn = !this.#created && (await this.#ask(frame, 'create', shown, create, StartUpPageCreateResult.success, undefined, built))
     // A reloaded web view already owns a page, so a create is refused and a rebuild takes it over.
@@ -555,8 +580,12 @@ export class Glasses {
   async #update({ frame, left, boxes }: Page, whole = false): Promise<boolean> {
     let drawn = true
     for (const [index, box] of boxes.entries()) {
+      const noted = () => {
+        this.#from.set(box.name, frame)
+        if (index > 0) this.#have.boxes[index - 1] = kept(box, frame)
+      }
       if (this.#sent.get(box.id) === stateOf(box)) {
-        if (!left) this.#from.set(box.name, frame)
+        if (!left) noted()
         continue
       }
       const upgrade = new TextContainerUpgrade({
@@ -568,10 +597,9 @@ export class Glasses {
       const taken = () => {
         this.#sent.set(box.id, stateOf(box))
         if (left) return
-        this.#from.set(box.name, frame)
-        if (index > 0) this.#have.boxes[index - 1] = asTaken(box)
+        noted()
         this.#progressed(whole && boxes.every(other => this.#sent.get(other.id) === stateOf(other)) ? { menu: frame } : {})
-        if (this.#left) this.#place()
+        this.#landed()
       }
       const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name, taken)
       if (this.#life.ended) return false
