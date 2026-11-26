@@ -8,6 +8,7 @@ import {
   LINE_HEIGHT,
   list,
   LIST_ROW_WIDTH,
+  matchWords,
   oneLine,
   openRouter,
   Rolling,
@@ -17,10 +18,12 @@ import {
   scriptedSpeech,
   SCREEN_WIDTH,
   Shell,
+  SURE_AT,
   text,
   wrapText,
   type Agent,
   type LiveState,
+  type NavigatorModel,
   type Speaker,
 } from 'earshot'
 
@@ -185,7 +188,19 @@ const takeNote: Agent = heard => {
   return { kind: 'handled', say: 'Saved' }
 }
 
-const hears = scripted ? { transcribe: scriptedSpeech(scripted) } : service && { transcribe: service.transcribe, model: service.model }
+const noted = (model: NavigatorModel): NavigatorModel => ({
+  async choose(question, life) {
+    const chances = await model.choose(question, life)
+    const chance = (id: string) => chances[id] ?? 0
+    const [top] = question.options.filter(option => option.action !== undefined).sort((a, b) => chance(b.id) - chance(a.id))
+    if (top && chance(top.id) > 0)
+      console.log(`decided: ${top.action}${top.target ? ` ${top.target}` : ''}${chance(top.id) >= SURE_AT ? '' : ' (not sure)'}`)
+    return chances
+  },
+})
+const hears = scripted
+  ? { transcribe: scriptedSpeech(scripted), model: noted(matchWords) }
+  : service && { transcribe: service.transcribe, model: noted(service.model) }
 const shell: Shell = new Shell(
   life,
   glasses,

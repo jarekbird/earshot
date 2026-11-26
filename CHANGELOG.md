@@ -6,11 +6,27 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.53 (2026-11-26)
+## 0.0.56 (2026-11-26)
 
 - No relay is made for an upstream of the three calls that is named with a fragment (`#`): everything after it
   never reached the upstream, so the calls went somewhere other than the address said.
 - **An app must** name its relay's upstream without a fragment. One named with a query of its own is taken as before.
+
+## 0.0.55 (2026-11-26)
+
+- An option of the navigator's question names what it would run: `action` and `target`. `SURE_AT` is the chance
+  from which the navigator is sure. An app that wraps the model needs neither the options' words nor the number.
+
+## 0.0.54 (2026-11-26)
+
+- On a list, "choose this one" and the row under the cursor by its name are one choice for the navigator. When
+  its model split a vote between the two, neither was sure, and the user was asked "Which one?" with two rows
+  that did the same thing.
+
+## 0.0.53 (2026-11-26)
+
+- A rolling item with no text of its own is offered to the navigator's model with its action's `hint`. From
+  another screen it was offered by its name alone, with no word of what it does.
 
 ## 0.0.52 (2026-11-26)
 

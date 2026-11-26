@@ -88,7 +88,6 @@ const NOT_IN_THE_EXAMPLE = [
   'FRAME_TAG',
   'SCREEN_HEIGHT',
   'LifetimeEnded',
-  'matchWords',
   'navigator',
   'RelayError',
   'SayError',
