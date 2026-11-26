@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.55
+npm install github:jarekbird/earshot#v0.0.56
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.55 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.56 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -161,7 +161,7 @@ const shell = new Shell(life, glasses, router)
 - `list({ title, action, empty })` shows the targets of one action as lines of text. A swipe moves the cursor and a tap runs the action on that item. A tap counts only while the glasses show one whole frame with the cursor on that item: one that comes while the cursor's move, or any other redraw, is still being written to them is dropped. The same holds for a gesture a screen of boxes ties to an action.
 - `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines. With `end: true` it shows its last lines and goes on showing the last as the text grows, for a log or a transcript. A swipe up reads back, counted from the page the wearer is looking at (a second swipe before the first is drawn goes on from the first), and the view holds that place while more comes at the end (a text that also loses lines at its start shifts under it); swiped back down to the end, it follows again. A page never holds more than the glasses take in one box: at the end the oldest lines give way, never the newest, and a swipe, or a spoken "scroll up", moves by no more than the page holds, so every line is reached.
 - `boxes(boxes, { on, pictures })` places each box yourself. `on` says which action a tap, a swipe up and a swipe down run: `{ tap: open, up: older, down: { action: open, target: 'next' } }`. A screen gets no raw touches, so whatever touch can do, voice can do too. The other way round is yours where a gesture runs an action on one target only: voice is offered every target of that action, so give touch a way to each, with a gesture for the action as a whole or a cursor of your own. A screen with no `view` lists its actions.
-- By voice, a long text scrolls a screenful ("scroll down"), a list's cursor moves ("move down") and "choose this one" runs the row it is on. The model is told which row that is, unless the row is private. That row is offered by its name as well, and the two are one choice: what the model gives "choose this one" counts for the row, so a vote split between them still runs it, and a list of candidates never holds both.
+- By voice, a long text scrolls a screenful ("scroll down"), a list's cursor moves ("move down") and "choose this one" runs the row it is on. The model is told which row that is, unless the row is private. On a list of your screen, that row is offered by its name as well, and the two are one choice: what the model gives "choose this one" counts for the row, so a vote split between them still runs it, and the candidates never hold both. On a list the shell made itself (the candidates, an action's targets, "More…") the two stay apart, since there choosing a row also closes the list.
 - A double tap goes up, to the screen the current one was opened from. From the home screen it asks Even to close the app.
 - Even's menu lists the screen's and the app's other actions. Over ten, the rest go behind "More…". An action with targets asks which one in a list, or on the app's own screen when the action has `choose`. A target can carry its own `risk`, so only the targets that write ask first.
 - An action that is blocked says why over the page, which dims for a few seconds. An action with `risk: 'confirm'` asks first, and only a tap confirms.
@@ -195,6 +195,23 @@ new Shell(life, glasses, router, {
 - `agents` get the words the navigator passes on, in order, with the recording (`audio`) and the turn's lifetime (`life`). An agent answers `{ kind: 'handled', say }`, `{ kind: 'notMine' }`, or with an action to run. What a handled turn says is shown also when the screen changed while it was decided: the agent may have gone to another screen itself, and Earshot cannot tell that from the app changing screens for a reason of its own.
 - An agent that waits before it acts waits through `life`. Any touch while a command is being decided calls it off and does nothing else; a hold calls it off and listens again. Both end `life`.
 - `model` is what the navigator asks. It gets the question, and the turn's lifetime to end its request with, and gives each option a chance. Over 0.7 the navigator is sure; under that it lists the options over 0.15. The default matches the words against the labels and calls no service.
+- To weigh the answer yourself, or to note what was decided, wrap the model. Each option names what it would run, `action` and `target` (the ids you gave them; the navigator's own two answers have a `role` and neither), so you need not read its words. `SURE_AT` is the 0.7, so your wrapper draws the line where the navigator does:
+
+```ts
+import { matchWords, SURE_AT, type NavigatorModel } from 'earshot'
+
+const noted: NavigatorModel = {
+  async choose(question, life) {
+    const chances = await matchWords.choose(question, life)
+    for (const option of question.options)
+      if (option.action && (chances[option.id] ?? 0) >= SURE_AT) console.log('runs', option.action, option.target)
+    return chances
+  },
+}
+```
+
+The navigator counts "choose this one" with the row it stands for only after your model has answered: a wrapper sees the two as the model gave them.
+
 - A double tap calls a command off while it listens, and so does leaving the app. What was said is dropped when the screen changed while it listened. When the screen changed while it was decided, no action is run and no choice is offered; only what an agent that handled the words says is still shown.
 - `onListen` is called when a hold starts to listen: bind there what the words are for. `shell.busy` is true from then until the command is done. A hold with no release ends after a minute (`maxHoldMs`, a day at the most). No answer in forty-five seconds is given up on (`timeoutMs`), which ends the turn's lifetime; an answer that comes after that shows nothing.
 - Throw `SayError` from a transcriber to say what went wrong in your own words.
