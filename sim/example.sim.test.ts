@@ -193,6 +193,20 @@ describe('the example app in the real Even Hub simulator', () => {
     expect(textWidth(words.slice(0, shown.length + 1).join(' '))).toBeGreaterThan(LIST_ROW_WIDTH)
   })
 
+  it.runIf(process.platform === 'linux')(
+    'notes for its developer what the model made of the words: the action, its target, and whether the navigator will be sure',
+    async () => {
+      const sim = await start('&say=open%20voice|note', true)
+      await sim.hold(1_200)
+      await sim.logged('decided: open voice')
+      await sim.shows('Hold the touchpad and say')
+      await sim.input('double')
+      await sim.shows('Earshot example')
+      await sim.hold(1_200)
+      await sim.logged('decided: open (not sure)')
+    },
+  )
+
   it.runIf(process.platform === 'linux')("turns the navigator's choice down at a swipe: the words go to the app's agent", async () => {
     const sim = await start('&say=remember%20to%20delete%20welcome', true)
     await sim.hold(1_200)

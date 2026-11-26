@@ -8,6 +8,7 @@ import {
   LINE_HEIGHT,
   list,
   LIST_ROW_WIDTH,
+  matchWords,
   oneLine,
   openRouter,
   Rolling,
@@ -17,12 +18,13 @@ import {
   scriptedSpeech,
   SCREEN_WIDTH,
   Shell,
+  SURE_AT,
   text,
   wrapText,
   type Agent,
   type Audio,
   type LiveState,
-  type Question,
+  type NavigatorModel,
   type Speaker,
 } from 'earshot'
 
@@ -192,11 +194,21 @@ const takeNote: Agent = heard => {
   return { kind: 'handled', say: 'Saved' }
 }
 
+const noted = (model: NavigatorModel): NavigatorModel => ({
+  async choose(question, life) {
+    const chances = await model.choose(question, life)
+    const chance = (id: string) => chances[id] ?? 0
+    const [top] = question.options.filter(option => option.action !== undefined).sort((a, b) => chance(b.id) - chance(a.id))
+    if (top && chance(top.id) > 0)
+      console.log(`decided: ${top.action}${top.target ? ` ${top.target}` : ''}${chance(top.id) >= SURE_AT ? '' : ' (not sure)'}`)
+    return chances
+  },
+})
 const hears = scripted
-  ? { transcribe: scriptedSpeech(scripted) }
+  ? { transcribe: scriptedSpeech(scripted), model: noted(matchWords) }
   : relayed && {
       transcribe: (audio: Audio, turn?: Lifetime) => service(relayed).transcribe(audio, turn),
-      model: { choose: (question: Question, turn?: Lifetime) => service(relayed).model.choose(question, turn) },
+      model: noted({ choose: (question, turn) => service(relayed).model.choose(question, turn) }),
     }
 const shell: Shell = new Shell(
   life,
