@@ -6,11 +6,17 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.49 (2026-11-26)
+## 0.0.50 (2026-11-26)
 
 - No relay is made for an upstream of the three calls that is named with a fragment (`#`): everything after it
   never reached the upstream, so the calls went somewhere other than the address said.
 - **An app must** name its relay's upstream without a fragment. One named with a query of its own is taken as before.
+
+## 0.0.49 (2026-11-25)
+
+- `glasses.micLeftOn` says that the glasses' microphone may still be on though nothing listens, because a close
+  failed, and `glasses.onMicLeftOn` is told each time that changes. An app can now warn of it after a hold too.
+- The stand-in for tests fails a close of the microphone on request: `fake.refuse('mic close')`.
 
 ## 0.0.48 (2026-11-25)
 

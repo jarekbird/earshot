@@ -54,9 +54,11 @@ function world(seed: number) {
   let ids = 0
   let sounds = 0
   const news: boolean[] = []
+  const left: boolean[] = []
   const meddlers = new Set<() => void>()
   const broken: string[] = []
   mic.onChange(open => news.push(open))
+  mic.onLeftOn(leftOn => left.push(leftOn))
 
   const answer = (how: 'yes' | 'no' | 'no, but it is on') => {
     const call = calls.shift()
@@ -162,6 +164,11 @@ function world(seed: number) {
     if (news.length) expect(news.at(-1), 'the last news is how it stands').toBe(mic.open)
     if (mic.open && listeners.size === 0 && !(hold && wants))
       expect(on || calls.length > 0, 'taken for open with nothing listening only until the close is answered').toBe(true)
+    const idle = listeners.size === 0 && !(hold && wants)
+    if (left.length) expect(left.at(-1), 'the last news of a microphone left on is how it stands').toBe(mic.leftOn)
+    if (mic.leftOn) expect(idle, 'said to be left on only while nothing listens').toBe(true)
+    if (on && idle && !mic.leftOn)
+      expect(calls.length, 'on with nothing listening, and not said to be left on, only while a call is on its way').toBeGreaterThan(0)
   }
   const settleDown = async (withSound = true) => {
     for (let round = 0; round < 40; round++) {
@@ -224,6 +231,7 @@ it.each(SEEDS)('any order of events, then calm: open if something listens, and c
     await run.settleDown(false)
     expect(run.isOn(), 'capture is off once nothing listens, without a sound to prove it was on').toBe(false)
     expect(run.mic.open).toBe(false)
+    expect(run.mic.leftOn, 'and a microphone that closed was not left on').toBe(false)
     const asked = run.asked()
     run.foreignSound()
     await vi.advanceTimersByTimeAsync(10_000)
@@ -243,6 +251,7 @@ it.each(SEEDS)('any order of events, then the end with fewer than five refused c
     await run.settleDown(false)
     expect(run.isOn(), 'capture is off after the end').toBe(false)
     expect(run.mic.open).toBe(false)
+    expect(run.mic.leftOn).toBe(false)
   } catch (error) {
     throw new Error(`After: ${run.log.join(', ')}\n${String(error)}`)
   }
