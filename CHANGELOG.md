@@ -6,11 +6,16 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.46 (2026-11-25)
+## 0.0.47 (2026-11-25)
 
 - No relay is made for an upstream of the three calls that is named with a fragment (`#`): everything after it
   never reached the upstream, so the calls went somewhere other than the address said.
 - **An app must** name its relay's upstream without a fragment. One named with a query of its own is taken as before.
+
+## 0.0.46 (2026-11-25)
+
+- What an agent says after it handled the words is shown also when the agent itself went to another screen. It was
+  dropped with every other verdict of a turn whose screen had changed.
 
 ## 0.0.45 (2026-11-25)
 
