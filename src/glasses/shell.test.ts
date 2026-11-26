@@ -2262,6 +2262,88 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect([fake.lines().length > 0, over, ran]).toEqual([true, [], [`open ${names[0]}`]])
   })
 
+  it('E15: runs no row when a tap comes as the move of the cursor is asked for: the glasses show the old row, and the tap would run the new one', async () => {
+    let armed = false
+    const made: { world?: ReturnType<typeof world> } = {}
+    made.world = world({
+      watch: event => {
+        if (event.at !== 'ask' || !armed) return
+        armed = false
+        made.world?.fake.tap()
+      },
+    })
+    const { fake, cursor, ran } = made.world
+    await settle()
+    armed = true
+    fake.down()
+    await settle()
+    expect([armed, ran, cursor()]).toEqual([false, [], names[1]])
+  })
+
+  it('E15: draws a screen of boxes that leaves a gesture unbound by naming it with nothing, and runs nothing on it', async () => {
+    const paused: string[] = []
+    const pause = action({ id: 'pause', say: 'Pause', run: () => void paused.push('pause') })
+    const on: { tap?: Action; up?: Action } = { up: pause }
+    Object.assign(on, { tap: undefined })
+    const { fake } = world({
+      home: () => ({ id: 'timer', view: () => boxes([{ id: 'time', x: 0, y: 0, w: 200, h: 40, text: '10:00' }], { on }) }),
+    })
+    await settle()
+    fake.tap()
+    fake.up()
+    await settle()
+    expect([fake.lines(), paused]).toEqual([['10:00'], ['pause']])
+  })
+
+  it('E15: runs nothing on a gesture of a screen of boxes while the glasses show, whole, the frame that tied it to something else', async () => {
+    const did: string[] = []
+    const pause = action({ id: 'pause', say: 'Pause', run: () => void did.push('pause') })
+    const resume = action({ id: 'resume', say: 'Resume', run: () => void did.push('resume') })
+    let running = true
+    const { fake, shell } = world({
+      home: () => ({
+        id: 'timer',
+        view: () =>
+          boxes(
+            [
+              { id: 'time', x: 0, y: 0, w: 200, h: 40, text: '10:00' },
+              ...(running ? [] : [{ id: 'note', x: 0, y: 40, w: 200, h: 40, text: 'Paused' }]),
+            ],
+            { on: { tap: running ? pause : resume } },
+          ),
+      }),
+    })
+    await settle(0)
+    const before = fake.calls.length
+    running = false
+    shell.redraw()
+    await settle(0)
+    fake.tap()
+    await settle(0)
+    expect([did, fake.calls.slice(before), fake.lines()]).toEqual([[], [], ['10:00']])
+    await settle()
+    fake.tap()
+    await settle()
+    expect(did).toEqual(['resume'])
+  })
+
+  it('E15: runs the gesture a screen of boxes gives through a getter, once the glasses show its frame whole', async () => {
+    const paused: string[] = []
+    const pause = action({ id: 'pause', say: 'Pause', run: () => void paused.push('pause') })
+    class Controls {
+      get tap() {
+        return pause
+      }
+    }
+    const { fake } = world({
+      home: () => ({ id: 'timer', view: () => boxes([{ id: 'time', x: 0, y: 0, w: 200, h: 40, text: '10:00' }], { on: new Controls() }) }),
+    })
+    await settle()
+    fake.tap()
+    await settle()
+    expect(paused).toEqual(['pause'])
+  })
+
   it('E15: runs the row the glasses show also when its frame was asked for from inside the telling of an older one', async () => {
     let once = false
     const made: { world?: ReturnType<typeof world> } = {}
@@ -4084,6 +4166,59 @@ describe('a hold', () => {
     const before = shell.busy
     router.open({ id: 'other', view: () => text({ body: 'Other' }) })
     expect([before, shell.busy]).toEqual([true, false])
+  })
+
+  it('leaves a turn that began as the one before ran out of time its own time, its own answer and its own end', async () => {
+    let turns = 0
+    const made: { world?: ReturnType<typeof world> } = {}
+    const again = () => {
+      const fake = made.world?.fake
+      fake?.hold()
+      fake?.sound(tone(400))
+      fake?.sound(tone(400))
+      fake?.release()
+    }
+    made.world = world({
+      voice: {
+        timeoutMs: 2_000,
+        transcribe: (_audio, life) => {
+          if (++turns > 1) return Promise.resolve('refresh')
+          life?.own(again)
+          return new Promise<string>(() => {})
+        },
+      },
+    })
+    const { fake, ran, shell } = made.world
+    await settle()
+    await say(fake)
+    await settle(2_500)
+    expect([turns, ran, shell.busy]).toEqual([2, ['refresh'], false])
+  })
+
+  it('ends a turn an agent of the app is at work on when the only screen was replaced by one that could not be entered: no screen is left for what it says', async () => {
+    let answer: (verdict: { kind: 'handled'; say: string }) => void = () => {}
+    const lives: Lifetime[] = []
+    const { voice } = hearing('remember the milk')
+    voice.agents = [({ life }) => (life && lives.push(life), new Promise(done => (answer = done)))]
+    const { fake, front, router, shell } = world({ voice })
+    await settle()
+    await say(fake)
+    let thrown: unknown
+    try {
+      router.replace({
+        id: 'broken',
+        view: () => text({ body: 'Broken' }),
+        enter: () => {
+          throw new Error('could not be entered')
+        },
+      })
+    } catch (error) {
+      thrown = error
+    }
+    const ended = lives.map(life => life.ended)
+    answer({ kind: 'handled', say: 'Saved' })
+    await settle()
+    expect([String(thrown), ended, shell.busy, front()]).toEqual(['Error: could not be entered', [true], false, ''])
   })
 
   it('calls a turn off at a change of screen while only the model is at work on it', async () => {

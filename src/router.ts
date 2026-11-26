@@ -32,13 +32,13 @@ export const showingsOf = (router: Router): Showings => SHOWINGS.get(router) as 
 interface Showings {
   readonly current: object | undefined
   onPath(showing: unknown): boolean
-  onLeave(told: () => void): () => void
+  onLeave(told: (lost: boolean) => void): () => void
   onMove(told: () => void): () => void
 }
 
 export class Router {
   readonly #stack: Entry[]
-  readonly #left = new Set<() => void>()
+  readonly #left = new Set<(lost: boolean) => void>()
   readonly #moved = new Set<() => void>()
   readonly #gone = new WeakSet<object>()
   readonly #appActions: () => readonly Action[]
@@ -212,12 +212,16 @@ export class Router {
     }
     for (const told of [...this.#left]) {
       try {
-        told()
+        told(false)
       } catch (error) {
         errors.push(error)
       }
     }
-    after()
+    try {
+      after()
+    } finally {
+      if (!this.#stack.length) for (const told of [...this.#left]) told(true)
+    }
     if (errors.length === 1) throw errors[0]
     if (errors.length) throw new AggregateError(errors, 'Cleanups failed when screens left.')
   }

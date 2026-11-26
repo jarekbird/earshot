@@ -111,11 +111,15 @@ interface Drawn {
   screen: Screen
   showing: object
   view: View
-  aims: Aims
   targets: readonly TargetInfo[]
   folded: readonly Action[]
   scrolls: boolean
 }
+
+const GESTURES: readonly Gesture[] = ['tap', 'up', 'down']
+
+const aimOf = (view: View, bound: Bound, target = boundTo(bound).target): string =>
+  JSON.stringify([view.kind, boundTo(bound).action.id, target ?? null])
 
 const sameText = (one: Read['view'], other: Read['view']) => one.title === other.title && one.body === other.body && one.end === other.end
 
@@ -178,12 +182,12 @@ export class Shell {
     this.#life.own(sent.onChange(() => this.#frames.forget()))
     this.#life.own(() => this.#frames.end())
     this.#life.own(
-      showingsOf(router).onLeave(() => {
+      showingsOf(router).onLeave(lost => {
         this.#moves++
         const { onPath, current } = showingsOf(router)
         this.#frames.left(onPath)
         const spoken = this.#recording?.showing ?? (this.#handed ? undefined : this.#decidingOn)
-        const closed = current !== undefined && !onPath(current)
+        const closed = lost || (current !== undefined && !onPath(current))
         try {
           if (closed || (spoken !== undefined && spoken !== null && !onPath(spoken))) this.#callOff(true)
         } finally {
@@ -271,15 +275,14 @@ export class Shell {
     const shown = fold ? offered.slice(0, MAX_MENU_ITEMS - 1) : offered
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
-    const aim = (bound: Bound, target = boundTo(bound).target) => JSON.stringify([view.kind, boundTo(bound).action.id, target ?? null])
     const under = targets[reached.cursor ?? place.cursor]
     const aims: Aims =
       view.kind === 'list'
         ? under
-          ? { tap: aim(view.action, under.id) }
+          ? { tap: aimOf(view, view.action, under.id) }
           : {}
         : view.kind === 'boxes'
-          ? Object.fromEntries(Object.entries(view.on ?? {}).map(([gesture, bound]) => [gesture, aim(bound)]))
+          ? Object.fromEntries(GESTURES.flatMap(gesture => (view.on?.[gesture] ? [[gesture, aimOf(view, view.on[gesture])]] : [])))
           : {}
     if (stale()) return
     this.#places.set(showing, Object.assign(place, reached))
@@ -288,7 +291,7 @@ export class Shell {
     this.#pending = [...this.#pending.filter(asked => asked === progressOf(this.#glasses).sending || asked > frame), frame]
     if (this.#life.ended || !showings.onPath(showing)) return progressOf(this.#glasses).drop([frame])
     if (!this.#drawn || frame > this.#drawn.frame)
-      this.#drawn = { frame, screen, showing, view: kept, aims, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
+      this.#drawn = { frame, screen, showing, view: kept, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
     this.#frames.asked(frame, showing, drew, view.kind, aims)
   }
 
@@ -309,11 +312,9 @@ export class Shell {
     this.#draw({ view, laid: text })
   }
 
-  #aimed(drawn: Drawn, gesture: Gesture): boolean {
-    const aim = drawn.aims[gesture]
+  #aimed(drawn: Drawn, gesture: Gesture, aim: string): boolean {
     const seen = this.#frames.whole
-    if (aim === undefined || !seen || !this.#glasses[WHOLE]) return false
-    return seen.showing === drawn.showing && seen.aims[gesture] === aim
+    return seen !== undefined && this.#glasses[WHOLE] && seen.showing === drawn.showing && seen.aims[gesture] === aim
   }
 
   #bound(view: View): Action[] {
@@ -446,7 +447,7 @@ export class Shell {
     if (view.kind === 'boxes') {
       const moves = this.#moves
       const bound = view.on?.[input.kind]
-      if (!bound || moves !== this.#moves || !this.#aimed(drawn, input.kind)) return
+      if (!bound || moves !== this.#moves || !this.#aimed(drawn, input.kind, aimOf(view, bound))) return
       const { action: chosen, target } = boundTo(bound)
       return void this.#start(chosen, target)
     }
@@ -456,7 +457,10 @@ export class Shell {
     if (view.kind === 'text') {
       if (input.kind !== 'tap') return this.#scroll(drawn, place, 'swipe', step < 0)
     } else if (input.kind !== 'tap') place.cursor += step
-    else return this.#aimed(drawn, 'tap') ? this.#choose(drawn, place) : undefined
+    else {
+      const under = drawn.targets[place.cursor]
+      return under && this.#aimed(drawn, 'tap', aimOf(view, view.action, under.id)) ? this.#choose(drawn, place) : undefined
+    }
     this.redraw()
   }
 
@@ -612,8 +616,14 @@ export class Shell {
     if (patience === undefined) return finish(() => this.notice(this.#words.voiceFailed))
     slow = this.#slow = this.#life.timeout(() => {
       if (!mine()) return
-      finish(() => this.notice(this.#words.slow))
-      this.#turn++
+      const over = (say: () => void) => () => {
+        this.#turn++
+        say()
+      }
+      finish(
+        over(() => this.notice(this.#words.slow)),
+        over(spare),
+      )
     }, patience)
     if (!mine()) return slow.cancel()
     if (passed === undefined) this.#show(this.#words.thinking)
