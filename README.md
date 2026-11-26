@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.49
+npm install github:jarekbird/earshot#v0.0.50
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.49 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.50 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -367,6 +367,7 @@ What the relay does:
 - It forwards only Earshot's three calls, only for the models you list, and only the fields Earshot sends. It is not a general key for anyone who finds its address.
 - It refuses a request over four megabytes (`maxBytes`), and answers the cross-origin check a web view makes first.
 - It adds your key on the way out, follows the upstream to no other address, and passes back only the answer.
+- When the upstream refuses or fails, the relay answers with the upstream's status and none of its words: an upstream may quote the request in its error, and the request holds what the user said. Earshot tells the errors apart by their status alone.
 - It waits ten seconds for a question or a shortening and twenty-eight for speech, just under what Earshot waits for each, so a slow upstream comes back as the relay's own answer.
 
 - For live speech it takes one WebSocket at `/api/v1/live`. The caller's first message must carry the secret and a model you list, within three seconds; then sound goes up and words come back. Sound sent before the upstream has opened goes nowhere: a caller waits for the upstream's first message (Flux says `Connected`), as `fluxLive` does. Text the caller sends after that goes nowhere, and any message over 64 kilobytes ends the line. It gives the upstream five seconds to open, follows it to no other address, lets go of it when the caller leaves, and ends the line if the upstream sends a message over 64 kilobytes, text or sound. On Node it stops passing to a side that has stopped taking, at a mebibyte queued; a Worker cannot see its queue, and its runtime's memory limit is the bound there. It asks Deepgram to keep every line's sound out of its model-improvement programme (`mip_opt_out`), whatever the caller asks.
