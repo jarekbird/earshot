@@ -257,6 +257,11 @@ text, so Jev is enough.
   item leaves. Touch still reaches an item that left (E3).
 
 - The thresholds that turn probabilities into verdicts live with the navigator.
+- Two options that would do the same thing are one choice. The shell's "choose this one" stands for the row under
+  the cursor, which the question also offers by name. Both are put to the model, since each is how a person may
+  say it, and the chance of the first is added to the second before anything is compared. The row by name is
+  what runs. On a list the shell made itself (a list of candidates, of an action's targets, of more actions)
+  choosing a row also closes the list, so there the two are not the same and stay apart.
 - Private targets never enter the rolling set (E6) and are picked by touch.
 
 ### Context
