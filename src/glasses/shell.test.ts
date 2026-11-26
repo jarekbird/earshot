@@ -1645,6 +1645,56 @@ describe('a hold', () => {
     expect(front()).toBe('Saved')
   })
 
+  it('says what an agent did also when the agent itself went to another screen: the work is done, wherever the user now is', async () => {
+    const { voice } = hearing('remember the milk')
+    const made = world({ voice })
+    voice.agents = [
+      () => {
+        made.router.open({ id: 'saved', view: () => text({ title: 'Notes', body: 'The milk' }) })
+        return { kind: 'handled', say: 'Saved' }
+      },
+    ]
+    await settle()
+    await say(made.fake)
+    expect(made.fake.lines()).toContain('Notes')
+    expect(made.front()).toBe('Saved')
+  })
+
+  it('says nothing of an agent that answers after its turn ran out of time, on whichever screen', async () => {
+    const { voice } = hearing('remember the milk')
+    voice.timeoutMs = 2_000
+    const made = world({ voice })
+    let answer: ((verdict: { kind: 'handled'; say: string }) => void) | undefined
+    voice.agents = [
+      () => {
+        made.router.open({ id: 'saved', view: () => text({ title: 'Notes', body: 'The milk' }) })
+        return new Promise(done => (answer = done))
+      },
+    ]
+    await settle()
+    await say(made.fake)
+    await settle(3_000)
+    answer!({ kind: 'handled', say: 'Saved' })
+    await settle()
+    expect(made.fake.lines()).toContain('Notes')
+    expect(made.front()).toBe('')
+  })
+
+  it('says nothing after an agent that went to another screen and has nothing to say', async () => {
+    const { voice } = hearing('remember the milk')
+    const made = world({ voice })
+    voice.agents = [
+      () => {
+        made.router.open({ id: 'saved', view: () => text({ title: 'Notes', body: 'The milk' }) })
+        return { kind: 'handled' }
+      },
+    ]
+    await settle()
+    await say(made.fake)
+    expect(made.fake.lines()).toContain('Notes')
+    expect(made.front()).toBe('')
+  })
+
   it('shows what a transcriber says went wrong, or that voice did not work', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const failures: unknown[] = [new SayError('Set up voice on your phone'), new Error('boom')]
