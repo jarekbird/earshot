@@ -172,7 +172,7 @@ describe('a port another program took before the simulator did', () => {
 
   started('is not the reason when the simulator never answers on a port nobody took: that one is started once', async () => {
     const starts = startsOf('silent')
-    await expect(start('silent', { startMs: 400 }, starts.env)).rejects.toThrow(/Timed out waiting for the simulator to answer/)
+    await expect(start('silent', { startMs: 2_000 }, starts.env)).rejects.toThrow(/Timed out waiting for the simulator to answer/)
     expect(starts.count()).toBe(1)
   })
 
