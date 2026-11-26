@@ -311,7 +311,7 @@ export class Glasses {
         for (const frame of frames) if (frame > this.#whole && sendable(frame)) this.#dropped.add(frame)
         if (!this.#dropped.has(this.#number)) return
         const going = this.#going && !this.#dropped.has(this.#going.number) ? this.#going : null
-        this.#left = going ? going.left : true
+        this.#left = going ? going.left : !this.#intact
         this.#frame = going ? going.frame : this.#kept()
         this.#number = going ? going.number : this.#whole
         if (this.#created || this.#overlay !== null) this.#place()

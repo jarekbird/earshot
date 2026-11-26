@@ -148,7 +148,10 @@ function once(given: Verdict, mine: () => boolean): Answer {
     kind,
     ...said,
     now: () => given.kind,
-    holds: now => (said?.say !== undefined && now === 'handled' ? said : asItStands(given, now)),
+    holds: now => {
+      const stands = asItStands(given, now)
+      return said && stands.kind === 'handled' && stands.say === undefined ? said : stands
+    },
   }
 }
 

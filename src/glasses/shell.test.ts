@@ -5189,6 +5189,22 @@ describe('a hold', () => {
     expect(asked).toEqual(['action', 'name', 'row'])
   })
 
+  it('says what an agent that handled the words has to say as it stands once what it left behind has run, when that put other words in their place', async () => {
+    const { voice } = hearing('do it', 'do it')
+    voice.agents = [
+      ({ life }) => {
+        const verdict = { kind: 'handled' as const, say: 'Saved' }
+        life?.own(() => void (verdict.say = 'Already saved'))
+        return verdict
+      },
+    ]
+    const { fake, front } = world({ voice, home: () => ({ id: 'home', view: () => text({ body: 'Home' }) }) })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect(front()).toBe('Already saved')
+  })
+
   it('says what an agent that handled the words has to say when it only says so as the turn ends, in what it left behind', async () => {
     const { voice } = hearing('do it', 'do it')
     voice.agents = [

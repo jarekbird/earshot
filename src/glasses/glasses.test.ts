@@ -2265,6 +2265,23 @@ describe('watching the draws', () => {
     expect([before, fake.lines(), glasses[WHOLE]]).toEqual([true, ['Two', 'Old'], false])
   })
 
+  it('still takes what the glasses hold for one whole frame after a frame that was never sent was taken back, also once an overlay came and went', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    glasses.draw(frame(box('title', 'One'), box('body', 'Old', { y: 27 })))
+    await settle(REBUILD_GAP_MS)
+    const calls = fake.calls.length
+    progressOf(glasses).drop([glasses.draw(frame(box('title', 'Two'), box('body', 'New', { y: 27 })))])
+    await settle(60_000)
+    const unsent = fake.calls.length === calls
+    glasses.overlay('Status')
+    await settle(60_000)
+    const over = fake.overlay()
+    glasses.overlay(null)
+    await settle(60_000)
+    expect([unsent, over, fake.lines(), glasses[WHOLE]]).toEqual([true, 'Status', ['One', 'Old'], true])
+  })
+
   it('hangs no picture again when the call for a newer one was never made, its frame taken back first', async () => {
     const fake = fakeBridge()
     let second = 0
