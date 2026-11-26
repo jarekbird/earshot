@@ -125,12 +125,14 @@ const tied = (bound: Bound): { action: Action; target?: string } => {
 
 const aimOf = (kind: View['kind'], action: Action, target?: string): string => JSON.stringify([kind, action.id, target ?? null])
 
-function once(given: Verdict): Verdict {
+function once(given: Verdict, mine: () => boolean, moved: () => boolean): Verdict {
   const { kind } = given
+  if (!mine()) throw new LifetimeEnded()
   if (kind === 'handled') {
     const { say } = given as { say?: string }
     return say === undefined ? { kind } : { kind, say }
   }
+  if (moved()) return { kind: 'none' }
   if (kind === 'sure') {
     const { action, target } = given as { action: string; target?: string }
     return target === undefined ? { kind, action } : { kind, action, target }
@@ -493,12 +495,12 @@ export class Shell {
     const { view } = drawn
     const moves = this.#moves
     if (view.kind === 'boxes') {
-      if (!this.#onShow(drawn)) return
+      const shown = this.#onShow(drawn)?.[input.kind]
+      if (shown === undefined || this.#frames.newest?.aims[input.kind] !== shown) return
       const bound = view.on?.[input.kind]
       if (!bound || moves !== this.#moves) return
       const { action: chosen, target } = tied(bound)
-      const aim = aimOf('boxes', chosen, target)
-      if (moves !== this.#moves || !this.#aimed(drawn, input.kind, aim)) return
+      if (moves !== this.#moves) return
       return void this.#start(chosen, target)
     }
     const seen = this.#frames.words
@@ -751,7 +753,7 @@ export class Shell {
       if (!(navigate && index === 0)) this.#handed = true
       const given = await agent(heard)
       if (!mine()) throw new LifetimeEnded()
-      const verdict = once(given)
+      const verdict = once(given, mine, moved)
       if (verdict.kind !== 'notMine') return { verdict, more: navigate && index === 0 && agents.length > 1 }
     }
     return { verdict: { kind: 'none' }, more: false }

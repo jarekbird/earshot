@@ -38,6 +38,15 @@ describe('the frames a shell asked for', () => {
     expect([frames.whole?.aims, frames.kept]).toEqual([{ tap: 'row 500' }, 1])
   })
 
+  it('says what a touch would run on the frame asked for last, which a gesture of a screen of boxes is held to', () => {
+    const frames = new Frames({ shown: 1, menu: 1, text: 1, sending: 2 })
+    const timer = screen('timer')
+    expect(frames.newest).toBeUndefined()
+    frames.asked(1, timer, null, 'boxes', { tap: 'pause' })
+    frames.asked(2, timer, null, 'boxes', { tap: 'resume' })
+    expect([frames.whole?.aims, frames.newest?.aims, frames.newest?.showing]).toEqual([{ tap: 'pause' }, { tap: 'resume' }, timer])
+  })
+
   it('knows of no whole frame of the shell while the glasses show one that was not asked for through it', () => {
     const frames = new Frames({ shown: 7, menu: 7, text: 7, sending: 0 })
     frames.asked(3, screen('list'), null, 'list', { tap: 'row' })

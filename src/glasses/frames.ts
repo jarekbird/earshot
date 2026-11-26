@@ -95,6 +95,10 @@ export class Frames {
     return this.#asked.find(asked => asked.frame === this.#progress.shown)
   }
 
+  get newest(): { showing: unknown; aims: Aims } | undefined {
+    return this.#asked.at(-1)
+  }
+
   swiping(showing: unknown, to: Read, since: Since = NONE): void {
     if (!this.#ended) this.#swiped.set(showing, { frame: Infinity, to, since })
   }
