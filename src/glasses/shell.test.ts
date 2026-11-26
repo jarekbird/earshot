@@ -4622,6 +4622,42 @@ describe('a hold', () => {
     expect(front()).toBe('Saved')
   })
 
+  it('reads nothing of an answer whose turn was called off in the moment after it came', async () => {
+    let answer: (verdict: { kind: 'handled'; say: string }) => void = () => {}
+    let read = 0
+    const { voice } = hearing('remember the milk')
+    voice.agents = [() => new Promise(done => (answer = done))]
+    const { fake, router } = world({ voice })
+    await settle()
+    await say(fake)
+    answer({
+      kind: 'handled',
+      get say() {
+        read++
+        return 'Saved'
+      },
+    })
+    void Promise.resolve().then(() => router.close())
+    await settle()
+    expect(read).toBe(0)
+  })
+
+  it('says what an agent answered on the screen it was said on, though what the agent left behind takes the words away again as the turn ends', async () => {
+    const { voice } = hearing('remember the milk')
+    voice.agents = [
+      ({ life }) => {
+        const verdict: { kind: 'handled'; say?: string } = { kind: 'handled', say: 'Saved' }
+        life?.own(() => void delete verdict.say)
+        return verdict
+      },
+    ]
+    const { fake, front } = world({ voice })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect(front()).toBe('Saved')
+  })
+
   it('calls a turn off at a change of screen while only the model is at work on it', async () => {
     const { voice } = hearing('something else entirely')
     voice.model = { choose: () => new Promise(() => {}) }

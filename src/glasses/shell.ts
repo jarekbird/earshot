@@ -674,13 +674,15 @@ export class Shell {
       const heard = words ? `"${words}"` : this.#words.thinking
       if (!moved()) this.#show(heard)
       const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, moved, mine)
+      if (!mine()) return
       const done = verdict.kind === 'handled' ? verdict.say : undefined
+      const answered: Verdict = verdict.kind === 'handled' ? { kind: 'handled', ...(done === undefined ? {} : { say: done }) } : verdict
       finish(
         () => {
           if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
           if (words) this.#show(heard, HEARD_MS)
           else this.#clear()
-          this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
+          this.#act(answered, more ? () => void this.#decide(voice, audio, words) : undefined)
         },
         () => (done === undefined ? spare() : this.notice(done)),
       )
