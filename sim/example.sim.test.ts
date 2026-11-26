@@ -2,12 +2,35 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { build } from 'esbuild'
+import { build, type Plugin } from 'esbuild'
 import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { WebSocketServer } from 'ws'
 import { LIST_ROW_WIDTH, textWidth } from '../src/index.js'
 import { serve } from '../relay/node.js'
 import { Simulator } from './simulator.js'
+
+const SDK = '@evenrealities/even_hub_sdk'
+const closesFail = (times: number): Plugin => ({
+  name: 'glasses that fail to close the microphone',
+  setup(bundler) {
+    bundler.onResolve({ filter: /^@evenrealities\/even_hub_sdk$/ }, from =>
+      from.namespace === 'unclosing' ? undefined : { path: SDK, namespace: 'unclosing' },
+    )
+    bundler.onLoad({ filter: /.*/, namespace: 'unclosing' }, () => ({
+      resolveDir: process.cwd(),
+      contents: `export * from '${SDK}'
+import { waitForEvenAppBridge as real } from '${SDK}'
+export const waitForEvenAppBridge = async () => {
+  const bridge = await real()
+  const control = bridge.audioControl.bind(bridge)
+  let left = ${times}
+  bridge.audioControl = (open, ...rest) =>
+    !open && left-- > 0 ? Promise.reject(new Error('The close did not go through.')) : control(open, ...rest)
+  return bridge
+}`,
+    }))
+  },
+})
 
 const RECORDED = readFileSync('src/flux/recorded.jsonl', 'utf8').trim().split('\n')
 const LIVE_KEY = 'live-developer'
@@ -188,6 +211,42 @@ describe('the example app in the real Even Hub simulator', () => {
     await sim.hold(1_200)
     await sim.shows('Earshot example')
   })
+
+  it.runIf(process.platform === 'linux')(
+    'says on its home screen that the microphone may still be on while the glasses fail to close it',
+    async () => {
+      const bundle = await build({
+        entryPoints: ['example/main.ts'],
+        tsconfig: 'tsconfig.json',
+        bundle: true,
+        format: 'esm',
+        write: false,
+        logLevel: 'silent',
+        define: { EARSHOT_RELAY: '""', EARSHOT_TRACE: 'true' },
+        plugins: [closesFail(3)],
+      })
+      const page = readFileSync('example/index.html', 'utf8')
+      const unclosing = createServer((request, response) => {
+        const wanted = request.url === '/main.js'
+        response.setHeader('content-type', wanted ? 'text/javascript' : 'text/html')
+        response.end(wanted ? bundle.outputFiles[0].text : page)
+      })
+      await new Promise<void>(done => unclosing.listen(0, '127.0.0.1', done))
+      onTestFinished(() => void unclosing.close())
+      const sim = await Simulator.start({
+        url: `http://127.0.0.1:${(unclosing.address() as AddressInfo).port}/`,
+        limitSeconds: 300,
+        mic: true,
+      })
+      onTestFinished(() => sim.stop())
+      await sim.shows('Earshot example', 60_000)
+      await sim.pick('Listen')
+      await sim.shows('Listening')
+      await sim.input('double')
+      await sim.shows('The microphone may still be on')
+      await sim.shows('Earshot example')
+    },
+  )
 
   it.runIf(process.platform === 'linux')('shows live speech turn by turn while a screen listens', async () => {
     const sim = await start('&live=hello%20there|how%20are%20you', true)

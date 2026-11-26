@@ -83,4 +83,14 @@ describe('the stand-in bridge', () => {
     await expect(create(fake, text(1))).rejects.toThrow()
     expect(await create(fake, text(1))).toBe(0)
   })
+
+  it('fails a close of the microphone on request, and leaves it on: the glasses answer any close that went through', async () => {
+    const fake = fakeBridge()
+    await fake.bridge.audioControl(true)
+    fake.refuse('mic close', 1)
+    await expect(fake.bridge.audioControl(false)).rejects.toThrow()
+    expect(fake.mic).toBe('glasses')
+    await fake.bridge.audioControl(false)
+    expect(fake.mic).toBeNull()
+  })
 })
