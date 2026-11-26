@@ -629,6 +629,67 @@ describe('the microphone', () => {
     expect(mics(fake)).toEqual(['mic open', 'mic close'])
   })
 
+  it('says that the microphone may still be on when a close fails, and that it is not once a close goes through', async () => {
+    const { fake, glasses } = setup()
+    const told: boolean[] = []
+    glasses.onMicLeftOn(leftOn => told.push(leftOn))
+    const { stop } = listening(glasses)
+    await settle()
+    fake.refuse('mic close', 2)
+    void stop()
+    await settle()
+    expect([glasses.micLeftOn, told]).toEqual([true, [true]])
+    await settle(500)
+    expect([glasses.micLeftOn, told]).toEqual([true, [true]])
+    await settle(1_000)
+    expect([glasses.micLeftOn, told, fake.mic]).toEqual([false, [true, false], null])
+  })
+
+  it('says so after a hold as well, which an app has no other way to learn of', async () => {
+    const { fake, glasses } = setup()
+    const command = holding(glasses)
+    await settle()
+    fake.refuse('mic close', 1)
+    command.stop()
+    await settle()
+    expect(glasses.micLeftOn).toBe(true)
+  })
+
+  it('says nothing of a microphone left on while a close is on its way, or once a first close went through', async () => {
+    const { glasses } = setup()
+    const told: boolean[] = []
+    glasses.onMicLeftOn(leftOn => told.push(leftOn))
+    const { stop } = listening(glasses)
+    await settle()
+    void stop()
+    expect(glasses.micLeftOn).toBe(false)
+    await settle()
+    expect([glasses.micLeftOn, told]).toEqual([false, []])
+  })
+
+  it('takes it back when something listens again: the microphone is then on because it is wanted', async () => {
+    const { fake, glasses } = setup()
+    const told: boolean[] = []
+    glasses.onMicLeftOn(leftOn => told.push(leftOn))
+    const { stop } = listening(glasses)
+    await settle()
+    fake.refuse('mic close', 5)
+    void stop()
+    await settle()
+    listening(glasses)
+    expect([glasses.micLeftOn, told]).toEqual([false, [true, false]])
+  })
+
+  it('goes on saying so when the app ended and the close failed every time', async () => {
+    const { life, fake, glasses } = setup()
+    listening(glasses)
+    await settle()
+    fake.refuse('mic close', 5)
+    life.end()
+    await settle(60_000)
+    expect([glasses.micLeftOn, fake.mic]).toEqual([true, 'glasses'])
+  })
+
   it('gives all the sound to a hold, and none of it to the listeners until the hold is over', async () => {
     const { fake, glasses } = setup()
     const session = listening(glasses)
