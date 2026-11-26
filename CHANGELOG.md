@@ -6,6 +6,12 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
+## 0.0.47 (2026-11-25)
+
+- The simulator driver starts the simulator once more, on another port, when another program took the port the
+  driver had picked for it. Such a start failed, or with Even's simulator ran out of time.
+- A start no longer waits without end on a port whose holder takes the call and never answers.
+
 ## 0.0.46 (2026-11-25)
 
 - What an agent says after it handled the words is shown also when the agent itself went to another screen. It was

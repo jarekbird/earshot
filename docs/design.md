@@ -65,7 +65,8 @@ SDK's two storage calls by shape, so it does not import the SDK (E1).
 
 `earshot/sim`, in `sim/`, outside `src` because it needs Node. It starts Even's simulator on a page, with its own home
 folder, a hidden display on Linux and a hard time limit on every process, then sends touchpad input, reads the
-console, takes pictures and waits for a condition. The simulator gives a picture and a console, not the text on the
+console, takes pictures and waits for a condition. The simulator listens on a port the driver picks; when another
+program takes that port first, the driver starts the simulator once more on another. The simulator gives a picture and a console, not the text on the
 glasses. Reading what the glasses show, and a stand-in bridge for tests without the simulator, come with the renderer
 in slice 2, which decides what a drawn frame is.
 

@@ -11,6 +11,8 @@ const POLL_MS = 100
 const FRAME_TAG = '[earshot frame]'
 const INPUT_TAG = '[earshot input]'
 const MENU_OPENS_MS = 1_500
+const PING_MS = 1_000
+const STARTS = 2
 const ACTIONS = {
   tap: 'click',
   double: 'double_click',
@@ -67,6 +69,13 @@ const freePort = () =>
       const address = server.address()
       server.close(() => done(typeof address === 'object' && address ? address.port : 0))
     })
+  })
+
+const taken = (port: number) =>
+  new Promise<boolean>(done => {
+    const server = createServer()
+    server.once('error', () => done(true))
+    server.listen(port, LOOPBACK, () => server.close(() => done(false)))
   })
 
 const MIC_RATE = 16_000
@@ -201,7 +210,6 @@ export class Simulator {
       const binary = options.binary ?? findBinary(process.cwd())
       if (options.headless ?? (process.platform === 'linux' && !process.env.DISPLAY)) display = await startDisplay(home, log, seconds)
       if (options.mic) quiet = standInMic(home)
-      const port = await freePort()
       const env = {
         ...process.env,
         ...(display ? { DISPLAY: display.name } : {}),
@@ -212,19 +220,29 @@ export class Simulator {
         WEBVIEW2_USER_DATA_FOLDER: join(home, 'webview'),
         ...options.env,
       }
-      const sim = launch(binary, ['--no-aid', '--no-glow', '--automation-port', String(port), options.url], env, home, log, seconds)
-      simulator = new Simulator(`http://${LOOPBACK}:${port}`, sim, display?.child, home, quiet)
-      const api = simulator.api
-      await simulator.#wait(
-        'the simulator to answer',
-        () =>
-          fetch(`${api}/api/ping`).then(
-            pong => pong.ok,
-            () => false,
-          ),
-        options.startMs ?? 60_000,
-      )
-      return simulator
+      // Fact: Even's simulator takes the port it is told, and stays up without a word when another program has it.
+      for (let starts = 1; ; starts++) {
+        const port = await freePort()
+        const sim = launch(binary, ['--no-aid', '--no-glow', '--automation-port', String(port), options.url], env, home, log, seconds)
+        simulator = new Simulator(`http://${LOOPBACK}:${port}`, sim, display?.child, home, quiet)
+        const api = simulator.api
+        try {
+          await simulator.#wait(
+            'the simulator to answer',
+            () =>
+              fetch(`${api}/api/ping`, { signal: AbortSignal.timeout(PING_MS) }).then(
+                pong => pong.ok,
+                () => false,
+              ),
+            options.startMs ?? 60_000,
+          )
+          return simulator
+        } catch (error) {
+          const exited = over(sim.child)
+          await end(sim.child)
+          if (starts === STARTS || sim.failed() || !(exited || (await taken(port)))) throw error
+        }
+      }
     } catch (error) {
       if (simulator) await simulator.stop()
       else {

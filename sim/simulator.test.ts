@@ -1,15 +1,26 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as pause } from 'node:timers/promises'
 import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
 import { FRAME_TAG, INPUT_TAG } from '../src/glasses/glasses.js'
 import { ending, findBinary, limited, Simulator } from './simulator.js'
 
 const FAKE = `#!/usr/bin/env node
+import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
+import { join } from 'node:path'
 const args = process.argv.slice(2)
 const port = Number(args[args.indexOf('--automation-port') + 1])
 const mode = process.env.FAKE_SIM ?? ''
+if (process.env.FAKE_STARTS) appendFileSync(process.env.FAKE_STARTS, 'start\\n')
+const [kind, name] = mode.split(':')
+const told = join(import.meta.dirname, name + '.port')
+if (name && !existsSync(told)) {
+  writeFileSync(told, String(port))
+  while (!existsSync(join(import.meta.dirname, name + '.taken'))) await new Promise(wait => setTimeout(wait, 20))
+}
 if (mode === 'exits') {
   console.error('cannot open display')
   process.exit(3)
@@ -60,7 +71,12 @@ else
     if (url.pathname.startsWith('/api/screenshot/')) return response.end('png of ' + url.pathname.split('/').at(-1))
     response.statusCode = 404
     response.end()
-  }).listen(port, '127.0.0.1')
+  })
+    .on('error', error => {
+      if (kind !== 'deaf') throw error
+      setInterval(() => {}, 1000)
+    })
+    .listen(port, '127.0.0.1')
 `
 
 let dir: string
@@ -76,10 +92,24 @@ beforeAll(() => {
 })
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-const start = async (mode = '', options: { startMs?: number } = {}) => {
-  const sim = await Simulator.start({ url: 'http://127.0.0.1:1/app', binary, headless: false, env: { FAKE_SIM: mode }, ...options })
+const start = async (mode = '', options: { startMs?: number } = {}, env: Record<string, string> = {}) => {
+  const sim = await Simulator.start({ url: 'http://127.0.0.1:1/app', binary, headless: false, env: { FAKE_SIM: mode, ...env }, ...options })
   onTestFinished(() => sim.stop())
   return sim
+}
+const takenByAnother = async (name: string) => {
+  const told = join(dir, `${name}.port`)
+  while (!existsSync(told) || !readFileSync(told, 'utf8')) await pause(20)
+  const port = Number(readFileSync(told, 'utf8'))
+  const other = createServer()
+  onTestFinished(() => void other.close())
+  await new Promise(done => other.once('error', done).listen(port, '127.0.0.1', () => done(undefined)))
+  writeFileSync(join(dir, `${name}.taken`), '')
+  return port
+}
+const startsOf = (name: string) => {
+  const file = join(dir, `${name}.starts`)
+  return { env: { FAKE_STARTS: file }, count: () => readFileSync(file, 'utf8').split('\n').length - 1 }
 }
 const running = (pid: number) => {
   try {
@@ -116,6 +146,40 @@ describe('start', () => {
 
   started('reports a simulator that never answers, and stops it', async () => {
     await expect(start('silent', { startMs: 400 })).rejects.toThrow(/Timed out waiting for the simulator to answer/)
+  })
+})
+
+describe('a port another program took before the simulator did', () => {
+  started('gets a simulator that exits started once more, on another port', async () => {
+    const starting = start('crash:exits-on-taken')
+    const port = await takenByAnother('exits-on-taken')
+    const sim = await starting
+    expect(sim.api).not.toBe(`http://127.0.0.1:${port}`)
+    expect((await sim.read())[0].message).toContain('started')
+  })
+
+  started(
+    "gets a simulator that stays up and never answers, as Even's does, started once more on another port",
+    async () => {
+      const starting = start('deaf:stays-on-taken', { startMs: 2_000 })
+      const port = await takenByAnother('stays-on-taken')
+      const sim = await starting
+      expect(sim.api).not.toBe(`http://127.0.0.1:${port}`)
+      expect((await sim.read())[0].message).toContain('started')
+    },
+    15_000,
+  )
+
+  started('is not the reason when the simulator never answers on a port nobody took: that one is started once', async () => {
+    const starts = startsOf('silent')
+    await expect(start('silent', { startMs: 400 }, starts.env)).rejects.toThrow(/Timed out waiting for the simulator to answer/)
+    expect(starts.count()).toBe(1)
+  })
+
+  started('may be the reason when the simulator exits: that one is started twice, and then reported', async () => {
+    const starts = startsOf('exits')
+    await expect(start('exits', {}, starts.env)).rejects.toThrow(/exited[\s\S]*cannot open display/)
+    expect(starts.count()).toBe(2)
   })
 })
 
