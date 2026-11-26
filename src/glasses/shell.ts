@@ -361,17 +361,22 @@ export class Shell {
             : [
                 move(UP, this.#words.moveUp, -1, 'cursor'),
                 move(DOWN, this.#words.moveDown, 1, 'cursor'),
-                action({ id: CHOOSE, say: this.#words.choose, run: () => this.#choose(drawn, this.#row(drawn, place), this.#said) }),
+                action({
+                  id: CHOOSE,
+                  say: this.#words.choose,
+                  run: () => {
+                    const said = this.#said
+                    this.#choose(drawn, this.#row(drawn, place), said)
+                  },
+                }),
               ]
     const taken = new Set(actions.map(a => a.id))
     return [...actions, ...own.filter(a => !taken.has(a.id) && (taken.add(a.id), true))]
   }
 
   #row(drawn: Drawn, place: Place): { action: Action; target: string } | undefined {
-    if (drawn.view.kind !== 'list') return undefined
-    const action = drawn.view.action
     const target = drawn.targets[place.cursor]?.id
-    return target === undefined ? undefined : { action, target }
+    return drawn.view.kind !== 'list' || target === undefined ? undefined : { action: drawn.view.action, target }
   }
 
   #choose(drawn: Drawn, row: { action: Action; target: string } | undefined, said = false): void {
@@ -716,6 +721,7 @@ export class Shell {
       if (gone()) throw new LifetimeEnded()
       if (!(navigate && index === 0)) this.#handed = true
       const verdict = await agent(heard)
+      if (said.life.ended) throw new LifetimeEnded()
       if (verdict.kind !== 'notMine') return { verdict, more: navigate && index === 0 && agents.length > 1 }
     }
     return { verdict: { kind: 'none' }, more: false }

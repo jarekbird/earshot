@@ -210,7 +210,7 @@ export class Router {
         errors.push(error)
       }
     }
-    for (const told of [...this.#left]) {
+    for (const told of entries.length ? [...this.#left] : []) {
       try {
         told(false)
       } catch (error) {

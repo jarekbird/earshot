@@ -2412,6 +2412,27 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect(did).toEqual(['open'])
   })
 
+  it('E15: reads nothing of a list on a tap when it has no row: there is nothing the tap could run', async () => {
+    const made: { router?: Router } = {}
+    let armed = false
+    const open = action({ id: 'open', say: 'Open', targets: () => [], run: () => {} })
+    const view = list({ title: 'Stock', action: open, empty: 'Nothing here' })
+    Object.defineProperty(view, 'action', {
+      get: () => {
+        if (armed) made.router?.open({ id: 'details', view: () => text({ body: 'Details' }) })
+        return open
+      },
+    })
+    const { fake, router } = world({ home: () => ({ id: 'stock', view: () => view }) })
+    made.router = router
+    await settle()
+    armed = true
+    fake.tap()
+    armed = false
+    await settle()
+    expect(fake.lines().join(' ')).not.toContain('Details')
+  })
+
   it('E15: runs no row of a list when reading what its tap is tied to moved the screen on', async () => {
     const sent: string[] = []
     const made: { router?: Router } = {}
@@ -4425,6 +4446,54 @@ describe('a hold', () => {
     expect(front()).toBe('')
   })
 
+  it('runs what an agent chose when the agent tried to go to a screen that could not be entered and none was left: the screen it was said on is still the one', async () => {
+    const { voice } = hearing('refresh it')
+    const made: { router?: Router } = {}
+    voice.transcribe = async () => null
+    voice.agents = [
+      () => {
+        try {
+          made.router?.jump({
+            id: 'broken',
+            view: () => text({ body: 'Broken' }),
+            enter: () => {
+              throw new Error('could not be entered')
+            },
+          })
+        } catch {
+          return { kind: 'sure', action: 'refresh' }
+        }
+        return { kind: 'notMine' }
+      },
+    ]
+    const { fake, ran, router } = world({ voice })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle()
+    expect(ran).toEqual(['refresh'])
+  })
+
+  it('reads nothing at all of what an agent answers after its turn ran out of time, not what kind of answer it is either', async () => {
+    let answer: (verdict: { kind: 'handled' }) => void = () => {}
+    let read = 0
+    const { voice } = hearing('remember the milk')
+    voice.timeoutMs = 2_000
+    voice.agents = [() => new Promise(done => (answer = done))]
+    const { fake } = world({ voice })
+    await settle()
+    await say(fake)
+    await settle(3_000)
+    answer({
+      get kind() {
+        read++
+        return 'handled' as const
+      },
+    })
+    await settle()
+    expect(read).toBe(0)
+  })
+
   it('calls a turn off at a change of screen while only the model is at work on it', async () => {
     const { voice } = hearing('something else entirely')
     voice.model = { choose: () => new Promise(() => {}) }
@@ -4757,6 +4826,39 @@ describe('a hold', () => {
     fake.tap()
     await settle()
     expect(ran).toEqual(['stop', 'stop'])
+  })
+
+  it('still asks before a spoken choice of a row runs, though reading the row ran another action by touch meanwhile', async () => {
+    const made: { fake?: ReturnType<typeof fakeBridge> } = {}
+    let armed = false
+    const did: string[] = []
+    const allow = action({
+      id: 'allow',
+      say: 'Allow',
+      risk: 'voice',
+      targets: () => [{ id: 'r1', say: 'Run the migration', value: 'r1' }],
+      run: id => void did.push(`allow ${id}`),
+    })
+    const refresh = action({ id: 'refresh', say: 'Refresh', run: () => void did.push('refresh') })
+    const view = list({ title: 'Allow', action: allow })
+    Object.defineProperty(view, 'action', {
+      get: () => {
+        if (armed) {
+          armed = false
+          made.fake?.pick('Refresh')
+        }
+        return allow
+      },
+    })
+    const { fake, front } = world({
+      voice: { transcribe: async () => ((armed = true), 'choose this one') },
+      home: () => ({ id: 'home', actions: () => [refresh], view: () => view }),
+    })
+    made.fake = fake
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([armed, did, front()]).toEqual([false, ['refresh'], 'Allow: Run the migration?\nTap to confirm'])
   })
 
   it('still asks when the words pick the action and then its target from the list: no write without a tap', async () => {
