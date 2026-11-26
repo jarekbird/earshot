@@ -123,7 +123,9 @@ const tied = (bound: Bound): { action: Action; target?: string } => {
   return target === undefined ? { action } : { action, target }
 }
 
-const aimOf = (kind: View['kind'], action: Action, target?: string): string => JSON.stringify([kind, action.id, target ?? null])
+const aimOf = (action: Action, target?: string): string => JSON.stringify([action.id, target ?? null])
+
+const rowAim = (target: string): string => JSON.stringify([target])
 
 function once(given: Verdict, mine: () => boolean, moved: () => boolean): Verdict {
   const { kind } = given
@@ -134,10 +136,26 @@ function once(given: Verdict, mine: () => boolean, moved: () => boolean): Verdic
   }
   if (moved()) return { kind: 'none' }
   if (kind === 'sure') {
-    const { action, target } = given as { action: string; target?: string }
-    return target === undefined ? { kind, action } : { kind, action, target }
+    const named = given as { action: string; target?: string }
+    return {
+      kind,
+      get action() {
+        return named.action
+      },
+      get target() {
+        return named.target
+      },
+    }
   }
-  if (kind === 'unsure') return { kind, candidates: (given as { candidates: Pick[] }).candidates }
+  if (kind === 'unsure') {
+    const unsure = given as { candidates: Pick[] }
+    return {
+      kind,
+      get candidates() {
+        return unsure.candidates
+      },
+    }
+  }
   return { kind }
 }
 
@@ -305,9 +323,9 @@ export class Shell {
     const under = targets[reached.cursor ?? place.cursor]
     const aims: Aims = listed
       ? under
-        ? { tap: aimOf('list', listed, under.id) }
+        ? { tap: rowAim(under.id) }
         : {}
-      : Object.fromEntries(ties.map(({ gesture, action, target }) => [gesture, aimOf('boxes', action, target)]))
+      : Object.fromEntries(ties.map(({ gesture, action, target }) => [gesture, aimOf(action, target)]))
     if (stale()) return
     this.#places.set(showing, Object.assign(place, reached))
     if (drew) this.#frames.drawing(showing, drew.view, last)
@@ -511,7 +529,7 @@ export class Shell {
     } else if (input.kind !== 'tap') place.cursor += step
     else {
       const row = this.#onShow(drawn) && this.#row(drawn, place)
-      const aim = row && aimOf('list', row.action, row.target)
+      const aim = row && rowAim(row.target)
       return aim !== undefined && moves === this.#moves && this.#aimed(drawn, 'tap', aim) ? this.#choose(drawn, row) : undefined
     }
     this.redraw()

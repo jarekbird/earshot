@@ -2550,32 +2550,18 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect(did).toEqual(['resume'])
   })
 
-  it('E15: runs no row of a list when reading what its tap is tied to moved the screen on', async () => {
-    const sent: string[] = []
-    const made: { router?: Router } = {}
-    let armed = false
-    const send = action({
-      id: 'send',
-      say: 'Send',
-      targets: () => [{ id: 'ana', say: 'Ana', value: 'Ana' }],
-      run: to => void sent.push(to),
-    })
-    Object.defineProperty(send, 'id', {
-      get: () => {
-        if (armed) {
-          armed = false
-          made.router?.open({ id: 'child', view: () => text({ body: 'Child' }) })
-        }
-        return 'send'
-      },
-    })
-    const { fake, router } = world({ home: () => ({ id: 'mail', view: () => list({ title: 'To', action: send }) }) })
-    made.router = router
+  it('runs the action a list has now on the row the glasses show, when the app put one of another name in its place without a redraw', async () => {
+    const went: string[] = []
+    const rows = () => [{ id: 'step', say: 'Step one', value: 'step' }]
+    const open = action({ id: 'open', say: 'Open', targets: rows, run: to => void went.push(`open ${to}`) })
+    const read = action({ id: 'read', say: 'Read', targets: rows, run: to => void went.push(`read ${to}`) })
+    const view = list({ title: 'Recipe', action: open })
+    const { fake } = world({ home: () => ({ id: 'recipe', view: () => view }) })
     await settle()
-    armed = true
+    Object.assign(view, { action: read })
     fake.tap()
-    await settle()
-    expect([sent, fake.lines()]).toEqual([[], ['Child']])
+    await settle(100)
+    expect(went).toEqual(['read step'])
   })
 
   it('E15: runs the gesture a screen of boxes gives through a getter, once the glasses show its frame whole', async () => {
@@ -4784,6 +4770,31 @@ describe('a hold', () => {
     answer(verdict(() => void read++))
     await settle()
     expect([read, ran]).toEqual([0, []])
+  })
+
+  it('runs the action an agent names as it stands once what the agent left behind has run: one it withdrew there is not run, one it changed there is', async () => {
+    const did: string[] = []
+    const preview = action({ id: 'preview', say: 'Preview', run: () => void did.push('preview') })
+    const commit = action({ id: 'commit', say: 'Commit', run: () => void did.push('commit') })
+    const answers = ['commit', 'gone']
+    const { voice } = hearing('do it', 'do it')
+    voice.transcribe = async () => null
+    voice.agents = [
+      ({ life }) => {
+        const verdict = { kind: 'sure' as const, action: 'preview' }
+        const after = answers.shift() ?? 'preview'
+        life?.own(() => void (verdict.action = after))
+        return verdict
+      },
+    ]
+    const { fake } = world({ voice, home: () => ({ id: 'home', actions: () => [preview, commit], view: () => text({ body: 'Home' }) }) })
+    await settle()
+    await say(fake)
+    await settle(100)
+    const first = [...did]
+    await say(fake)
+    await settle(100)
+    expect([first, did]).toEqual([['commit'], ['commit']])
   })
 
   it('calls a turn off at a change of screen while only the model is at work on it', async () => {
