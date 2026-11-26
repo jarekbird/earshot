@@ -2564,6 +2564,89 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect(went).toEqual(['read step'])
   })
 
+  it('E15: runs no row of a list while the glasses still show the frame of the action it had before, though the row has the same id under both', async () => {
+    const went: string[] = []
+    const open = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'north', say: 'Open North', value: 'north' }],
+      run: to => void went.push(`open ${to}`),
+    })
+    const remove = action({
+      id: 'remove',
+      say: 'Remove',
+      targets: () => [{ id: 'north', say: 'Remove North', value: 'north' }],
+      run: to => void went.push(`remove ${to}`),
+    })
+    const view = list({ title: 'Trail', action: open })
+    const { fake, shell } = world({ home: () => ({ id: 'trail', view: () => view }) })
+    await settle()
+    Object.assign(view, { action: remove })
+    shell.redraw()
+    fake.tap()
+    await settle(100)
+    const unseen = [...went]
+    fake.tap()
+    await settle(100)
+    expect([unseen, went]).toEqual([[], ['remove north']])
+  })
+
+  it('E15: runs no row on a tap that comes right after the swipe that moved the cursor, before the glasses were sent the move', async () => {
+    const { fake, ran } = world()
+    await settle()
+    fake.down()
+    fake.tap()
+    await settle(100)
+    expect(ran).toEqual([])
+  })
+
+  it('E15: runs no row of a list whose action changed the screen as the tap read it: the tap was for the list', async () => {
+    const made: { router?: Router } = {}
+    const went: string[] = []
+    let armed = false
+    const open = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'rope', say: 'Rope', value: 'rope' }],
+      run: to => void went.push(to),
+    })
+    const view = list({ title: 'Stock', action: open })
+    Object.defineProperty(view, 'action', {
+      get: () => {
+        if (armed) made.router?.open({ id: 'details', view: () => text({ body: 'Details' }) })
+        return open
+      },
+    })
+    const { fake, router } = world({ home: () => ({ id: 'stock', view: () => view }) })
+    made.router = router
+    await settle()
+    armed = true
+    fake.tap()
+    armed = false
+    await settle(100)
+    expect([went, fake.lines()]).toEqual([[], ['Details']])
+  })
+
+  it('E15: reads nothing of a list on a tap while the glasses show it with no row, though its first row is on its way to them', async () => {
+    let reads = 0
+    const stock: string[] = []
+    const open = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => stock.map(item => ({ id: item, say: item, value: item })),
+      run: () => {},
+    })
+    const view = list({ title: 'Stock', action: open, empty: 'Nothing here' })
+    Object.defineProperty(view, 'action', { get: () => (reads++, open) })
+    const { fake, shell } = world({ home: () => ({ id: 'stock', view: () => view }) })
+    await settle()
+    stock.push('rope')
+    shell.redraw()
+    const before = reads
+    fake.tap()
+    expect(reads).toBe(before)
+  })
+
   it('E15: runs the gesture a screen of boxes gives through a getter, once the glasses show its frame whole', async () => {
     const paused: string[] = []
     const pause = action({ id: 'pause', say: 'Pause', run: () => void paused.push('pause') })
@@ -4714,6 +4797,27 @@ describe('a hold', () => {
     expect(fake.lines()).toEqual(['Stock', 'Count 1'])
   })
 
+  it('draws nothing anew for an agent that went to another screen and came back and handled nothing: a redraw is for a turn that was handled', async () => {
+    let count = 0
+    const made: { router?: Router } = {}
+    const { voice } = hearing('count one more')
+    voice.transcribe = async () => null
+    voice.agents = [
+      () => {
+        made.router?.open({ id: 'progress', view: () => text({ body: 'Counting' }) })
+        made.router?.back()
+        count = 1
+        return { kind: 'none' }
+      },
+    ]
+    const { fake, router } = world({ voice, home: () => ({ id: 'stock', view: () => text({ title: 'Stock', body: `Count ${count}` }) }) })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle(60_000)
+    expect(fake.lines()).toEqual(['Stock', 'Count 0'])
+  })
+
   it('reads no more of an answer once reading what kind it is has called its turn off', async () => {
     let answer: (verdict: { kind: 'handled'; say: string }) => void = () => {}
     let read = 0
@@ -4795,6 +4899,66 @@ describe('a hold', () => {
     await say(fake)
     await settle(100)
     expect([first, did]).toEqual([['commit'], ['commit']])
+  })
+
+  it('runs nothing an agent named when what the agent left behind makes its answer one of none as the turn ends', async () => {
+    const did: string[] = []
+    const preview = action({ id: 'preview', say: 'Preview', run: () => void did.push('preview') })
+    const { voice } = hearing('do it', 'do it')
+    voice.agents = [
+      ({ life }) => {
+        const verdict = { kind: 'sure' as const, action: 'preview' }
+        life?.own(() => void Object.assign(verdict, { kind: 'none' }))
+        return verdict
+      },
+    ]
+    const { fake, front } = world({ voice, home: () => ({ id: 'home', actions: () => [preview], view: () => text({ body: 'Home' }) }) })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([did, front()]).toEqual([[], 'No match'])
+  })
+
+  it('says what an agent answers once what it left behind has made its answer a handled one with words', async () => {
+    const did: string[] = []
+    const preview = action({ id: 'preview', say: 'Preview', run: () => void did.push('preview') })
+    const { voice } = hearing('do it', 'do it')
+    voice.agents = [
+      ({ life }) => {
+        const verdict = { kind: 'sure' as const, action: 'preview' }
+        life?.own(() => void Object.assign(verdict, { kind: 'handled', say: 'Saved' }))
+        return verdict
+      },
+    ]
+    const { fake, front } = world({ voice, home: () => ({ id: 'home', actions: () => [preview], view: () => text({ body: 'Home' }) }) })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([did, front()]).toEqual([[], 'Saved'])
+  })
+
+  it("reads the kind of an agent's answer twice and no more: as the answer comes, and once what the agent left behind has run", async () => {
+    const did: string[] = []
+    const read: string[] = []
+    const preview = action({ id: 'preview', say: 'Preview', run: () => void did.push('preview') })
+    const { voice } = hearing('do it', 'do it')
+    voice.agents = [
+      ({ life }) => {
+        life?.own(() => void read.push('left behind'))
+        return {
+          get kind() {
+            read.push('kind')
+            return 'sure' as const
+          },
+          action: 'preview',
+        }
+      },
+    ]
+    const { fake } = world({ voice, home: () => ({ id: 'home', actions: () => [preview], view: () => text({ body: 'Home' }) }) })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([read, did]).toEqual([['kind', 'left behind', 'kind'], ['preview']])
   })
 
   it('calls a turn off at a change of screen while only the model is at work on it', async () => {
