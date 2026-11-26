@@ -2327,6 +2327,46 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect(did).toEqual(['resume'])
   })
 
+  it('E15: runs a gesture on the very target it was checked for, though the binding would name another when read again', async () => {
+    const went: string[] = []
+    const go = action({
+      id: 'go',
+      say: 'Go',
+      targets: () => ['north', 'south'].map(id => ({ id, say: id, value: id })),
+      run: to => void went.push(to),
+    })
+    let reads: string[] = ['north']
+    const tap = {
+      action: go,
+      get target() {
+        return reads.length > 1 ? (reads.shift() as string) : reads[0]
+      },
+    }
+    const { fake } = world({
+      home: () => ({ id: 'trail', view: () => boxes([{ id: 'to', x: 0, y: 0, w: 200, h: 40, text: 'North' }], { on: { tap } }) }),
+    })
+    await settle()
+    reads = ['north', 'south']
+    fake.tap()
+    await settle()
+    expect(went).toEqual(['north'])
+  })
+
+  it('E15: draws a screen of boxes whose gesture is given through a getter that later gives nothing: each draw reads it once', async () => {
+    const pause = action({ id: 'pause', say: 'Pause', run: () => {} })
+    let reads = 0
+    const on = {
+      get tap() {
+        return ++reads > 2 ? undefined : pause
+      },
+    }
+    const { fake } = world({
+      home: () => ({ id: 'timer', view: () => boxes([{ id: 'time', x: 0, y: 0, w: 200, h: 40, text: '10:00' }], { on }) }),
+    })
+    await settle()
+    expect([fake.lines(), reads]).toEqual([['10:00'], 1])
+  })
+
   it('E15: runs the gesture a screen of boxes gives through a getter, once the glasses show its frame whole', async () => {
     const paused: string[] = []
     const pause = action({ id: 'pause', say: 'Pause', run: () => void paused.push('pause') })
@@ -4219,6 +4259,52 @@ describe('a hold', () => {
     answer({ kind: 'handled', say: 'Saved' })
     await settle()
     expect([String(thrown), ended, shell.busy, front()]).toEqual(['Error: could not be entered', [true], false, ''])
+  })
+
+  it('takes its own card down when the screen a turn was said on is replaced by one that could not be entered, and still says what the agent then says', async () => {
+    let answer: (verdict: { kind: 'handled'; say: string }) => void = () => {}
+    const { voice } = hearing('save waypoint')
+    voice.agents = [() => new Promise(done => (answer = done))]
+    const { fake, front, router, shell } = world({ voice })
+    router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+    await settle()
+    await say(fake)
+    const before = front()
+    expect(() =>
+      router.replace({
+        id: 'broken',
+        view: () => text({ body: 'Broken' }),
+        enter: () => {
+          throw new Error('could not be entered')
+        },
+      }),
+    ).toThrow('could not be entered')
+    await settle()
+    const after = [shell.busy, front()]
+    answer({ kind: 'handled', say: 'Saved' })
+    await settle()
+    expect([before, after, front()]).toEqual(['"save waypoint"', [true, ''], 'Saved'])
+  })
+
+  it('reads nothing of what an agent answers after its turn ran out of time', async () => {
+    let answer: (verdict: { kind: 'handled'; say: string }) => void = () => {}
+    let read = 0
+    const { voice } = hearing('remember the milk')
+    voice.timeoutMs = 2_000
+    voice.agents = [() => new Promise(done => (answer = done))]
+    const { fake } = world({ voice })
+    await settle()
+    await say(fake)
+    await settle(3_000)
+    answer({
+      kind: 'handled',
+      get say() {
+        read++
+        return 'Saved'
+      },
+    })
+    await settle()
+    expect(read).toBe(0)
   })
 
   it('calls a turn off at a change of screen while only the model is at work on it', async () => {

@@ -118,8 +118,12 @@ interface Drawn {
 
 const GESTURES: readonly Gesture[] = ['tap', 'up', 'down']
 
-const aimOf = (view: View, bound: Bound, target = boundTo(bound).target): string =>
-  JSON.stringify([view.kind, boundTo(bound).action.id, target ?? null])
+const tied = (bound: Bound): { action: Action; target?: string } => {
+  const { action, target } = boundTo(bound)
+  return target === undefined ? { action } : { action, target }
+}
+
+const aimOf = (kind: View['kind'], action: Action, target?: string): string => JSON.stringify([kind, action.id, target ?? null])
 
 const sameText = (one: Read['view'], other: Read['view']) => one.title === other.title && one.body === other.body && one.end === other.end
 
@@ -190,6 +194,7 @@ export class Shell {
         const closed = lost || (current !== undefined && !onPath(current))
         try {
           if (closed || (spoken !== undefined && spoken !== null && !onPath(spoken))) this.#callOff(true)
+          else if (this.#deciding) this.#takeDown()
         } finally {
           if (closed) progressOf(this.#glasses).drop(this.#pending)
         }
@@ -269,7 +274,12 @@ export class Shell {
       boxes = asked.boxes
       pictures = asked.pictures ?? []
     }
-    const byGesture = new Set(view.kind === 'list' ? [view.action.id] : view.kind === 'boxes' ? this.#bound(view).map(a => a.id) : [])
+    const on = view.kind === 'boxes' ? view.on : undefined
+    const ties = GESTURES.flatMap(gesture => {
+      const bound = on?.[gesture]
+      return bound ? [{ gesture, ...tied(bound) }] : []
+    })
+    const byGesture = new Set(view.kind === 'list' ? [view.action.id] : ties.map(tie => tie.action.id))
     const offered = !screen.view || this.#own.has(screen) ? [] : actions.filter(a => !byGesture.has(a.id))
     const fold = offered.length > MAX_MENU_ITEMS
     const shown = fold ? offered.slice(0, MAX_MENU_ITEMS - 1) : offered
@@ -279,11 +289,9 @@ export class Shell {
     const aims: Aims =
       view.kind === 'list'
         ? under
-          ? { tap: aimOf(view, view.action, under.id) }
+          ? { tap: aimOf('list', view.action, under.id) }
           : {}
-        : view.kind === 'boxes'
-          ? Object.fromEntries(GESTURES.flatMap(gesture => (view.on?.[gesture] ? [[gesture, aimOf(view, view.on[gesture])]] : [])))
-          : {}
+        : Object.fromEntries(ties.map(({ gesture, action, target }) => [gesture, aimOf('boxes', action, target)]))
     if (stale()) return
     this.#places.set(showing, Object.assign(place, reached))
     if (drew) this.#frames.drawing(showing, drew.view, last)
@@ -447,8 +455,9 @@ export class Shell {
     if (view.kind === 'boxes') {
       const moves = this.#moves
       const bound = view.on?.[input.kind]
-      if (!bound || moves !== this.#moves || !this.#aimed(drawn, input.kind, aimOf(view, bound))) return
-      const { action: chosen, target } = boundTo(bound)
+      if (!bound || moves !== this.#moves) return
+      const { action: chosen, target } = tied(bound)
+      if (moves !== this.#moves || !this.#aimed(drawn, input.kind, aimOf('boxes', chosen, target))) return
       return void this.#start(chosen, target)
     }
     const seen = this.#frames.words
@@ -459,7 +468,7 @@ export class Shell {
     } else if (input.kind !== 'tap') place.cursor += step
     else {
       const under = drawn.targets[place.cursor]
-      return under && this.#aimed(drawn, 'tap', aimOf(view, view.action, under.id)) ? this.#choose(drawn, place) : undefined
+      return under && this.#aimed(drawn, 'tap', aimOf('list', view.action, under.id)) ? this.#choose(drawn, place) : undefined
     }
     this.redraw()
   }
@@ -637,7 +646,7 @@ export class Shell {
       const heard = words ? `"${words}"` : this.#words.thinking
       if (!moved()) this.#show(heard)
       const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, moved)
-      const done = verdict.kind === 'handled' && verdict.say !== undefined ? verdict.say : undefined
+      const done = () => (verdict.kind === 'handled' ? verdict.say : undefined)
       finish(
         () => {
           if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
@@ -645,7 +654,11 @@ export class Shell {
           else this.#clear()
           this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
         },
-        () => (done === undefined ? spare() : this.notice(done)),
+        () => {
+          const say = done()
+          if (say === undefined) spare()
+          else this.notice(say)
+        },
       )
     } catch (error) {
       finish(() => {
