@@ -93,11 +93,9 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
   let full = false
   const rolling = heard.rolling.filter(item => !offered.has(`${item.action.id}\n${item.target}`))
   for (const item of rolling.slice(0, Math.max(0, MAX_OPTIONS - options.length))) {
-    full ||= length + item.say.length + item.context.length > QUESTION_LIMIT
-    offer(
-      { action: item.action.id, target: item.target, say: item.say },
-      { say: item.say, ...(item.context && !full ? { context: item.context } : {}) },
-    )
+    const context = item.context || item.action.hint || ''
+    full ||= length + item.say.length + context.length > QUESTION_LIMIT
+    offer({ action: item.action.id, target: item.target, say: item.say }, { say: item.say, ...(context && !full ? { context } : {}) })
   }
   return { question: { words: heard.words, ...(heard.screen ? { screen: heard.screen } : {}), options }, meanings }
 }
