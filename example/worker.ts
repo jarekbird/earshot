@@ -8,6 +8,7 @@ interface Env {
   LIVE_KEY?: string
   LIVE_MODELS?: string
   SECRET?: string
+  CALLS?: string
 }
 
 type Accepted = Line & { accept(): void }
@@ -43,6 +44,7 @@ export default {
         liveKey: env.LIVE_KEY,
         liveModels: env.LIVE_MODELS,
         secret: env.SECRET,
+        calls: env.CALLS,
       }),
       sockets,
     )(request),

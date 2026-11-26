@@ -6,6 +6,13 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
+## 0.0.51 (2026-11-26)
+
+- The relay forwards only the calls the developer names, of `speech`, `decide` and `compact`: `calls` in its
+  options, `EARSHOT_RELAY_CALLS` for the Node server and `CALLS` for the Worker. Unset, it forwards all three.
+- **An app must** pass `calls` to `relayOptions`, if it calls that itself, as a Worker does: `calls: env.CALLS`,
+  or `calls: undefined`.
+
 ## 0.0.50 (2026-11-26)
 
 - The relay answers an upstream's error with its status and none of its words. It passed the error's text back,

@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.50
+npm install github:jarekbird/earshot#v0.0.51
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.50 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.51 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -323,7 +323,7 @@ On Node 24 or later, on any host that keeps a process running:
 EARSHOT_RELAY_KEY=sk-or-... EARSHOT_RELAY_UPSTREAM=https://openrouter.ai npx earshot-relay
 ```
 
-It listens on `PORT` (8787 unless set) and on `HOST` when set. `EARSHOT_RELAY_MODELS` is a comma-separated list when your app uses other models than the defaults. Put it behind HTTPS: the Even app loads your page over HTTPS and will not call a plain HTTP address.
+It listens on `PORT` (8787 unless set) and on `HOST` when set. `EARSHOT_RELAY_MODELS` is a comma-separated list when your app uses other models than the defaults. `EARSHOT_RELAY_CALLS` is a comma-separated list of the calls your app makes, of `speech`, `decide` and `compact`, when it does not make all three: the relay then refuses the others before it reads them. Put it behind HTTPS: the Even app loads your page over HTTPS and will not call a plain HTTP address.
 
 As a Cloudflare Worker, or on anything else that speaks web requests:
 
@@ -341,13 +341,14 @@ export default {
         liveKey: env.LIVE_KEY,
         liveModels: env.LIVE_MODELS,
         secret: env.SECRET,
+        calls: env.CALLS,
       }),
       sockets,
     )(request),
 }
 ```
 
-`relayOptions` names every setting a host passes, set or not, so a host cannot leave one out. `Env` is those settings as your Worker has them, and `sockets` is how a Worker takes and opens a WebSocket, for live speech: copy both from `example/worker.ts`, which is this Worker. A relay without live speech needs no `sockets`, and what `relay` gives back takes one request, as it always did. `MODELS` is the same comma-separated list as `EARSHOT_RELAY_MODELS`. The two are one server: what the Node server does the Worker does.
+`relayOptions` names every setting a host passes, set or not, so a host cannot leave one out. `Env` is those settings as your Worker has them, and `sockets` is how a Worker takes and opens a WebSocket, for live speech: copy both from `example/worker.ts`, which is this Worker. A relay without live speech needs no `sockets`, and what `relay` gives back takes one request, as it always did. `MODELS` is the same comma-separated list as `EARSHOT_RELAY_MODELS`, and `CALLS` the same as `EARSHOT_RELAY_CALLS`. The two are one server: what the Node server does the Worker does.
 
 `serve` from `earshot/relay/node` starts the same Node server from your own code. Closing that server tells its live callers it is going (1001) and lets go of their upstreams at once. A caller who does not answer a goodbye is let go of a second later. A WebSocket on a path of your own stays yours: add your `upgrade` listener to the server it returns, and have it look at the path before it takes the upgrade, since with live speech on both listeners hear every upgrade (`ws` with `noServer` and `handleUpgrade` for your path; its `{ server, path }` form answers 400 on every other path, the relay's included). With no live speech set, the server takes no WebSocket at all. It can be closed and set listening again.
 
@@ -365,6 +366,7 @@ With no upstream for it the relay has no live path. With one, no relay is made w
 What the relay does:
 
 - It forwards only Earshot's three calls, only for the models you list, and only the fields Earshot sends. It is not a general key for anyone who finds its address.
+- It forwards only the calls you name, when you name any: `speech` (speech-to-text), `decide` (the navigator's model) and `compact` (shortening). A model can answer more than one kind of call, so the list of models alone does not keep an app that only asks for decisions from paying for speech. No relay is made with a name it does not know. Live speech has its own settings, below, and is not one of these.
 - It refuses a request over four megabytes (`maxBytes`), and answers the cross-origin check a web view makes first.
 - It adds your key on the way out, follows the upstream to no other address, and passes back only the answer.
 - When the upstream refuses or fails, the relay answers with the upstream's status and none of its words: an upstream may quote the request in its error, and the request holds what the user said. Earshot tells the errors apart by their status alone.
