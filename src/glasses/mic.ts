@@ -37,8 +37,11 @@ interface Holder extends Ear {
   refused: () => void
 }
 
+type About = 'open' | 'leftOn'
+
 interface Told {
-  tell: (open: boolean) => unknown
+  about: About
+  tell: (now: boolean) => unknown
 }
 
 // Fact: Even's simulator answers true to an open, and false to a close that worked. So a close is done when answered.
@@ -56,7 +59,7 @@ export class Mic {
   readonly #clock = new Lifetime()
   readonly #ears = new Set<Ear>()
   readonly #told = new Set<Told>()
-  readonly #news: boolean[] = []
+  readonly #news: Array<[About, boolean]> = []
   readonly #waiting: Array<(settled: boolean) => void> = []
   #holder: Holder | null = null
   #ended = false
@@ -64,6 +67,7 @@ export class Mic {
   #issued = false
   #capturing = false
   #open = false
+  #leftOn = false
   #asking: 'open' | 'close' | null = null
   #telling = false
   #failures = 0
@@ -87,6 +91,10 @@ export class Mic {
 
   get open(): boolean {
     return this.#open
+  }
+
+  get leftOn(): boolean {
+    return this.#leftOn
   }
 
   listen(hear: (sound: Sound) => unknown, options: ListenOptions = {}): () => Promise<boolean> {
@@ -128,7 +136,15 @@ export class Mic {
   }
 
   onChange(tell: (open: boolean) => unknown): () => void {
-    const told: Told = { tell }
+    return this.#toTell('open', tell)
+  }
+
+  onLeftOn(tell: (leftOn: boolean) => unknown): () => void {
+    return this.#toTell('leftOn', tell)
+  }
+
+  #toTell(about: About, tell: (now: boolean) => unknown): () => void {
+    const told: Told = { about, tell }
     this.#told.add(told)
     return () => void this.#told.delete(told)
   }
@@ -175,6 +191,7 @@ export class Mic {
   }
 
   #settle(): void {
+    if (this.#wanted()) this.#leave(false)
     if (this.#asking) return
     if (this.#gaveUp) return this.#calm()
     this.#watch?.cancel()
@@ -240,28 +257,35 @@ export class Mic {
     if (on && this.#wanted()) {
       if (done) this.#set(true)
       else if (!this.#open) {
-        this.#tell(false)
+        this.#tell('open', false)
         if (this.#holder?.wants) serve(this.#holder.refused)
       }
     }
+    if (!on) this.#leave(!done && !this.#wanted())
     this.#settle()
   }
 
   #set(open: boolean): void {
     if (this.#open === open) return
     this.#open = open
-    this.#tell(open)
+    this.#tell('open', open)
   }
 
-  #tell(open: boolean): void {
-    this.#news.push(open)
+  #leave(leftOn: boolean): void {
+    if (this.#leftOn === leftOn) return
+    this.#leftOn = leftOn
+    this.#tell('leftOn', leftOn)
+  }
+
+  #tell(about: About, now: boolean): void {
+    this.#news.push([about, now])
     if (this.#telling) return
     this.#telling = true
     try {
       for (let news = this.#news.shift(); news !== undefined; news = this.#news.shift()) {
+        const [about, now] = news
         for (const told of [...this.#told]) {
-          if (!this.#told.has(told)) continue
-          const now = news
+          if (!this.#told.has(told) || told.about !== about) continue
           serve(() => told.tell(now))
         }
       }
