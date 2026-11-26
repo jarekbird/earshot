@@ -191,8 +191,11 @@ const takeNote: Agent = heard => {
 const noted = (model: NavigatorModel): NavigatorModel => ({
   async choose(question, life) {
     const chances = await model.choose(question, life)
-    const chance = (id: string) => chances[id] ?? 0
-    const [top] = question.options.filter(option => option.action !== undefined).sort((a, b) => chance(b.id) - chance(a.id))
+    const counted = (id: string) => question.options.filter(option => option.id === id || option.same === id)
+    const chance = (id: string) => counted(id).reduce((sum, option) => sum + (chances[option.id] ?? 0), 0)
+    const [top] = question.options
+      .filter(option => option.action !== undefined && option.same === undefined)
+      .sort((a, b) => chance(b.id) - chance(a.id))
     if (top && chance(top.id) > 0)
       console.log(`decided: ${top.action}${top.target ? ` ${top.target}` : ''}${chance(top.id) >= SURE_AT ? '' : ' (not sure)'}`)
     return chances

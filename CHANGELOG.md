@@ -6,11 +6,16 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.57 (2026-11-26)
+## 0.0.58 (2026-11-26)
 
 - No relay is made for an upstream of the three calls that is named with a fragment (`#`): everything after it
   never reached the upstream, so the calls went somewhere other than the address said.
 - **An app must** name its relay's upstream without a fragment. One named with a query of its own is taken as before.
+
+## 0.0.57 (2026-11-26)
+
+- An option that counts toward another names it: `same`, the other's id. "Choose this one" names the row it
+  stands for, so an app that wraps the model can add the two up as the navigator does.
 
 ## 0.0.56 (2026-11-26)
 
