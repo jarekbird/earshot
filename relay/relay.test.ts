@@ -1,7 +1,7 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { openRouter, MODELS } from '../src/openrouter/openrouter.js'
 import { CLOSES, DIAL_MS, LIVE_PATH } from './limits.js'
-import { DEFAULT_MODELS, relay, relayOptions, type Line, type Sockets } from './relay.js'
+import { DEFAULT_MODELS, notSetUp, relay, relayOptions, type Line, type RelayOptions, type Sockets } from './relay.js'
 
 interface Sent {
   url: string
@@ -12,7 +12,7 @@ interface Sent {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'x-upstream-secret': 'hidden' } })
 
-function setup(answers: (Response | Error)[] = [], more: { models?: string[]; maxBytes?: number } = {}) {
+function setup(answers: (Response | Error)[] = [], more: Pick<RelayOptions, 'models' | 'maxBytes' | 'calls'> = {}) {
   const sent: Sent[] = []
   const handle = relay({
     key: 'sk-developer',
@@ -83,12 +83,36 @@ describe('a call from the app', () => {
     expect(sent[0].body).toEqual({ model: 'mistralai/mistral-nemo', messages: [] })
   })
 
-  it("gets the upstream's refusal as it is", async () => {
-    const { post } = setup([json({ error: { message: 'Rate limited' } }, 429)])
-    const answer = await post('/api/v1/audio/transcriptions', speech)
-    expect(answer.status).toBe(429)
-    expect(answer.headers.get('access-control-allow-origin')).toBe('*')
-    expect(await answer.json()).toEqual({ error: { message: 'Rate limited' } })
+  it.each([400, 401, 402, 403, 404, 429, 500, 503])(
+    "gets the status of the upstream's refusal (%i) and none of its words, which may quote what the user said",
+    async status => {
+      const quoted = 'Could not make sense of the state: The user said: "call my doctor about the results"'
+      const { post } = setup([json({ error: { message: quoted, metadata: { raw: quoted } } }, status)])
+      const answer = await post('/api/alpha/decisions', {
+        model: 'typesafe/jev-1.14',
+        state: 'The user said: "call my doctor about the results"',
+      })
+      expect(answer.status).toBe(status)
+      expect(answer.headers.get('access-control-allow-origin')).toBe('*')
+      expect(await answer.json()).toEqual({ error: `The upstream answered ${status}.` })
+    },
+  )
+
+  it('lets go of a refusal that goes on sending: what the relay will not read does not stay open', async () => {
+    let letGo = false
+    let sent = 0
+    const going = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await new Promise(resolve => setTimeout(resolve, 5))
+        if (++sent > 40) controller.close()
+        else controller.enqueue(new Uint8Array(1_024))
+      },
+      cancel: () => void (letGo = true),
+    })
+    const { post } = setup([new Response(going, { status: 500 })])
+    expect((await post('/api/v1/audio/transcriptions', speech)).status).toBe(500)
+    expect(letGo).toBe(true)
+    expect(sent).toBeLessThan(40)
   })
 })
 
@@ -140,6 +164,81 @@ describe('what it refuses, without calling the upstream', () => {
   })
 })
 
+describe('the calls the developer names', () => {
+  const decide = { model: 'typesafe/jev-1.14', state: 'The user said: "open voice"', questions: {} }
+  const compact = { model: 'mistralai/mistral-nemo', messages: [] }
+  const none = {
+    key: undefined,
+    upstream: undefined,
+    models: undefined,
+    liveUpstream: undefined,
+    liveKey: undefined,
+    liveModels: undefined,
+    secret: undefined,
+  }
+
+  it('are the only ones forwarded: an app that asks for decisions alone has a relay that pays for nothing else', async () => {
+    const { sent, post } = setup([], { calls: ['decide'] })
+    expect((await post('/api/alpha/decisions', decide)).status).toBe(200)
+    const others = [await post('/api/v1/audio/transcriptions', speech), await post('/api/v1/chat/completions', compact)]
+    expect(others.map(answer => answer.status)).toEqual([404, 404])
+    expect(await others[0].json()).toEqual({ error: 'Not a call this relay forwards.' })
+    expect(sent.map(({ url }) => url)).toEqual(['https://upstream.example/api/alpha/decisions'])
+  })
+
+  it('are all three when none is named, as it always was', async () => {
+    const { sent, post } = setup()
+    await post('/api/v1/audio/transcriptions', speech)
+    await post('/api/alpha/decisions', decide)
+    await post('/api/v1/chat/completions', compact)
+    expect(sent.length).toBe(3)
+  })
+
+  it('are refused before what was sent is read: a call that is not forwarded costs the relay nothing', async () => {
+    const { sent, post } = setup([], { calls: ['speech'], maxBytes: 10 })
+    const answer = await post('/api/alpha/decisions', 'not json, and over the limit')
+    expect([answer.status, sent.length]).toEqual([404, 0])
+  })
+
+  it('may be none at all', async () => {
+    const { sent, post } = setup([], { calls: [] })
+    expect([(await post('/api/alpha/decisions', decide)).status, sent.length]).toEqual([404, 0])
+  })
+
+  it.each(['decisions', 'Speech', 'toString', '*'])('are not guessed: no relay is made for the name %j, by any way in', name => {
+    const made = (calls: string[]) => relay({ key: 'sk-developer', upstream: 'https://upstream.example', calls: calls as never })
+    expect(() => made(['decide', name])).toThrow('speech, decide and compact')
+    expect(() => relayOptions({ ...none, key: 'sk-developer', upstream: 'https://upstream.example', calls: `decide,${name}` })).toThrow(
+      'speech, decide and compact',
+    )
+  })
+
+  it('say nothing of what was typed when a name is wrong, since a key pasted into the wrong setting would be printed', () => {
+    const typed = 'sk-or-v1-pasted-into-the-wrong-setting'
+    let said = ''
+    try {
+      relayOptions({ ...none, key: 'sk-developer', upstream: 'https://upstream.example', calls: typed })
+    } catch (error) {
+      said = String(error)
+    }
+    expect(said).toContain('speech, decide and compact')
+    expect(said).not.toContain(typed)
+  })
+
+  it('are read from the comma-separated list a host has, and an empty list names none: all three are forwarded', () => {
+    const settings = { ...none, key: 'sk-developer', upstream: 'https://upstream.example' }
+    expect(relayOptions({ ...settings, calls: ' decide , speech' }).calls).toEqual(['decide', 'speech'])
+    expect(relayOptions({ ...settings, calls: ' , ' })).toEqual({ key: 'sk-developer', upstream: 'https://upstream.example' })
+    expect(relayOptions({ ...settings, calls: undefined })).toEqual({ key: 'sk-developer', upstream: 'https://upstream.example' })
+  })
+
+  it('leave live speech as it is: that line has its own settings', () => {
+    const live = { upstream: 'wss://gateway.example/v1/workers-ai', key: 'live', secret: 'what only this phone was told' }
+    const handle = relay({ key: 'sk-developer', upstream: 'https://upstream.example', calls: [], live })
+    return handle(new Request('https://relay.example/api/v1/live')).then(answer => expect(answer.status).toBe(426))
+  })
+})
+
 describe('the models', () => {
   it("are Earshot's own unless the developer lists others", async () => {
     expect(DEFAULT_MODELS).toEqual(Object.values(MODELS))
@@ -159,6 +258,33 @@ describe('the check a browser makes first', () => {
     expect(answer.headers.get('access-control-allow-methods')).toBe('POST')
     expect(answer.headers.get('access-control-allow-headers')).toBe('content-type')
     expect(sent).toEqual([])
+  })
+})
+
+describe('a host that cannot refuse to start, with settings that make no relay', () => {
+  it('says that it is not set up with a status a page can read, to any page', async () => {
+    const answer = notSetUp(new Request('https://relay.example/api/alpha/decisions', { method: 'POST', body: '{}' }))
+    expect(answer.status).toBe(503)
+    expect(answer.headers.get('access-control-allow-origin')).toBe('*')
+    expect(await answer.json()).toEqual({ error: 'This relay is not set up.' })
+  })
+
+  it('answers the check a browser makes first as a relay does: without it the page never sees that status', async () => {
+    const { handle } = setup()
+    const first = () => new Request('https://relay.example/api/alpha/decisions', { method: 'OPTIONS' })
+    const [mine, relays] = [notSetUp(first()), await handle(first())]
+    const headers = (answer: Response) => {
+      const all: string[] = []
+      answer.headers.forEach((value, name) => all.push(`${name}: ${value}`))
+      return all
+    }
+    expect([mine.status, headers(mine)]).toEqual([relays.status, headers(relays)])
+    expect(mine.status).toBe(204)
+  })
+
+  it('says the same to a caller that asks for the live line', () => {
+    const asks = new Request('https://relay.example/api/v1/live', { headers: { upgrade: 'websocket' } })
+    expect(notSetUp(asks).status).toBe(503)
   })
 })
 
@@ -405,6 +531,7 @@ describe('the upstream of the calls, for a host that brings its own fetch', () =
       liveKey: undefined,
       liveModels: undefined,
       secret: undefined,
+      calls: undefined,
     }
     expect(relayOptions(settings)).toEqual({ key: '', upstream: 'https://upstream.example' })
     expect(() => relay(relayOptions(settings))).not.toThrow()
