@@ -22,7 +22,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.46
+npm install github:jarekbird/earshot#v0.0.47
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -32,7 +32,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.46 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.47 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -516,6 +516,7 @@ await sim.stop()
 
 - Install `@evenrealities/evenhub-simulator` in your project; the driver finds it there.
 - `sim.until(what, check, ms)` waits for anything else, and says what the console and the simulator last said when time runs out. The simulator can only be asked, not listened to, so waiting asks it ten times a second.
+- The simulator listens on a port the driver picks, and another program can take that port first. A simulator that exits before it answers, or that never answers on a port another program then holds, is started once more on another port.
 - Each run has its own home folder, removed by `stop`. Every process it starts has a hard time limit, an hour unless you pass `limitSeconds`.
 - On Linux without a display it starts a hidden one, which needs `Xvfb`. A bare CI machine also needs the simulator's libraries: on Ubuntu, `xvfb libwebkit2gtk-4.1-0 libasound2t64`.
 - Input reaches the app only when its page has a container that captures events.
