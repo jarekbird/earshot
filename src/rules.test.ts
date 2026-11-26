@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer, get } from 'node:http'
 import { connect, Socket, type AddressInfo } from 'node:net'
 import { networkInterfaces, tmpdir } from 'node:os'
@@ -84,9 +84,7 @@ const NOT_IN_THE_EXAMPLE = [
   'cleanText',
   'fitText',
   'hasGlyph',
-  'oneLine',
   'textWidth',
-  'wrapText',
   'FRAME_TAG',
   'SCREEN_HEIGHT',
   'LifetimeEnded',
@@ -603,6 +601,18 @@ it("the README's install line pins this version: a stale one installs an Earshot
   const readme = readFileSync(join(root, 'README.md'), 'utf8')
   expect(readme.match(/earshot#v[\d.]+/g)).toEqual([`earshot#v${version}`])
   expect(readme.match(/--branch v[\d.]+/g)).toEqual([`--branch v${version}`])
+})
+
+it('the README shows every picture of docs/pictures and no other: one that is missing shows as a broken image', () => {
+  const readme = readFileSync(join(root, 'README.md'), 'utf8')
+  const shown = [...readme.matchAll(/!\[[^\]]+\]\(([^)\s]+)\)/g)].map(([, path]) => path)
+  expect(shown.length).toBeGreaterThan(0)
+  expect(shown.filter(path => !existsSync(join(root, path)))).toEqual([])
+  expect(
+    readdirSync(join(root, 'docs/pictures'))
+      .map(name => `docs/pictures/${name}`)
+      .sort(),
+  ).toEqual([...shown].sort())
 })
 
 it('the changelog has an entry for this version and for every version before it: an app raises its pin by what it reads there', () => {
