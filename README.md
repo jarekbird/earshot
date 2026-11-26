@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.53
+npm install github:jarekbird/earshot#v0.0.55
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.53 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.55 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -161,7 +161,7 @@ const shell = new Shell(life, glasses, router)
 - `list({ title, action, empty })` shows the targets of one action as lines of text. A swipe moves the cursor and a tap runs the action on that item. A tap counts only while the glasses show one whole frame with the cursor on that item: one that comes while the cursor's move, or any other redraw, is still being written to them is dropped. The same holds for a gesture a screen of boxes ties to an action.
 - `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines. With `end: true` it shows its last lines and goes on showing the last as the text grows, for a log or a transcript. A swipe up reads back, counted from the page the wearer is looking at (a second swipe before the first is drawn goes on from the first), and the view holds that place while more comes at the end (a text that also loses lines at its start shifts under it); swiped back down to the end, it follows again. A page never holds more than the glasses take in one box: at the end the oldest lines give way, never the newest, and a swipe, or a spoken "scroll up", moves by no more than the page holds, so every line is reached.
 - `boxes(boxes, { on, pictures })` places each box yourself. `on` says which action a tap, a swipe up and a swipe down run: `{ tap: open, up: older, down: { action: open, target: 'next' } }`. A screen gets no raw touches, so whatever touch can do, voice can do too. The other way round is yours where a gesture runs an action on one target only: voice is offered every target of that action, so give touch a way to each, with a gesture for the action as a whole or a cursor of your own. A screen with no `view` lists its actions.
-- By voice, a long text scrolls a screenful ("scroll down"), a list's cursor moves ("move down") and "choose this one" runs the row it is on. The model is told which row that is, unless the row is private.
+- By voice, a long text scrolls a screenful ("scroll down"), a list's cursor moves ("move down") and "choose this one" runs the row it is on. The model is told which row that is, unless the row is private. That row is offered by its name as well, and the two are one choice: what the model gives "choose this one" counts for the row, so a vote split between them still runs it, and a list of candidates never holds both.
 - A double tap goes up, to the screen the current one was opened from. From the home screen it asks Even to close the app.
 - Even's menu lists the screen's and the app's other actions. Over ten, the rest go behind "More…". An action with targets asks which one in a list, or on the app's own screen when the action has `choose`. A target can carry its own `risk`, so only the targets that write ask first.
 - An action that is blocked says why over the page, which dims for a few seconds. An action with `risk: 'confirm'` asks first, and only a tap confirms.
@@ -291,7 +291,7 @@ new Shell(life, glasses, router, { voice: { transcribe, rolling, agents: [send],
 - **The rolling set:** items the app adds, each an action on one of its targets, newest first. Adding one again makes it the newest. It holds 255 less the options above, and the oldest leaves. It belongs to the app, so an item can be picked from any screen. A `private` target never enters it.
 - **`otherwise`** names what your other agents take. The navigator offers it only when there is another agent, and picking it passes the words on.
 - **`instead`** names the same thing for the person, in a few words: "Keep as a note". With it, the person can turn the navigator's choice down. A question it raises ("Delete note: Milk? Tap to confirm") gains the line "Swipe: Keep as a note", and its list of candidates gains that as the last row. A swipe either way, or that row, hands the same words to your agents, and what the navigator chose does not run. It is read when the question is asked, so it can name what these words were for. Without it, or with no agent, nothing is offered and a swipe drops the question as before. Like the confirming tap, the swipe has no spoken form: a hold calls the question off and listens anew. A choice that needs no tap has already run: there is nothing to turn down.
-- **Context,** all optional: a `hint` on an action, `context()` on a screen for what is on it now, and text with a rolling item that tells it from the others.
+- **Context,** all optional: a `hint` on an action, `context()` on a screen for what is on it now, and text with a rolling item that tells it from the others. A choice or a rolling item with no text of its own is offered with its action's `hint`, on whichever screen.
 - Context can be any length. Over 1,200 characters an item, Earshot asks `compact(text, limit)` for a shorter one in the background and uses the last characters until it is back, or if it fails. Text that is still changing is compacted once it has been still for five seconds. Without `compact`, the last characters are used.
 - A whole question carries at most 240,000 characters. Past that, the oldest rolling items send their name only.
 
