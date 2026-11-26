@@ -119,6 +119,28 @@ describe('the question', () => {
     expect(context('Delete note: Welcome')).toBeUndefined()
   })
 
+  it('names the action and the target each option would run, so a model of the app tells options apart without reading their words', () => {
+    const { question } = questionFor(heard('x'))
+    const runs = (say: string) => {
+      const { action, target } = question.options.find(option => option.say === say)!
+      return [action, target]
+    }
+    expect(runs('Open note: Voice')).toEqual(['open', 'voice'])
+    expect(runs('Open note (show the list)')).toEqual(['open', undefined])
+    expect(runs('Refresh')).toEqual(['refresh', undefined])
+    expect(runs('Go back')).toEqual(['back', undefined])
+    expect(runs('Delete note: Welcome')).toEqual(['delete', 'welcome'])
+    expect(runs('None of these')).toEqual([undefined, undefined])
+    expect(runs('Not a navigation command')).toEqual([undefined, undefined])
+  })
+
+  it('names them for an item from another screen too', () => {
+    const elsewhere = action({ id: 'thread', say: 'Open thread', targets: () => [{ id: 't1', say: 'Billing', value: 1 }], run: () => {} })
+    const rolling = [{ action: elsewhere, target: 't1', say: 'Open thread: Billing', context: '' }]
+    const { question } = questionFor(heard('x', { rolling }))
+    expect(question.options.find(option => option.say === 'Open thread: Billing')).toMatchObject({ action: 'thread', target: 't1' })
+  })
+
   it('gives every option its own id', () => {
     const { question } = questionFor(heard('x'))
     expect(new Set(question.options.map(option => option.id)).size).toBe(question.options.length)

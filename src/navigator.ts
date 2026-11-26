@@ -8,6 +8,8 @@ export interface Option {
   say: string
   context?: string
   role?: 'pass' | 'none'
+  action?: string
+  target?: string
 }
 
 export interface Question {
@@ -65,10 +67,12 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
   const meanings = new Map<string, Meaning>()
   const options: Option[] = []
   let length = heard.words.length + (heard.screen?.length ?? 0)
-  const offer = (meaning: Meaning, option: Omit<Option, 'id'>) => {
+  const offer = (meaning: Meaning, option: Omit<Option, 'id' | 'action' | 'target'>) => {
     const id = `o${options.length}`
+    const runs =
+      typeof meaning === 'object' ? { action: meaning.action, ...(meaning.target === undefined ? {} : { target: meaning.target }) } : {}
     meanings.set(id, meaning)
-    options.push({ id, ...option })
+    options.push({ id, ...option, ...runs })
     length += option.say.length + (option.context?.length ?? 0)
   }
   const offered = new Set<string>()

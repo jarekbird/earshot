@@ -6,6 +6,11 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
+## 0.0.55 (2026-11-26)
+
+- An option of the navigator's question names what it would run: `action` and `target`. `SURE_AT` is the chance
+  from which the navigator is sure. An app that wraps the model needs neither the options' words nor the number.
+
 ## 0.0.54 (2026-11-26)
 
 - On a list, "choose this one" and the row under the cursor by its name are one choice for the navigator. When
