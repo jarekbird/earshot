@@ -7,6 +7,8 @@ import {
   Lifetime,
   LINE_HEIGHT,
   list,
+  LIST_ROW_WIDTH,
+  oneLine,
   openRouter,
   Rolling,
   Router,
@@ -16,6 +18,7 @@ import {
   SCREEN_WIDTH,
   Shell,
   text,
+  wrapText,
   type Agent,
   type LiveState,
   type Speaker,
@@ -176,7 +179,7 @@ for (const note of notes) rolling.add(open, note.id, note.body)
 const takeNote: Agent = heard => {
   const [, body] = /^remember (.+)/i.exec(heard.words) ?? []
   if (!body) return { kind: 'notMine' }
-  const note = { id: `said${notes.length}`, title: body, body }
+  const note = { id: `said${notes.length}`, title: wrapText(oneLine(body), LIST_ROW_WIDTH)[0].trimEnd() || body, body }
   notes.push(note)
   rolling.add(open, note.id, note.body)
   return { kind: 'handled', say: 'Saved' }
