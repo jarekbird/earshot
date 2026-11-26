@@ -508,7 +508,8 @@ export class Shell {
     }
     if (input.kind === 'hold') return this.#hold(input.source)
     if (input.kind === 'release') return this.#release(input.source)
-    if (this.#recording || this.#deciding) {
+    const elsewhere = this.#deciding !== null && this.#decidingOn !== showingsOf(this.#router).current
+    if (this.#recording || (this.#deciding && !elsewhere)) {
       if (!this.#recording || input.kind === 'double') this.#callOff()
       return
     }
@@ -729,21 +730,30 @@ export class Shell {
       if (!moved()) this.#show(heard)
       const { answer, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, moved, mine)
       const done = answer.say
+      const back = () => answer.kind === 'handled' && showingsOf(this.#router).current === showing
+      const away = (say: string | undefined, handled: boolean) => {
+        if (say === undefined) spare()
+        else this.notice(say)
+        if (handled && back()) this.redraw()
+      }
       const elsewhere = () => {
-        if (done === undefined) spare()
-        else this.notice(done)
-        if (answer.kind === 'handled' && showingsOf(this.#router).current === showing) this.redraw()
+        if (!back()) return away(done, true)
+        const now = answer.now()
+        if (!mine()) return
+        const say = now === 'handled' ? (answer.holds(now) as { say?: string }).say : undefined
+        if (!mine()) return
+        away(say, now === 'handled')
       }
       finish(() => {
         const now = answer.now()
         if (!mine()) return
-        if (moved()) return elsewhere()
+        if (moved()) return away(done, true)
         if (transcript === null && (now === 'none' || now === 'notMine')) return this.notice(this.#words.missed)
         if (words) this.#show(heard, HEARD_MS)
         else this.#clear()
         const verdict = answer.holds(now)
         if (!mine()) return
-        if (moved()) return elsewhere()
+        if (moved()) return away(done, true)
         this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
       }, elsewhere)
     } catch (error) {

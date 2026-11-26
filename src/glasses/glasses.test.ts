@@ -2282,6 +2282,27 @@ describe('watching the draws', () => {
     expect([unsent, over, fake.lines(), glasses[WHOLE]]).toEqual([true, 'Status', ['One', 'Old'], true])
   })
 
+  it('does not take for one whole frame a page that no longer shows a label, after a frame was taken back that changed it under an overlay without a call', async () => {
+    const fake = fakeBridge()
+    let second = 0
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (event.at === 'begin' && event.frame === second) queueMicrotask(() => progressOf(glasses).drop([second]))
+      },
+    })
+    glasses.draw(frame(box('label', 'Old', { y: 243 })))
+    await settle(REBUILD_GAP_MS)
+    glasses.overlay('Status')
+    await settle(60_000)
+    const calls = fake.calls.length
+    second = glasses.draw(frame(box('label', 'New', { y: 243 })))
+    await settle(60_000)
+    const unsent = fake.calls.length === calls
+    glasses.overlay(null)
+    await settle(60_000)
+    expect([unsent, glasses[WHOLE] && !fake.lines().includes('Old')]).toEqual([true, false])
+  })
+
   it('hangs no picture again when the call for a newer one was never made, its frame taken back first', async () => {
     const fake = fakeBridge()
     let second = 0
