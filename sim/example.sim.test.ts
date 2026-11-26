@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net'
 import { build } from 'esbuild'
 import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { WebSocketServer } from 'ws'
+import { LIST_ROW_WIDTH, textWidth } from '../src/index.js'
 import { serve } from '../relay/node.js'
 import { Simulator } from './simulator.js'
 
@@ -156,6 +157,17 @@ describe('the example app in the real Even Hub simulator', () => {
     const lines = await sim.shows('Saved')
     expect(lines.slice(0, 5)).toEqual(['Earshot example', '> Welcome', 'Voice', 'A long note', 'buy milk'])
     expect(lines.slice(5).map(line => line.replace(/[╭╮╰╯─│]/g, '').trim())).toEqual(['', 'Saved', ''])
+  })
+
+  it.runIf(process.platform === 'linux')('names a long note that was said by the words that fit a row of the list', async () => {
+    const words = 'the quarterly numbers for every region before the board meets on the first Thursday of next month'.split(' ')
+    const sim = await start(`&say=${encodeURIComponent(`remember ${words.join(' ')}`)}`, true)
+    await sim.hold(1_200)
+    const row = (await sim.shows('Saved'))[4]
+    const shown = row.split(' ')
+    expect(shown).toEqual(words.slice(0, shown.length))
+    expect(textWidth(row)).toBeLessThanOrEqual(LIST_ROW_WIDTH)
+    expect(textWidth(words.slice(0, shown.length + 1).join(' '))).toBeGreaterThan(LIST_ROW_WIDTH)
   })
 
   it.runIf(process.platform === 'linux')("turns the navigator's choice down at a swipe: the words go to the app's agent", async () => {

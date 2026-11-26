@@ -65,7 +65,8 @@ SDK's two storage calls by shape, so it does not import the SDK (E1).
 
 `earshot/sim`, in `sim/`, outside `src` because it needs Node. It starts Even's simulator on a page, with its own home
 folder, a hidden display on Linux and a hard time limit on every process, then sends touchpad input, reads the
-console, takes pictures and waits for a condition. The simulator gives a picture and a console, not the text on the
+console, takes pictures and waits for a condition. The simulator listens on a port the driver picks; when another
+program takes that port first, the driver starts the simulator once more on another. The simulator gives a picture and a console, not the text on the
 glasses. Reading what the glasses show, and a stand-in bridge for tests without the simulator, come with the renderer
 in slice 2, which decides what a drawn frame is.
 
@@ -102,7 +103,8 @@ read, which would otherwise be taken for item 0.
 
 - A screen's `view` is a `list`, a `text` or its own `boxes`. A list shows the targets of one action. Lists are drawn
   as text, not as the SDK's list container: text can be dimmed in place, a list cannot. The row under the cursor is in
-  a box of its own, so moving the cursor changes text and rebuilds nothing.
+  a box of its own, so moving the cursor changes text and rebuilds nothing. A row is `LIST_ROW_WIDTH` wide, which an
+  app reads to fit a row itself: the list cuts a wider one at its end.
 - Even's menu lists the other actions. Each action keeps one item number on every screen, so a pick that arrives from
   an old menu cannot run a different action. Over ten, the rest fold into a list.
 - A blocked action says why in the overlay for three seconds. A `confirm` action asks there first, and only a tap

@@ -4,6 +4,14 @@ A voice-first app framework for [Even Realities G2](https://www.evenrealities.co
 
 An Earshot app declares what it can do as **actions**. The menu, the touchpad and your voice all run those same actions. Hold the touchpad, say what you want, and a navigator picks the action and its target. Because the app's abilities are data, an agent can pilot it.
 
+The example app in Even's simulator: its list of notes, a hold while Earshot listens, the question before an action that is marked as a risk, and the list after the tap.
+
+| The app's list                                                                                        | Hold, and say "delete welcome"                                                                               |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| ![The glasses show a list of three notes, with the cursor on Welcome](docs/pictures/list.png)         | ![A card along the bottom says Listening, beside bars that rise with the voice](docs/pictures/listening.png) |
+| **Earshot asks first**                                                                                | **Tap, and the note is gone**                                                                                |
+| ![The card asks: Delete note: Welcome? Tap to confirm. Swipe: Keep as a note](docs/pictures/asks.png) | ![The list shows the two notes that are left](docs/pictures/done.png)                                        |
+
 **Status: early.** Every slice below is built. The API will change until two apps run on it.
 
 | Slice | What                                                                                                                                   | State |
@@ -22,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.47
+npm install github:jarekbird/earshot#v0.0.49
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -32,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.47 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.49 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -423,11 +431,12 @@ The stand-in refuses what Even's simulator refuses: a ninth text box, text of 1,
 The glasses have one font, with letters of different widths. These measure with Even's own numbers for it ([`@evenrealities/pretext`](https://www.npmjs.com/package/@evenrealities/pretext)), so text fits before it is drawn.
 
 ```ts
-import { cleanText, fitText, oneLine, textWidth, wrapText } from 'earshot'
+import { cleanText, fitText, LIST_ROW_WIDTH, oneLine, textWidth, wrapText } from 'earshot'
 
 fitText(oneLine(thread.title), 400) // one line, cut to 400 pixels with an ellipsis
 wrapText(cleanText(message.text), 560) // the lines, none wider than 560 pixels
 textWidth('14:30') // pixels
+fitText(oneLine(thread.title), LIST_ROW_WIDTH - textWidth(' 14:30')) + ' 14:30' // a row of a list that keeps its end whole
 ```
 
 - `cleanText` swaps a backtick and a tab for what the font can draw, makes line ends the same and removes characters that draw nothing. `oneLine` does that and puts the text on one line.
@@ -435,6 +444,7 @@ textWidth('14:30') // pixels
 - `wrapText` breaks where the glasses break: after a space, a hyphen, or a Chinese, Japanese or Korean character, and inside a word only when the word is wider than the line. The glasses do not break its lines again. It keeps the spaces that start a paragraph.
 - A character the font cannot draw leaves a 4 pixel gap on the glasses. `hasGlyph(char)` says whether the font draws it.
 - Take the container's padding and border off the width first.
+- `LIST_ROW_WIDTH` is how wide a row of a `list` view is. A target whose `say` is no wider is shown whole, and a wider one is cut at its end with an ellipsis. To keep the end and cut the start of a row, fit the start yourself, as above.
 
 The numbers match the Even Hub simulator to the pixel. Check a tight layout on real glasses.
 
@@ -519,6 +529,7 @@ await sim.stop()
 
 - Install `@evenrealities/evenhub-simulator` in your project; the driver finds it there.
 - `sim.until(what, check, ms)` waits for anything else, and says what the console and the simulator last said when time runs out. The simulator can only be asked, not listened to, so waiting asks it ten times a second.
+- The simulator listens on a port the driver picks, and another program can take that port first. A simulator that exits before it answers, or that never answers on a port another program then holds, is started once more on another port.
 - Each run has its own home folder, removed by `stop`. Every process it starts has a hard time limit, an hour unless you pass `limitSeconds`.
 - On Linux without a display it starts a hidden one, which needs `Xvfb`. A bare CI machine also needs the simulator's libraries: on Ubuntu, `xvfb libwebkit2gtk-4.1-0 libasound2t64`.
 - Input reaches the app only when its page has a container that captures events.
