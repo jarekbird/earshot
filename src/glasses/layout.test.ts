@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TargetInfo } from '../action.js'
 import { text } from '../view.js'
-import { layoutList, layoutText, LIST_DIM } from './layout.js'
+import { layoutList, layoutText, LIST_DIM, LIST_ROW_WIDTH } from './layout.js'
 import { textWidth } from './text.js'
 
 const targets = (count: number): TargetInfo[] =>
@@ -16,6 +16,16 @@ describe('layoutList', () => {
     expect(by(boxes, 'rows')).toMatchObject({ x: 20, y: 27, w: 556, h: 243, text: 'Thread 0\n\nThread 2', brightness: LIST_DIM })
     expect(by(boxes, 'cursor')).toMatchObject({ x: 20, y: 27, w: 556, h: 243, text: '\nThread 1', brightness: 4 })
     expect(by(boxes, 'marker')).toMatchObject({ x: 0, y: 27, w: 20, h: 243, text: '\n>', brightness: 4 })
+  })
+
+  it('shows words as wide as LIST_ROW_WIDTH whole, and cuts wider ones, so an app can fit a row before it is drawn', () => {
+    const letters = (count: number) => 'm'.repeat(count)
+    let fits = 0
+    while (textWidth(letters(fits + 1)) <= LIST_ROW_WIDTH) fits++
+    const row = (say: string) => by(layoutList({}, [{ id: 'one', say, private: false }], { cursor: 0, top: 0 }).boxes, 'cursor').text
+    expect(fits).toBeGreaterThan(0)
+    expect(row(letters(fits))).toBe(letters(fits))
+    expect(row(letters(fits + 1))).toMatch(/^m+…$/)
   })
 
   it('moves nothing when the cursor moves, so the page is not rebuilt', () => {
