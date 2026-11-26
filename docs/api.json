@@ -107,7 +107,7 @@
     ],
     "./testing": ["FakeBox", "FakeBridge", "FakeOp", "FakePicture", "fakeBridge", "overlayWords"],
     "./sim": ["ConsoleEntry", "Input", "Simulator", "SimulatorOptions"],
-    "./relay": ["DEFAULT_MODELS", "Line", "LiveOptions", "RelayOptions", "RelaySettings", "Sockets", "relay", "relayOptions"],
+    "./relay": ["DEFAULT_MODELS", "Line", "LiveOptions", "RelayOptions", "RelaySettings", "Sockets", "notSetUp", "relay", "relayOptions"],
     "./relay/node": ["ServeOptions", "serve", "settings"]
   },
   "bin": ["earshot-check", "earshot-relay"],
