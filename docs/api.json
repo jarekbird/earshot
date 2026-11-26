@@ -21,6 +21,7 @@
       "HoldSource",
       "Input",
       "LINE_HEIGHT",
+      "LIST_ROW_WIDTH",
       "Lifetime",
       "LifetimeEnded",
       "ListenOptions",
