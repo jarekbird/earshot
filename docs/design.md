@@ -303,6 +303,12 @@ use it, compaction. Earshot ships all three for OpenRouter, paid by the develope
 - **The developer can name the calls.** `calls` lists which of speech, decide and compact the relay forwards; the
   others are refused as a path it does not know, before the request is read. Unset, it forwards all three. A name
   it does not know makes no relay (E14), and the error does not repeat what was typed.
+- **Settings that make no relay stop a host, each in its own way.** The Node server does not start, and prints
+  why. A Worker has no start to refuse: it is asked for a relay on every request. So the example's Worker catches
+  what `relay` throws, writes it to its log, and answers with `notSetUp`: 503 to any page, and the first check a
+  browser makes as a relay answers it. An uncaught throw would be the runtime's own error page, which a web view
+  cannot read, so the app would take a relay that is not set up for a lost connection. The answer does not say
+  which setting is wrong.
 - **Its two hosts are one server (E13).** The Node server and the example's Worker only hand requests to `relay`, and
   read their settings through `relayOptions`, whose type names every setting a host must pass. One table of calls
   runs against both and their answers must match. Only where a host listens (`PORT`, `HOST`) is its own, and for

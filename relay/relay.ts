@@ -108,6 +108,19 @@ const ANY_PAGE = { 'access-control-allow-origin': '*' }
 const answer = (status: number, body: string) =>
   new Response(body, { status, headers: { ...ANY_PAGE, 'content-type': 'application/json' } })
 const refuse = (status: number, error: string) => answer(status, JSON.stringify({ error }))
+const firstCheck = () =>
+  new Response(null, {
+    status: 204,
+    headers: {
+      ...ANY_PAGE,
+      'access-control-allow-methods': 'POST',
+      'access-control-allow-headers': 'content-type',
+      'access-control-max-age': '86400',
+    },
+  })
+
+export const notSetUp = (request: Request): Response =>
+  request.method === 'OPTIONS' ? firstCheck() : refuse(503, 'This relay is not set up.')
 
 async function read(request: Request, limit: number): Promise<string | null> {
   if (Number(request.headers.get('content-length')) > limit) return null
@@ -245,17 +258,7 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
 
   return async request => {
     const { pathname } = new URL(request.url)
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          ...ANY_PAGE,
-          'access-control-allow-methods': 'POST',
-          'access-control-allow-headers': 'content-type',
-          'access-control-max-age': '86400',
-        },
-      })
-    }
+    if (request.method === 'OPTIONS') return firstCheck()
     if (pathname === LIVE_PATH && speech) {
       const asksForOne = request.method === 'GET' && request.headers.get('upgrade')?.toLowerCase() === 'websocket'
       if (!asksForOne || !sockets) return refuse(426, 'Only a WebSocket.')
