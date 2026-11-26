@@ -299,6 +299,18 @@ use it, compaction. Earshot ships all three for OpenRouter, paid by the develope
 - **The relay waits just under what the app waits.** Ten seconds for a question or a shortening, where the app
   waits twelve; twenty-eight for speech, where it waits thirty for each part of a recording. A slow upstream is then
   the relay's own answer, and a long part is not cut off early.
+- **An upstream's error comes back as its status alone.** An upstream may quote the request in the text of its
+  error, and the request holds what the user said. So that text never passes the relay: it would land wherever an
+  app shows or records an error. The app's transports read only the status.
+- **The developer can name the calls.** `calls` lists which of speech, decide and compact the relay forwards; the
+  others are refused as a path it does not know, before the request is read. Unset, it forwards all three. A name
+  it does not know makes no relay (E14), and the error does not repeat what was typed.
+- **Settings that make no relay stop a host, each in its own way.** The Node server does not start, and prints
+  why. A Worker has no start to refuse: it is asked for a relay on every request. So the example's Worker catches
+  what `relay` throws, writes it to its log, and answers with `notSetUp`: 503 to any page, and the first check a
+  browser makes as a relay answers it. An uncaught throw would be the runtime's own error page, which a web view
+  cannot read, so the app would take a relay that is not set up for a lost connection. The answer does not say
+  which setting is wrong.
 - **Its two hosts are one server (E13).** The Node server and the example's Worker only hand requests to `relay`, and
   read their settings through `relayOptions`, whose type names every setting a host must pass. One table of calls
   runs against both and their answers must match. Only where a host listens (`PORT`, `HOST`) is its own, and for
