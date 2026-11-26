@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.47
+npm install github:jarekbird/earshot#v0.0.48
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.47 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.48 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -428,11 +428,12 @@ The stand-in refuses what Even's simulator refuses: a ninth text box, text of 1,
 The glasses have one font, with letters of different widths. These measure with Even's own numbers for it ([`@evenrealities/pretext`](https://www.npmjs.com/package/@evenrealities/pretext)), so text fits before it is drawn.
 
 ```ts
-import { cleanText, fitText, oneLine, textWidth, wrapText } from 'earshot'
+import { cleanText, fitText, LIST_ROW_WIDTH, oneLine, textWidth, wrapText } from 'earshot'
 
 fitText(oneLine(thread.title), 400) // one line, cut to 400 pixels with an ellipsis
 wrapText(cleanText(message.text), 560) // the lines, none wider than 560 pixels
 textWidth('14:30') // pixels
+fitText(oneLine(thread.title), LIST_ROW_WIDTH - textWidth(' 14:30')) + ' 14:30' // a row of a list that keeps its end whole
 ```
 
 - `cleanText` swaps a backtick and a tab for what the font can draw, makes line ends the same and removes characters that draw nothing. `oneLine` does that and puts the text on one line.
@@ -440,6 +441,7 @@ textWidth('14:30') // pixels
 - `wrapText` breaks where the glasses break: after a space, a hyphen, or a Chinese, Japanese or Korean character, and inside a word only when the word is wider than the line. The glasses do not break its lines again. It keeps the spaces that start a paragraph.
 - A character the font cannot draw leaves a 4 pixel gap on the glasses. `hasGlyph(char)` says whether the font draws it.
 - Take the container's padding and border off the width first.
+- `LIST_ROW_WIDTH` is how wide a row of a `list` view is. A target whose `say` is no wider is shown whole, and a wider one is cut at its end with an ellipsis. To keep the end and cut the start of a row, fit the start yourself, as above.
 
 The numbers match the Even Hub simulator to the pixel. Check a tight layout on real glasses.
 
