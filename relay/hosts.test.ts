@@ -202,6 +202,45 @@ describe('E13: the Node server and the Worker follow the upstream of a call nowh
   })
 })
 
+describe('E13: settings that make no relay', () => {
+  it.each([
+    ['no key for the calls', {}, {}],
+    [
+      'a call the relay does not know',
+      { OPENROUTER_KEY: KEY, CALLS: 'decisions' },
+      { EARSHOT_RELAY_KEY: KEY, EARSHOT_RELAY_CALLS: 'decisions' },
+    ],
+  ])(
+    'with %s: the Node server does not start, and the Worker, which cannot refuse to start, says so in a way any page can read',
+    async (_what, bindings, env) => {
+      const to = 'https://upstream.example'
+      expect(() => serve({ ...settings({ ...env, EARSHOT_RELAY_UPSTREAM: to }), port: 0, hostname: '127.0.0.1' })).toThrow()
+      const runtime = new Miniflare({
+        modules: true,
+        script: worker,
+        compatibilityDate: '2026-07-01',
+        bindings: { ...bindings, UPSTREAM: to },
+      })
+      onTestFinished(() => runtime.dispose())
+      const at = (await runtime.ready).href.replace(/\/$/, '')
+      const [first, call] = [
+        await seen(await fetch(`${at}${SPEECH}`, { method: 'OPTIONS' })),
+        await seen(await fetch(`${at}${SPEECH}`, post({ model: WHISPER }))),
+      ]
+      expect([first.status, first.headers['access-control-allow-origin'], first.headers['access-control-allow-methods']]).toEqual([
+        204,
+        '*',
+        'POST',
+      ])
+      expect([call.status, call.headers['access-control-allow-origin'], call.body]).toEqual([
+        503,
+        '*',
+        '{"error":"This relay is not set up."}',
+      ])
+    },
+  )
+})
+
 describe('E13: the Node server and the Worker are one relay', () => {
   it.each(CALLS)('both $name', async ({ models, calls, path, init, status, asksFirst, says }) => {
     const answers = await Promise.all(Object.values(await hosts(models, calls)).map(async host => seen(await host(path, init, asksFirst))))

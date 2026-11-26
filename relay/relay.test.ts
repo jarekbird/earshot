@@ -1,7 +1,7 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { openRouter, MODELS } from '../src/openrouter/openrouter.js'
 import { CLOSES, DIAL_MS, LIVE_PATH } from './limits.js'
-import { DEFAULT_MODELS, relay, relayOptions, type Line, type RelayOptions, type Sockets } from './relay.js'
+import { DEFAULT_MODELS, notSetUp, relay, relayOptions, type Line, type RelayOptions, type Sockets } from './relay.js'
 
 interface Sent {
   url: string
@@ -258,6 +258,33 @@ describe('the check a browser makes first', () => {
     expect(answer.headers.get('access-control-allow-methods')).toBe('POST')
     expect(answer.headers.get('access-control-allow-headers')).toBe('content-type')
     expect(sent).toEqual([])
+  })
+})
+
+describe('a host that cannot refuse to start, with settings that make no relay', () => {
+  it('says that it is not set up with a status a page can read, to any page', async () => {
+    const answer = notSetUp(new Request('https://relay.example/api/alpha/decisions', { method: 'POST', body: '{}' }))
+    expect(answer.status).toBe(503)
+    expect(answer.headers.get('access-control-allow-origin')).toBe('*')
+    expect(await answer.json()).toEqual({ error: 'This relay is not set up.' })
+  })
+
+  it('answers the check a browser makes first as a relay does: without it the page never sees that status', async () => {
+    const { handle } = setup()
+    const first = () => new Request('https://relay.example/api/alpha/decisions', { method: 'OPTIONS' })
+    const [mine, relays] = [notSetUp(first()), await handle(first())]
+    const headers = (answer: Response) => {
+      const all: string[] = []
+      answer.headers.forEach((value, name) => all.push(`${name}: ${value}`))
+      return all
+    }
+    expect([mine.status, headers(mine)]).toEqual([relays.status, headers(relays)])
+    expect(mine.status).toBe(204)
+  })
+
+  it('says the same to a caller that asks for the live line', () => {
+    const asks = new Request('https://relay.example/api/v1/live', { headers: { upgrade: 'websocket' } })
+    expect(notSetUp(asks).status).toBe(503)
   })
 })
 
