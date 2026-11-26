@@ -83,12 +83,36 @@ describe('a call from the app', () => {
     expect(sent[0].body).toEqual({ model: 'mistralai/mistral-nemo', messages: [] })
   })
 
-  it("gets the upstream's refusal as it is", async () => {
-    const { post } = setup([json({ error: { message: 'Rate limited' } }, 429)])
-    const answer = await post('/api/v1/audio/transcriptions', speech)
-    expect(answer.status).toBe(429)
-    expect(answer.headers.get('access-control-allow-origin')).toBe('*')
-    expect(await answer.json()).toEqual({ error: { message: 'Rate limited' } })
+  it.each([400, 401, 402, 403, 404, 429, 500, 503])(
+    "gets the status of the upstream's refusal (%i) and none of its words, which may quote what the user said",
+    async status => {
+      const quoted = 'Could not make sense of the state: The user said: "call my doctor about the results"'
+      const { post } = setup([json({ error: { message: quoted, metadata: { raw: quoted } } }, status)])
+      const answer = await post('/api/alpha/decisions', {
+        model: 'typesafe/jev-1.14',
+        state: 'The user said: "call my doctor about the results"',
+      })
+      expect(answer.status).toBe(status)
+      expect(answer.headers.get('access-control-allow-origin')).toBe('*')
+      expect(await answer.json()).toEqual({ error: `The upstream answered ${status}.` })
+    },
+  )
+
+  it('lets go of a refusal that goes on sending: what the relay will not read does not stay open', async () => {
+    let letGo = false
+    let sent = 0
+    const going = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await new Promise(resolve => setTimeout(resolve, 5))
+        if (++sent > 40) controller.close()
+        else controller.enqueue(new Uint8Array(1_024))
+      },
+      cancel: () => void (letGo = true),
+    })
+    const { post } = setup([new Response(going, { status: 500 })])
+    expect((await post('/api/v1/audio/transcriptions', speech)).status).toBe(500)
+    expect(letGo).toBe(true)
+    expect(sent).toBeLessThan(40)
   })
 })
 
