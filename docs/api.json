@@ -49,6 +49,7 @@
       "SAMPLE_RATE",
       "SCREEN_HEIGHT",
       "SCREEN_WIDTH",
+      "SURE_AT",
       "SayError",
       "Screen",
       "Shell",
