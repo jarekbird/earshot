@@ -69,31 +69,38 @@ const askingFirst = (address: string, init: RequestInit): Promise<Response> =>
     call.flushHeaders()
   })
 
-async function inWorkerd(to: string, models?: string, secret?: string): Promise<string> {
+async function inWorkerd(to: string, models?: string, secret?: string, calls?: string): Promise<string> {
   const runtime = new Miniflare({
     modules: true,
     script: worker,
     compatibilityDate: '2026-07-01',
-    bindings: { OPENROUTER_KEY: KEY, UPSTREAM: to, ...(models ? { MODELS: models } : {}), ...(secret ? { SECRET: secret } : {}) },
+    bindings: {
+      OPENROUTER_KEY: KEY,
+      UPSTREAM: to,
+      ...(models ? { MODELS: models } : {}),
+      ...(secret ? { SECRET: secret } : {}),
+      ...(calls ? { CALLS: calls } : {}),
+    },
   })
   closing.push(() => runtime.dispose())
   return (await runtime.ready).href.replace(/\/$/, '')
 }
 
-async function start(to: string, models?: string, secret?: string): Promise<Record<string, Host>> {
+async function start(to: string, models?: string, secret?: string, calls?: string): Promise<Record<string, Host>> {
   const server = await serve({
     ...settings({
       EARSHOT_RELAY_KEY: KEY,
       EARSHOT_RELAY_UPSTREAM: to,
       ...(models ? { EARSHOT_RELAY_MODELS: models } : {}),
       ...(secret ? { EARSHOT_RELAY_SECRET: secret } : {}),
+      ...(calls ? { EARSHOT_RELAY_CALLS: calls } : {}),
     }),
     port: 0,
     hostname: '127.0.0.1',
   })
   closing.push(() => server.close())
   const node = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const edge = await inWorkerd(to, models, secret)
+  const edge = await inWorkerd(to, models, secret, calls)
   return {
     'the Node server': (path, init, asks) => (asks ? askingFirst : fetch)(`${node}${path}`, init),
     "the Worker, in Cloudflare's own runtime": (path, init, asks) => (asks ? askingFirst : fetch)(`${edge}${path}`, init),
@@ -101,12 +108,12 @@ async function start(to: string, models?: string, secret?: string): Promise<Reco
 }
 
 const started = new Map<string, Promise<Record<string, Host>>>()
-const hosts = (models = '', secret = ''): Promise<Record<string, Host>> => {
-  const set = `${models}|${secret}`
+const hosts = (models = '', secret = '', calls = ''): Promise<Record<string, Host>> => {
+  const set = `${models}|${secret}|${calls}`
   if (!started.has(set))
     started.set(
       set,
-      upstream().then(to => start(to, models || undefined, secret || undefined)),
+      upstream().then(to => start(to, models || undefined, secret || undefined, calls || undefined)),
     )
   return started.get(set)!
 }
@@ -130,7 +137,17 @@ const SPEECH = '/api/v1/audio/transcriptions'
 const WHISPER = 'openai/whisper-large-v3-turbo'
 
 const PHRASE = 'a phrase of the developer'
-const CALLS: { name: string; models?: string; secret?: string; path: string; init: RequestInit; status: number; asksFirst?: boolean }[] = [
+const CALLS: {
+  name: string
+  models?: string
+  secret?: string
+  calls?: string
+  path: string
+  init: RequestInit
+  status: number
+  asksFirst?: boolean
+  says?: string
+}[] = [
   { name: 'forward a call with the key', path: SPEECH, init: post({ model: WHISPER, input_audio: 'UklGR', stream: true }), status: 200 },
   { name: "answer a browser's first check", path: '/api/alpha/decisions', init: { method: 'OPTIONS' }, status: 204 },
   { name: 'refuse a path Earshot never calls', path: '/api/v1/keys', init: post({ model: WHISPER }), status: 404 },
@@ -144,7 +161,13 @@ const CALLS: { name: string; models?: string; secret?: string; path: string; ini
     asksFirst: true,
   },
   { name: 'refuse a model nobody listed', path: SPEECH, init: post({ model: 'other/model' }), status: 400 },
-  { name: "pass the upstream's refusal on as it is", path: '/api/alpha/decisions', init: post({ model: BUSY, state: {} }), status: 429 },
+  {
+    name: "answer the upstream's refusal by its status and with none of its words",
+    path: '/api/alpha/decisions',
+    init: post({ model: BUSY, state: 'what the user said' }),
+    status: 429,
+    says: '{"error":"The upstream answered 429."}',
+  },
   { name: 'forward a model the developer listed', models: 'a/one, b/two', path: SPEECH, init: post({ model: 'b/two' }), status: 200 },
   {
     name: 'turn away a call that does not say the secret they were given, with no live speech set up',
@@ -160,6 +183,15 @@ const CALLS: { name: string; models?: string; secret?: string; path: string; ini
     init: post({ model: WHISPER, input_audio: 'UklGR', secret: PHRASE }),
     status: 200,
   },
+  {
+    name: 'forward a call the developer named',
+    models: 'a/one',
+    calls: 'decide',
+    path: '/api/alpha/decisions',
+    init: post({ model: 'a/one' }),
+    status: 200,
+  },
+  { name: 'refuse a call the developer did not name', calls: 'decide', path: SPEECH, init: post({ model: WHISPER }), status: 404 },
   {
     name: "refuse Earshot's own model once the developer lists others",
     models: 'a/one',
@@ -193,10 +225,52 @@ describe('E13: the Node server and the Worker follow the upstream of a call nowh
   })
 })
 
+describe('E13: settings that make no relay', () => {
+  it.each([
+    ['no key for the calls', {}, {}],
+    [
+      'a call the relay does not know',
+      { OPENROUTER_KEY: KEY, CALLS: 'decisions' },
+      { EARSHOT_RELAY_KEY: KEY, EARSHOT_RELAY_CALLS: 'decisions' },
+    ],
+  ])(
+    'with %s: the Node server does not start, and the Worker, which cannot refuse to start, says so in a way any page can read',
+    async (_what, bindings, env) => {
+      const to = 'https://upstream.example'
+      expect(() => serve({ ...settings({ ...env, EARSHOT_RELAY_UPSTREAM: to }), port: 0, hostname: '127.0.0.1' })).toThrow()
+      const runtime = new Miniflare({
+        modules: true,
+        script: worker,
+        compatibilityDate: '2026-07-01',
+        bindings: { ...bindings, UPSTREAM: to },
+      })
+      onTestFinished(() => runtime.dispose())
+      const at = (await runtime.ready).href.replace(/\/$/, '')
+      const [first, call] = [
+        await seen(await fetch(`${at}${SPEECH}`, { method: 'OPTIONS' })),
+        await seen(await fetch(`${at}${SPEECH}`, post({ model: WHISPER }))),
+      ]
+      expect([first.status, first.headers['access-control-allow-origin'], first.headers['access-control-allow-methods']]).toEqual([
+        204,
+        '*',
+        'POST',
+      ])
+      expect([call.status, call.headers['access-control-allow-origin'], call.body]).toEqual([
+        503,
+        '*',
+        '{"error":"This relay is not set up."}',
+      ])
+    },
+  )
+})
+
 describe('E13: the Node server and the Worker are one relay', () => {
-  it.each(CALLS)('both $name', async ({ models, secret, path, init, status, asksFirst }) => {
-    const answers = await Promise.all(Object.values(await hosts(models, secret)).map(async host => seen(await host(path, init, asksFirst))))
+  it.each(CALLS)('both $name', async ({ models, secret, calls, path, init, status, asksFirst, says }) => {
+    const answers = await Promise.all(
+      Object.values(await hosts(models, secret, calls)).map(async host => seen(await host(path, init, asksFirst))),
+    )
     for (const answer of answers) expect(answer.status).toBe(status)
+    if (says !== undefined) expect(answers[0].body).toBe(says)
     expect(answers[1]).toEqual(answers[0])
     if (secret && status === 200) expect(answers[0].body).not.toContain(secret)
   })

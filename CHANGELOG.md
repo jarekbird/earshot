@@ -6,7 +6,7 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.50 (2026-11-26)
+## 0.0.53 (2026-11-26)
 
 - A relay that has a secret asks its three calls for it too, not only live speech. A call that does not say it is
   answered 401 before anything is forwarded. A relay with no secret answers as before.
@@ -18,6 +18,26 @@ each version's commits say: they name what a version added, and may miss a chang
   with no live upstream, where the setting used to be ignored.
 - **An app must** give such a relay a fitting secret or take the setting out: one under 16 characters, or over 1,024
   as JSON writes them, was ignored before with no live upstream and now makes no relay.
+
+## 0.0.52 (2026-11-26)
+
+- `notSetUp`, from `earshot/relay`, is the answer of a host that cannot refuse to start when its settings make no
+  relay: 503 that any page can read, and the browser's first check answered. The example's Worker uses it; a
+  Worker without it answers with the runtime's own error, which a web view takes for a lost connection.
+
+## 0.0.51 (2026-11-26)
+
+- The relay forwards only the calls the developer names, of `speech`, `decide` and `compact`: `calls` in its
+  options, `EARSHOT_RELAY_CALLS` for the Node server and `CALLS` for the Worker. Unset, it forwards all three.
+- **An app must** pass `calls` to `relayOptions`, if it calls that itself, as a Worker does: `calls: env.CALLS`,
+  or `calls: undefined`.
+
+## 0.0.50 (2026-11-26)
+
+- The relay answers an upstream's error with its status and none of its words. It passed the error's text back,
+  and an upstream may quote in it what the user said.
+- **An app must** tell an upstream's errors apart by status, if it read their text from the relay's answer.
+  Earshot's own transports always did.
 
 ## 0.0.49 (2026-11-25)
 
