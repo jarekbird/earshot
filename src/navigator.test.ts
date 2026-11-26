@@ -96,6 +96,29 @@ describe('the question', () => {
     expect(context('Refresh')).toBeUndefined()
   })
 
+  it('tells the model what an item from another screen does, when the item has no text of its own', () => {
+    const elsewhere = action({
+      id: 'thread',
+      say: 'Open thread',
+      hint: 'Shows one conversation',
+      targets: () => [
+        { id: 't1', say: 'Billing', value: 1 },
+        { id: 't2', say: 'Ana', value: 2 },
+      ],
+      run: () => {},
+    })
+    const rolling = [
+      { action: elsewhere, target: 't1', say: 'Open thread: Billing', context: '' },
+      { action: elsewhere, target: 't2', say: 'Open thread: Ana', context: 'She asked about Friday' },
+      item(remove, 'welcome'),
+    ]
+    const { question } = questionFor(heard('x', { actions: [refresh, back, home], rolling }))
+    const context = (say: string) => question.options.find(option => option.say === say)!.context
+    expect(context('Open thread: Billing')).toBe('Shows one conversation')
+    expect(context('Open thread: Ana')).toBe('She asked about Friday')
+    expect(context('Delete note: Welcome')).toBeUndefined()
+  })
+
   it('gives every option its own id', () => {
     const { question } = questionFor(heard('x'))
     expect(new Set(question.options.map(option => option.id)).size).toBe(question.options.length)
@@ -115,6 +138,14 @@ describe('the question', () => {
     const sent = question.options.filter(option => option.say.startsWith('Open note: ')).map(option => option.context?.length ?? 0)
     expect(sent).toEqual([100_000, 100_000, 0, 0])
     expect(sent.reduce((sum, length) => sum + length, 0)).toBeLessThanOrEqual(QUESTION_LIMIT)
+  })
+
+  it('counts what an action does toward that length too, when it stands in for the text of an item', () => {
+    const wordy = action({ id: 'wordy', say: 'Open', hint: 'x'.repeat(100_000), targets: () => notes, run: () => {} })
+    const rolling = [0, 1, 2, 3].map(n => ({ action: wordy, target: 'voice', say: `Open: ${n}`, context: '' }))
+    const { question } = questionFor(heard('x', { actions: [refresh, back, home], rolling }))
+    const sent = question.options.filter(option => option.say.startsWith('Open: ')).map(option => option.context?.length ?? 0)
+    expect(sent).toEqual([100_000, 100_000, 0, 0])
   })
 })
 
