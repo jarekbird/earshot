@@ -41,7 +41,7 @@ describe('the first draw', () => {
     expect(fake.lines()).toEqual(['Threads', 'One', 'Two'])
   })
 
-  it('takes over a page left by an earlier load of the app', async () => {
+  it('E11: takes over a page left by an earlier load of the app', async () => {
     const { fake, glasses } = setup({ owned: true })
     glasses.draw(frame(box('title', 'Threads')))
     await settle()
@@ -375,7 +375,7 @@ describe('the menu', () => {
 })
 
 describe('a rebuild the glasses refuse', () => {
-  it('is taken for one that may have landed: the page before it is built again, not only written into', async () => {
+  it('E11: is taken for one that may have landed: the page before it is built again, not only written into', async () => {
     const { fake, glasses } = setup()
     glasses.draw(frame(box('body', 'One', { h: 200 })))
     await settle(1_000)
