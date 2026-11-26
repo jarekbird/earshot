@@ -361,17 +361,23 @@ export class Shell {
             : [
                 move(UP, this.#words.moveUp, -1, 'cursor'),
                 move(DOWN, this.#words.moveDown, 1, 'cursor'),
-                action({ id: CHOOSE, say: this.#words.choose, run: () => this.#choose(drawn, place, this.#said) }),
+                action({ id: CHOOSE, say: this.#words.choose, run: () => this.#choose(drawn, this.#row(drawn, place), this.#said) }),
               ]
     const taken = new Set(actions.map(a => a.id))
     return [...actions, ...own.filter(a => !taken.has(a.id) && (taken.add(a.id), true))]
   }
 
-  #choose(drawn: Drawn, place: Place, said = false): void {
-    const target = drawn.targets[place.cursor]
-    if (!target || drawn.view.kind !== 'list') return
+  #row(drawn: Drawn, place: Place): { action: Action; target: string } | undefined {
+    if (drawn.view.kind !== 'list') return undefined
+    const action = drawn.view.action
+    const target = drawn.targets[place.cursor]?.id
+    return target === undefined ? undefined : { action, target }
+  }
+
+  #choose(drawn: Drawn, row: { action: Action; target: string } | undefined, said = false): void {
+    if (!row) return
     if (this.#own.has(drawn.screen)) this.#router.back()
-    void this.#start(drawn.view.action, target.id, said)
+    void this.#start(row.action, row.target, said)
   }
 
   notice(text: string): void {
@@ -452,12 +458,13 @@ export class Shell {
     const place = showing && this.#places.get(showing)
     if (!drawn || drawn.showing !== showing || !place || !showingsOf(this.#router).onPath(showing)) return
     const { view } = drawn
+    const moves = this.#moves
     if (view.kind === 'boxes') {
-      const moves = this.#moves
       const bound = view.on?.[input.kind]
       if (!bound || moves !== this.#moves) return
       const { action: chosen, target } = tied(bound)
-      if (moves !== this.#moves || !this.#aimed(drawn, input.kind, aimOf('boxes', chosen, target))) return
+      const aim = aimOf('boxes', chosen, target)
+      if (moves !== this.#moves || !this.#aimed(drawn, input.kind, aim)) return
       return void this.#start(chosen, target)
     }
     const seen = this.#frames.words
@@ -467,8 +474,9 @@ export class Shell {
       if (input.kind !== 'tap') return this.#scroll(drawn, place, 'swipe', step < 0)
     } else if (input.kind !== 'tap') place.cursor += step
     else {
-      const under = drawn.targets[place.cursor]
-      return under && this.#aimed(drawn, 'tap', aimOf('list', view.action, under.id)) ? this.#choose(drawn, place) : undefined
+      const row = this.#row(drawn, place)
+      const aim = row && aimOf('list', row.action, row.target)
+      return aim !== undefined && moves === this.#moves && this.#aimed(drawn, 'tap', aim) ? this.#choose(drawn, row) : undefined
     }
     this.redraw()
   }
@@ -656,6 +664,7 @@ export class Shell {
         },
         () => {
           const say = done()
+          if (!mine()) return
           if (say === undefined) spare()
           else this.notice(say)
         },

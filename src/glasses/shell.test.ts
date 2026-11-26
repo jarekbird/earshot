@@ -2367,6 +2367,104 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect([fake.lines(), reads]).toEqual([['10:00'], 1])
   })
 
+  it('E15: runs a tap on a list on the very row it was checked for, though the row would name another when read again', async () => {
+    const went: string[] = []
+    let armed = false
+    const northern = () => {
+      let reads = 0
+      return {
+        get id() {
+          return armed && reads++ === 1 ? 'south' : 'north'
+        },
+        say: 'North',
+        value: 'north',
+      }
+    }
+    const go: Action = action({
+      id: 'go',
+      say: 'Go',
+      targets: () => ['north', 'south'].map(id => ({ id, say: id, value: id })),
+      run: to => void went.push(to),
+    })
+    Object.defineProperty(go, 'targets', { value: () => [northern(), { id: 'south', say: 'South' }] })
+    const { fake } = world({ home: () => ({ id: 'trail', view: () => list({ title: 'Trail', action: go }) }) })
+    await settle()
+    armed = true
+    fake.tap()
+    await settle()
+    expect(went).toEqual(['north'])
+  })
+
+  it('E15: runs a tap on a list with the very action it was checked for, though the list would name another when read again', async () => {
+    const did: string[] = []
+    const targets = () => [{ id: 'note', say: 'Note', value: 'note' }]
+    const open = action({ id: 'open', say: 'Open', targets, run: () => void did.push('open') })
+    const remove = action({ id: 'remove', say: 'Remove', targets, run: () => void did.push('remove') })
+    let armed = false
+    let reads = 0
+    const view = list({ title: 'Notes', action: open })
+    Object.defineProperty(view, 'action', { get: () => (armed && reads++ === 1 ? remove : open) })
+    const { fake } = world({ home: () => ({ id: 'notes', actions: () => [remove], view: () => view }) })
+    await settle()
+    armed = true
+    fake.tap()
+    await settle()
+    expect(did).toEqual(['open'])
+  })
+
+  it('E15: runs no row of a list when reading what its tap is tied to moved the screen on', async () => {
+    const sent: string[] = []
+    const made: { router?: Router } = {}
+    let armed = false
+    const send = action({
+      id: 'send',
+      say: 'Send',
+      targets: () => [{ id: 'ana', say: 'Ana', value: 'Ana' }],
+      run: to => void sent.push(to),
+    })
+    Object.defineProperty(send, 'id', {
+      get: () => {
+        if (armed) {
+          armed = false
+          made.router?.open({ id: 'child', view: () => text({ body: 'Child' }) })
+        }
+        return 'send'
+      },
+    })
+    const { fake, router } = world({ home: () => ({ id: 'mail', view: () => list({ title: 'To', action: send }) }) })
+    made.router = router
+    await settle()
+    armed = true
+    fake.tap()
+    await settle()
+    expect([sent, fake.lines()]).toEqual([[], ['Child']])
+  })
+
+  it('E15: runs no gesture of a screen of boxes when reading what it is tied to moved the screen on', async () => {
+    const sent: string[] = []
+    const made: { router?: Router } = {}
+    let armed = false
+    const send = action({ id: 'send', say: 'Send', run: () => void sent.push('send') })
+    Object.defineProperty(send, 'id', {
+      get: () => {
+        if (armed) {
+          armed = false
+          made.router?.open({ id: 'child', view: () => text({ body: 'Child' }) })
+        }
+        return 'send'
+      },
+    })
+    const { fake, router } = world({
+      home: () => ({ id: 'mail', view: () => boxes([{ id: 'go', x: 0, y: 0, w: 200, h: 40, text: 'Send' }], { on: { tap: send } }) }),
+    })
+    made.router = router
+    await settle()
+    armed = true
+    fake.tap()
+    await settle()
+    expect([sent, fake.lines()]).toEqual([[], ['Child']])
+  })
+
   it('E15: runs the gesture a screen of boxes gives through a getter, once the glasses show its frame whole', async () => {
     const paused: string[] = []
     const pause = action({ id: 'pause', say: 'Pause', run: () => void paused.push('pause') })
@@ -4305,6 +4403,26 @@ describe('a hold', () => {
     })
     await settle()
     expect(read).toBe(0)
+  })
+
+  it('says nothing of what an agent answered on another screen when reading what it says closed the router', async () => {
+    let answer: (verdict: { kind: 'handled'; say: string }) => void = () => {}
+    const { voice } = hearing('remember the milk')
+    voice.agents = [() => new Promise(done => (answer = done))]
+    const { fake, front, router } = world({ voice })
+    await settle()
+    await say(fake)
+    router.open({ id: 'other', view: () => text({ body: 'Other' }) })
+    await settle()
+    answer({
+      kind: 'handled',
+      get say() {
+        router.close()
+        return 'Saved'
+      },
+    })
+    await settle()
+    expect(front()).toBe('')
   })
 
   it('calls a turn off at a change of screen while only the model is at work on it', async () => {
