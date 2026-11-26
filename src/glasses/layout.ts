@@ -17,6 +17,7 @@ export const LIST_DIM: Brightness = 2
 const BYTES = new TextEncoder()
 const MARKER = '>'
 const GUTTER = 20
+export const LIST_ROW_WIDTH = SCREEN_WIDTH - GUTTER
 const NOTHING = 'Nothing here'
 const LINES = Math.floor(SCREEN_HEIGHT / LINE_HEIGHT)
 
@@ -41,7 +42,7 @@ export function layoutList(
   const { rows, y, h, titleBox } = areas(view.title)
   const cursor = clamp(state.cursor, 0, Math.max(0, targets.length - 1))
   const top = clamp(clamp(state.top, cursor - rows + 1, cursor), 0, Math.max(0, targets.length - rows))
-  const width = SCREEN_WIDTH - GUTTER
+  const width = LIST_ROW_WIDTH
   const shown = targets.slice(top, top + rows).map(target => fitText(oneLine(target.say), width))
   const others = shown.map((row, index) => (index === cursor - top ? '' : row))
   const before = '\n'.repeat(cursor - top)
