@@ -124,42 +124,42 @@ const tied = (bound: Bound): { action: Action; target?: string } => {
   return target === undefined ? { action } : { action, target }
 }
 
-const aimOf = (action: string, target?: string): string => JSON.stringify([action, target ?? null])
+const aimOf = (kind: View['kind'], action: string, target?: string): string => JSON.stringify([kind, action, target ?? null])
 
 interface Answer {
   kind: Verdict['kind']
   say?: string
-  stands: () => Verdict
+  stands: (still: () => boolean) => Verdict | undefined
 }
 
 const NONE: Answer = { kind: 'none', stands: () => ({ kind: 'none' }) }
 
+const replyOf = (given: Verdict): { kind: 'handled'; say?: string } => {
+  const { say } = given as { say?: string }
+  return say === undefined ? { kind: 'handled' } : { kind: 'handled', say }
+}
+
 function once(given: Verdict, mine: () => boolean): Answer {
   const { kind } = given
   if (!mine()) throw new LifetimeEnded()
-  if (kind === 'handled') {
-    const said = asItStands(given, kind)
-    return { ...said, stands: () => said }
+  const said = kind === 'handled' ? replyOf(given) : undefined
+  return {
+    kind,
+    ...said,
+    stands: still => {
+      const now = given.kind
+      if (!still()) return undefined
+      const verdict = said && now === 'handled' ? said : asItStands(given, now)
+      return still() ? verdict : undefined
+    },
   }
-  return { kind, stands: () => asItStands(given, given.kind) }
 }
 
 function asItStands(given: Verdict, kind: Verdict['kind']): Verdict {
-  if (kind === 'handled') {
-    const { say } = given as { say?: string }
-    return say === undefined ? { kind } : { kind, say }
-  }
+  if (kind === 'handled') return replyOf(given)
   if (kind === 'sure') {
-    const named = given as { action: string; target?: string }
-    return {
-      kind,
-      get action() {
-        return named.action
-      },
-      get target() {
-        return named.target
-      },
-    }
+    const { action, target } = given as { action: string; target?: string }
+    return target === undefined ? { kind, action } : { kind, action, target }
   }
   if (kind === 'unsure') {
     const unsure = given as { candidates: Pick[] }
@@ -334,12 +334,12 @@ export class Shell {
     const shown = fold ? offered.slice(0, MAX_MENU_ITEMS - 1) : offered
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
-    const under = targets[reached.cursor ?? place.cursor]
+    const row = targets[reached.cursor ?? place.cursor]?.id
     const aims: Aims = listed
-      ? under
-        ? { tap: aimOf(listed.id, under.id) }
-        : {}
-      : Object.fromEntries(ties.map(({ gesture, action, target }) => [gesture, aimOf(action.id, target)]))
+      ? row === undefined
+        ? {}
+        : { tap: aimOf(view.kind, listed.id, row) }
+      : Object.fromEntries(ties.map(({ gesture, action, target }) => [gesture, aimOf(view.kind, action.id, target)]))
     if (stale()) return
     this.#places.set(showing, Object.assign(place, reached))
     if (drew) this.#frames.drawing(showing, drew.view, last)
@@ -355,7 +355,7 @@ export class Shell {
         targets,
         folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [],
         scrolls,
-        ...(under ? { row: under.id } : {}),
+        ...(row === undefined ? {} : { row }),
       }
     this.#frames.asked(frame, showing, drew, view.kind, aims)
   }
@@ -429,8 +429,8 @@ export class Shell {
                   }),
                   {
                     [SAME]: () => {
-                      const row = this.#own.has(drawn.screen) ? undefined : this.#row(drawn, place)
-                      return row && { action: row.action.id, target: row.target }
+                      const under = drawn.targets[place.cursor]
+                      return under && !this.#own.has(drawn.screen) ? { action: view.action.id, target: under.id } : undefined
                     },
                   },
                 ),
@@ -729,20 +729,19 @@ export class Shell {
       if (!moved()) this.#show(heard)
       const { answer, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, moved, mine)
       const done = answer.say
-      finish(
-        () => {
-          const verdict = answer.stands()
-          if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
-          if (words) this.#show(heard, HEARD_MS)
-          else this.#clear()
-          this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
-        },
-        () => {
-          if (done === undefined) spare()
-          else this.notice(done)
-          if (answer.kind === 'handled' && showingsOf(this.#router).current === showing) this.redraw()
-        },
-      )
+      const elsewhere = () => {
+        if (done === undefined) spare()
+        else this.notice(done)
+        if (answer.kind === 'handled' && showingsOf(this.#router).current === showing) this.redraw()
+      }
+      finish(() => {
+        const verdict = answer.stands(() => !moved())
+        if (!verdict) return elsewhere()
+        if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
+        if (words) this.#show(heard, HEARD_MS)
+        else this.#clear()
+        this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
+      }, elsewhere)
     } catch (error) {
       finish(() => {
         if (error instanceof LifetimeEnded) return this.#clear()

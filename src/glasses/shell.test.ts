@@ -2591,6 +2591,72 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect([unseen, went]).toEqual([[], ['remove north']])
   })
 
+  it('E15: runs nothing on a tap while the glasses still show a list, though the screen now ties a tap of its boxes to an action and a target of the same names', async () => {
+    const went: string[] = []
+    const rows = () => [{ id: 'bin-a', say: 'Bin A', value: 'bin-a' }]
+    const open = action({ id: 'open', say: 'Open', targets: rows, run: to => void went.push(`row ${to}`) })
+    const focus = action({ id: 'open', say: 'Open', targets: rows, run: to => void went.push(`box ${to}`) })
+    let focused = false
+    const { fake, shell } = world({
+      home: () => ({
+        id: 'bins',
+        view: () =>
+          focused
+            ? boxes([{ id: 'bin', x: 0, y: 0, w: 576, h: 27, text: 'Bin A, focused' }], { on: { tap: { action: focus, target: 'bin-a' } } })
+            : list({ title: 'Bins', action: open }),
+      }),
+    })
+    await settle()
+    focused = true
+    shell.redraw()
+    fake.tap()
+    await settle(100)
+    const unseen = [...went]
+    fake.tap()
+    await settle(100)
+    expect([unseen, went]).toEqual([[], ['box bin-a']])
+  })
+
+  it('E15: reads the id of the row under the cursor once at a draw, so what an app does at a second read cannot leave a tap with a row the glasses do not show', async () => {
+    const made: { shell?: Shell } = {}
+    const went: string[] = []
+    let later = false
+    let armed = false
+    let reads = 0
+    const first = {
+      get id() {
+        if (armed && ++reads === 2) {
+          armed = false
+          later = true
+          made.shell?.redraw()
+        }
+        return 'a'
+      },
+      say: 'Row A',
+      value: 'a',
+    }
+    const open = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [
+        { id: 'a', say: 'Row A', value: 'a' },
+        { id: 'b', say: 'Row B', value: 'b' },
+      ],
+      run: to => void went.push(`Row ${to.toUpperCase()}`),
+    })
+    Object.defineProperty(open, 'targets', { value: () => ((reads = 0), later ? [{ id: 'b', say: 'Row B' }] : [first]) })
+    const { fake, cursor, shell } = world({ home: () => ({ id: 'rows', view: () => list({ title: 'Rows', action: open }) }) })
+    made.shell = shell
+    await settle()
+    armed = true
+    shell.redraw()
+    await settle(100)
+    armed = false
+    fake.tap()
+    await settle(100)
+    expect(went).toEqual([cursor()])
+  })
+
   it('E15: runs no row on a tap that comes right after the swipe that moved the cursor, before the glasses were sent the move', async () => {
     const { fake, ran } = world()
     await settle()
@@ -4917,6 +4983,186 @@ describe('a hold', () => {
     await say(fake)
     await settle(100)
     expect([did, front()]).toEqual([[], 'No match'])
+  })
+
+  it('says "No match" for an agent that handled the words and said so, when what it left behind makes its answer one of none as the turn ends', async () => {
+    const { voice } = hearing('do it', 'do it')
+    voice.agents = [
+      ({ life }) => {
+        const verdict = { kind: 'handled' as const, say: 'Saved' }
+        life?.own(() => void Object.assign(verdict, { kind: 'none' }))
+        return verdict
+      },
+    ]
+    const { fake, front } = world({ voice, home: () => ({ id: 'home', view: () => text({ body: 'Home' }) }) })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect(front()).toBe('No match')
+  })
+
+  it.each([
+    [
+      'what kind it is',
+      (opens: () => void) => {
+        let reads = 0
+        return {
+          get kind() {
+            if (++reads === 2) opens()
+            return 'sure' as const
+          },
+          action: 'commit',
+        }
+      },
+    ],
+    [
+      'the action it names',
+      (opens: () => void) => ({
+        kind: 'sure' as const,
+        get action() {
+          opens()
+          return 'commit'
+        },
+      }),
+    ],
+    [
+      'the target it names',
+      (opens: () => void) => ({
+        kind: 'sure' as const,
+        action: 'commit',
+        get target() {
+          opens()
+          return undefined
+        },
+      }),
+    ],
+  ])(
+    'runs nothing an agent named when reading %s, once what the agent left behind has run, opened another screen: the action of that name there is not the one that was meant',
+    async (_what, answer) => {
+      const made: { router?: Router } = {}
+      const did: string[] = []
+      const commit = action({ id: 'commit', say: 'Commit', run: () => void did.push('commit here') })
+      const other = action({ id: 'commit', say: 'Commit', run: () => void did.push('commit there') })
+      const { voice } = hearing('do it', 'do it')
+      voice.agents = [() => answer(() => made.router?.open({ id: 'there', actions: () => [other], view: () => text({ body: 'There' }) }))]
+      const { fake, front, router } = world({
+        voice,
+        home: () => ({ id: 'home', actions: () => [commit], view: () => text({ body: 'Home' }) }),
+      })
+      made.router = router
+      await settle()
+      await say(fake)
+      await settle(100)
+      expect([did, fake.lines(), front()]).toEqual([[], ['There'], ''])
+    },
+  )
+
+  it('reads the action an answer names before its target, once each, after what the agent left behind has run', async () => {
+    const read: string[] = []
+    const did: string[] = []
+    const { voice } = hearing('do it', 'do it')
+    voice.agents = [
+      ({ life }) => {
+        life?.own(() => void read.push('left behind'))
+        return {
+          kind: 'sure' as const,
+          get action() {
+            read.push('action')
+            return 'open'
+          },
+          get target() {
+            read.push('target')
+            return 'ana'
+          },
+        }
+      },
+    ]
+    const { fake, ran } = world({ voice })
+    await settle()
+    await say(fake)
+    await settle(100)
+    did.push(...ran)
+    expect([read, did]).toEqual([['left behind', 'action', 'target'], ['open Ana']])
+  })
+
+  it('reads no more of an answer once reading what kind it is, after what the agent left behind has run, opened another screen', async () => {
+    const made: { router?: Router } = {}
+    let kinds = 0
+    let named = 0
+    const commit = action({ id: 'commit', say: 'Commit', run: () => {} })
+    const { voice } = hearing('do it', 'do it')
+    voice.agents = [
+      () => ({
+        get kind() {
+          if (++kinds === 2) made.router?.open({ id: 'there', view: () => text({ body: 'There' }) })
+          return 'sure' as const
+        },
+        get action() {
+          named++
+          return 'commit'
+        },
+      }),
+    ]
+    const { fake, router } = world({ voice, home: () => ({ id: 'home', actions: () => [commit], view: () => text({ body: 'Home' }) }) })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([kinds, named]).toEqual([2, 0])
+  })
+
+  it('runs nothing an agent named when reading what kind it is, once what the agent left behind has run, ended the app', async () => {
+    const made: { life?: Lifetime } = {}
+    const did: string[] = []
+    let kinds = 0
+    const commit = action({ id: 'commit', say: 'Commit', run: () => void did.push('commit') })
+    const { voice } = hearing('do it', 'do it')
+    voice.agents = [
+      () => ({
+        get kind() {
+          if (++kinds === 2) made.life?.end()
+          return 'sure' as const
+        },
+        action: 'commit',
+      }),
+    ]
+    const { fake, life } = world({ voice, home: () => ({ id: 'home', actions: () => [commit], view: () => text({ body: 'Home' }) }) })
+    made.life = life
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([kinds, did]).toEqual([2, []])
+  })
+
+  it('tells the navigator what "choose this one" stands for by reading the action the list has, then its name, then the row under the cursor, as `main` reads them', async () => {
+    const read: string[] = []
+    let asked: string[] = []
+    const open = action({ id: 'open', say: 'Open', targets: () => [{ id: 'north', say: 'North', value: 'north' }], run: () => {} })
+    Object.defineProperty(open, 'id', { get: () => (read.push('name'), 'open') })
+    Object.defineProperty(open, 'targets', {
+      value: () => [
+        {
+          get id() {
+            read.push('row')
+            return 'north'
+          },
+          say: 'North',
+        },
+      ],
+    })
+    const view = list({ title: 'Trail', action: open })
+    Object.defineProperty(view, 'action', { get: () => (read.push('action'), open) })
+    const { fake } = world({
+      voice: {
+        transcribe: async () => 'which one',
+        model: { choose: async () => ((asked = read.slice(-3)), {}) },
+      },
+      home: () => ({ id: 'trail', view: () => view }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect(asked).toEqual(['action', 'name', 'row'])
   })
 
   it('says what an agent answers once what it left behind has made its answer a handled one with words', async () => {
