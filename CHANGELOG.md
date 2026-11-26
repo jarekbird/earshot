@@ -12,7 +12,8 @@ each version's commits say: they name what a version added, and may miss a chang
   goes on from where that one reached, and text that came in the meantime is laid out after them.
 - What belongs to a screen ends with it: a hold and a question that waits for a tap are called off when the
   screen changes, and a menu pick from the screen before does not reach the next one. A voice turn that is being
-  decided goes on, as in 0.0.46, and runs nothing on a screen that came after, also one it came straight back to.
+  decided starts nothing more once the screen changed, also when it came straight back; an agent already at work
+  may finish and say what it did, as in 0.0.46.
   A screen opened again after it was left starts at its beginning.
 - One press of a touchpad records once, and a closed router sends the glasses nothing more.
 - Live speech from Flux numbers the turns it tells itself, one by one and on across lines, so one number gone wild

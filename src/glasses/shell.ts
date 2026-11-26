@@ -212,6 +212,7 @@ export class Shell {
           if (spoken !== undefined && spoken !== null && spoken !== showingsOf(router).current) this.#callOff(true)
         } finally {
           if (this.#asking) this.#clear()
+          else if (this.#deciding) this.#takeDown()
         }
       }),
     )
@@ -323,7 +324,7 @@ export class Shell {
   #aimed(drawn: Drawn, gesture: Gesture): boolean {
     const aim = drawn.aims[gesture]
     const seen = this.#seen()
-    if (aim === undefined || !seen || seen.frame > progressOf(this.#glasses).shown || !this.#glasses[WHOLE]) return false
+    if (aim === undefined || seen?.frame !== progressOf(this.#glasses).shown || !this.#glasses[WHOLE]) return false
     return seen.showing === drawn.showing && seen.aims[gesture] === aim
   }
 
@@ -471,6 +472,10 @@ export class Shell {
     this.redraw()
   }
 
+  #takeDown(): void {
+    if (this.#overlaid && !this.#noticed) this.#clear(progressOf(this.#glasses).card() === this.#over)
+  }
+
   #callOff(moved = false): void {
     this.#turn++
     this.#slow?.cancel()
@@ -597,7 +602,7 @@ export class Shell {
     life.own(this.#life.own(() => serve(() => life.end(), TURN_END)))
     const mine = () => turn === this.#turn && !this.#life.ended
     const moved = () => moves !== this.#moves
-    const spare = () => void (this.#noticed || this.#clear())
+    const spare = () => this.#takeDown()
     const finish = (then: () => void, elsewhere: () => void = spare) => {
       if (!mine()) return
       slow.cancel()
@@ -621,10 +626,10 @@ export class Shell {
     if (passed === undefined) this.#show(this.#words.thinking)
     try {
       const transcribe = passed === undefined ? voice.transcribe : undefined
-      if (!mine()) return
+      if (!mine() || moved()) return finish(() => {})
       const transcript = transcribe ? await Reflect.apply(transcribe, voice, [audio, life]) : (passed ?? null)
       const words = transcript?.trim() ?? ''
-      if (!mine()) return
+      if (!mine() || moved()) return finish(() => {})
       if (transcript !== null && !words) return finish(() => this.notice(this.#words.missed))
       const heard = words ? `"${words}"` : this.#words.thinking
       if (!moved()) this.#show(heard)
