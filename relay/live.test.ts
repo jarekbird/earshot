@@ -655,7 +655,15 @@ describe('the settings of live speech', () => {
   })
 
   it('a host with no live upstream asks for no live speech, whatever else is set', () => {
-    const settings = { ...calls, models: undefined, liveUpstream: undefined, liveKey: LIVE_KEY, liveModels: 'a/one', secret: PHRASE }
+    const settings = {
+      ...calls,
+      models: undefined,
+      liveUpstream: undefined,
+      liveKey: LIVE_KEY,
+      liveModels: 'a/one',
+      secret: PHRASE,
+      calls: undefined,
+    }
     expect(relayOptions(settings)).toEqual(calls)
   })
 
@@ -667,6 +675,7 @@ describe('the settings of live speech', () => {
       liveUpstream: live.upstream,
       liveKey: undefined,
       secret: undefined,
+      calls: undefined,
     }
     expect(relayOptions({ ...settings, liveModels: ' a/one ,b/two' })).toEqual({
       live: { upstream: live.upstream, key: '', secret: '', models: ['a/one', 'b/two'] },
@@ -686,6 +695,7 @@ describe('the settings of live speech', () => {
             liveKey: LIVE_KEY,
             liveModels: undefined,
             secret: secret as string,
+            calls: undefined,
           }),
         ),
       ).toThrow('needs a secret')

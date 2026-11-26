@@ -300,6 +300,9 @@ use it, compaction. Earshot ships all three for OpenRouter, paid by the develope
 - **An upstream's error comes back as its status alone.** An upstream may quote the request in the text of its
   error, and the request holds what the user said. So that text never passes the relay: it would land wherever an
   app shows or records an error. The app's transports read only the status.
+- **The developer can name the calls.** `calls` lists which of speech, decide and compact the relay forwards; the
+  others are refused as a path it does not know, before the request is read. Unset, it forwards all three. A name
+  it does not know makes no relay (E14), and the error does not repeat what was typed.
 - **Its two hosts are one server (E13).** The Node server and the example's Worker only hand requests to `relay`, and
   read their settings through `relayOptions`, whose type names every setting a host must pass. One table of calls
   runs against both and their answers must match. Only where a host listens (`PORT`, `HOST`) is its own, and for

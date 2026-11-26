@@ -128,6 +128,7 @@ export function settings(env: Record<string, string | undefined>): ServeOptions 
       liveKey: env.EARSHOT_RELAY_LIVE_KEY,
       liveModels: env.EARSHOT_RELAY_LIVE_MODELS,
       secret: env.EARSHOT_RELAY_SECRET,
+      calls: env.EARSHOT_RELAY_CALLS,
     }),
     port: Number(env.PORT) || PORT,
     ...(env.HOST ? { hostname: env.HOST } : {}),

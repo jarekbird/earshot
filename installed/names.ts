@@ -34,5 +34,5 @@ export const NAMES: Record<string, string> = {
   showTurn: `declare const showTurn: Parameters<${E}.LiveSpeech['start']>[1]`,
   showWhetherWordsCome: 'declare function showWhetherWordsCome(state: string): void',
   sockets: "declare const sockets: import('earshot/relay').Sockets",
-  Env: 'interface Env { OPENROUTER_KEY?: string; UPSTREAM?: string; MODELS?: string; LIVE_UPSTREAM?: string; LIVE_KEY?: string; LIVE_MODELS?: string; SECRET?: string }',
+  Env: 'interface Env { OPENROUTER_KEY?: string; UPSTREAM?: string; MODELS?: string; LIVE_UPSTREAM?: string; LIVE_KEY?: string; LIVE_MODELS?: string; SECRET?: string; CALLS?: string }',
 }
