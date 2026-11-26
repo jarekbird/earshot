@@ -18,10 +18,13 @@ export interface LiveOptions {
   models?: string[]
 }
 
+type Call = 'speech' | 'decide' | 'compact'
+
 export interface RelayOptions {
   key?: string
   upstream?: string
   models?: string[]
+  calls?: Call[]
   live?: LiveOptions
   maxBytes?: number
   fetch?: typeof fetch
@@ -35,6 +38,7 @@ export interface RelaySettings {
   liveKey: string | undefined
   liveModels: string | undefined
   secret: string | undefined
+  calls: string | undefined
 }
 
 export interface Line {
@@ -52,30 +56,43 @@ export interface Sockets {
   readonly closing?: AbortSignal
 }
 
-const listed = (models: string | undefined) => {
-  const names = models
+const names = (list: string | undefined) => {
+  const named = list
     ?.split(',')
-    .map(model => model.trim())
+    .map(name => name.trim())
     .filter(Boolean)
-  return names?.length ? { models: names } : {}
+  return named?.length ? named : undefined
+}
+const listed = (list: string | undefined) => {
+  const models = names(list)
+  return models ? { models } : {}
 }
 
-export function relayOptions({ key, upstream, models, liveUpstream, liveKey, liveModels, secret }: RelaySettings): RelayOptions {
+const SPEECH = '/api/v1/audio/transcriptions'
+const PATHS: Record<Call, string> = { speech: SPEECH, decide: '/api/alpha/decisions', compact: '/api/v1/chat/completions' }
+const FIELDS = new Map([
+  [PATHS.speech, ['model', 'input_audio', 'language']],
+  [PATHS.decide, ['model', 'state', 'questions']],
+  [PATHS.compact, ['model', 'messages', 'max_tokens']],
+])
+
+function known(calls: readonly string[]): Call[] {
+  if (!calls.every(call => Object.hasOwn(PATHS, call))) throw new Error("The relay's calls are named speech, decide and compact.")
+  return calls as Call[]
+}
+
+export function relayOptions({ key, upstream, models, liveUpstream, liveKey, liveModels, secret, calls }: RelaySettings): RelayOptions {
+  const named = names(calls)
   return {
     ...(key !== undefined || upstream !== undefined ? { key, upstream } : {}),
     ...listed(models),
+    ...(named ? { calls: known(named) } : {}),
     ...(liveUpstream ? { live: { upstream: liveUpstream, key: liveKey ?? '', secret: secret ?? '', ...listed(liveModels) } } : {}),
   }
 }
 
 export const DEFAULT_MODELS = ['openai/whisper-large-v3-turbo', 'typesafe/jev-1.14', 'mistralai/mistral-nemo']
 
-const SPEECH = '/api/v1/audio/transcriptions'
-const FIELDS = new Map([
-  [SPEECH, ['model', 'input_audio', 'language']],
-  ['/api/alpha/decisions', ['model', 'state', 'questions']],
-  ['/api/v1/chat/completions', ['model', 'messages', 'max_tokens']],
-])
 const LIVE_FIELDS = ['model', 'encoding', 'sample_rate', 'eot_threshold', 'eot_timeout_ms', 'eager_eot_threshold']
 const KEPT_OUT_OF_TRAINING = ['mip_opt_out', 'true']
 const BYTES = new TextEncoder()
@@ -91,6 +108,19 @@ const ANY_PAGE = { 'access-control-allow-origin': '*' }
 const answer = (status: number, body: string) =>
   new Response(body, { status, headers: { ...ANY_PAGE, 'content-type': 'application/json' } })
 const refuse = (status: number, error: string) => answer(status, JSON.stringify({ error }))
+const firstCheck = () =>
+  new Response(null, {
+    status: 204,
+    headers: {
+      ...ANY_PAGE,
+      'access-control-allow-methods': 'POST',
+      'access-control-allow-headers': 'content-type',
+      'access-control-max-age': '86400',
+    },
+  })
+
+export const notSetUp = (request: Request): Response =>
+  request.method === 'OPTIONS' ? firstCheck() : refuse(503, 'This relay is not set up.')
 
 async function read(request: Request, limit: number): Promise<string | null> {
   if (Number(request.headers.get('content-length')) > limit) return null
@@ -223,21 +253,12 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
   const upstream = forwards ? sealed(options.upstream, 'https', "The relay's calls") : ''
   const speech = options.live && checked(options.live)
   const models = new Set(options.models ?? DEFAULT_MODELS)
+  const forwarded = new Set(options.calls ? known(options.calls).map(call => PATHS[call]) : Object.values(PATHS))
   const limit = options.maxBytes ?? MAX_BYTES
 
   return async request => {
     const { pathname } = new URL(request.url)
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          ...ANY_PAGE,
-          'access-control-allow-methods': 'POST',
-          'access-control-allow-headers': 'content-type',
-          'access-control-max-age': '86400',
-        },
-      })
-    }
+    if (request.method === 'OPTIONS') return firstCheck()
     if (pathname === LIVE_PATH && speech) {
       const asksForOne = request.method === 'GET' && request.headers.get('upgrade')?.toLowerCase() === 'websocket'
       if (!asksForOne || !sockets) return refuse(426, 'Only a WebSocket.')
@@ -245,7 +266,7 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
       live(line, sockets, speech)
       return response
     }
-    const fields = forwards ? FIELDS.get(pathname) : undefined
+    const fields = forwards && forwarded.has(pathname) ? FIELDS.get(pathname) : undefined
     if (!fields) return refuse(404, 'Not a call this relay forwards.')
     if (request.method !== 'POST') return refuse(405, 'Only POST.')
     const text = await read(request, limit)
@@ -266,9 +287,11 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
         signal: control.signal,
       })
       const moved = response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)
-      if (!moved) return answer(response.status, await response.text())
+      if (response.ok && !moved) return answer(response.status, await response.text())
       await response.body?.cancel().catch(() => {})
-      return refuse(502, 'The upstream could not be reached.')
+      return moved
+        ? refuse(502, 'The upstream could not be reached.')
+        : refuse(response.status, `The upstream answered ${response.status}.`)
     } catch {
       return refuse(502, 'The upstream could not be reached.')
     } finally {

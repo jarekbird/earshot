@@ -1,4 +1,4 @@
-import { relay, relayOptions, type Line, type Sockets } from 'earshot/relay'
+import { notSetUp, relay, relayOptions, type Line, type Sockets } from 'earshot/relay'
 
 interface Env {
   OPENROUTER_KEY?: string
@@ -8,6 +8,7 @@ interface Env {
   LIVE_KEY?: string
   LIVE_MODELS?: string
   SECRET?: string
+  CALLS?: string
 }
 
 type Accepted = Line & { accept(): void }
@@ -33,17 +34,24 @@ const sockets: Sockets = {
 }
 
 export default {
-  fetch: (request: Request, env: Env) =>
-    relay(
-      relayOptions({
-        key: env.OPENROUTER_KEY,
-        upstream: env.UPSTREAM,
-        models: env.MODELS,
-        liveUpstream: env.LIVE_UPSTREAM,
-        liveKey: env.LIVE_KEY,
-        liveModels: env.LIVE_MODELS,
-        secret: env.SECRET,
-      }),
-      sockets,
-    )(request),
+  fetch(request: Request, env: Env): Response | Promise<Response> {
+    try {
+      return relay(
+        relayOptions({
+          key: env.OPENROUTER_KEY,
+          upstream: env.UPSTREAM,
+          models: env.MODELS,
+          liveUpstream: env.LIVE_UPSTREAM,
+          liveKey: env.LIVE_KEY,
+          liveModels: env.LIVE_MODELS,
+          secret: env.SECRET,
+          calls: env.CALLS,
+        }),
+        sockets,
+      )(request)
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : 'The settings make no relay.')
+      return notSetUp(request)
+    }
+  },
 }
