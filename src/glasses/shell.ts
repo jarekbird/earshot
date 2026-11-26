@@ -129,10 +129,11 @@ const aimOf = (kind: View['kind'], action: string, target?: string): string => J
 interface Answer {
   kind: Verdict['kind']
   say?: string
-  stands: (still: () => boolean) => Verdict | undefined
+  now: () => Verdict['kind']
+  holds: (kind: Verdict['kind']) => Verdict
 }
 
-const NONE: Answer = { kind: 'none', stands: () => ({ kind: 'none' }) }
+const NONE: Answer = { kind: 'none', now: () => 'none', holds: () => ({ kind: 'none' }) }
 
 const replyOf = (given: Verdict): { kind: 'handled'; say?: string } => {
   const { say } = given as { say?: string }
@@ -146,12 +147,8 @@ function once(given: Verdict, mine: () => boolean): Answer {
   return {
     kind,
     ...said,
-    stands: still => {
-      const now = given.kind
-      if (!still()) return undefined
-      const verdict = said && now === 'handled' ? said : asItStands(given, now)
-      return still() ? verdict : undefined
-    },
+    now: () => given.kind,
+    holds: now => (said?.say !== undefined && now === 'handled' ? said : asItStands(given, now)),
   }
 }
 
@@ -548,7 +545,7 @@ export class Shell {
     } else if (input.kind !== 'tap') place.cursor += step
     else {
       const shown = this.#onShow(drawn)?.tap
-      if (this.#frames.newest?.aims.tap !== shown) return
+      if (shown === undefined || this.#frames.newest?.aims.tap !== shown) return
       const row = this.#row(drawn, place)
       return row && moves === this.#moves && row.target === drawn.row ? this.#choose(drawn, row) : undefined
     }
@@ -735,11 +732,15 @@ export class Shell {
         if (answer.kind === 'handled' && showingsOf(this.#router).current === showing) this.redraw()
       }
       finish(() => {
-        const verdict = answer.stands(() => !moved())
-        if (!verdict) return elsewhere()
-        if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
+        const now = answer.now()
+        if (!mine()) return
+        if (moved()) return elsewhere()
+        if (transcript === null && (now === 'none' || now === 'notMine')) return this.notice(this.#words.missed)
         if (words) this.#show(heard, HEARD_MS)
         else this.#clear()
+        const verdict = answer.holds(now)
+        if (!mine()) return
+        if (moved()) return elsewhere()
         this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
       }, elsewhere)
     } catch (error) {

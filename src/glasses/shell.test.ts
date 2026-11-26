@@ -2693,6 +2693,30 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect([went, fake.lines()]).toEqual([[], ['Details']])
   })
 
+  it('E15: reads nothing of a list on a tap while the glasses show it with no row, though the app has put a row into the very rows it gave, without a redraw', async () => {
+    const made: { router?: Router } = {}
+    let armed = false
+    const rows: Array<{ id: string; say: string; private: boolean }> = []
+    const open = action({ id: 'open', say: 'Open', targets: () => [], run: () => {} })
+    Object.defineProperty(open, 'targets', { value: () => rows })
+    const view = list({ title: 'Stock', action: open, empty: 'Nothing here' })
+    Object.defineProperty(view, 'action', {
+      get: () => {
+        if (armed) made.router?.open({ id: 'details', view: () => text({ body: 'Details' }) })
+        return open
+      },
+    })
+    const { fake, router } = world({ home: () => ({ id: 'stock', view: () => view }) })
+    made.router = router
+    await settle()
+    rows.push({ id: 'rope', say: 'Rope', private: false })
+    armed = true
+    fake.tap()
+    armed = false
+    await settle()
+    expect(fake.lines().join(' ')).not.toContain('Details')
+  })
+
   it('E15: reads nothing of a list on a tap while the glasses show it with no row, though its first row is on its way to them', async () => {
     let reads = 0
     const stock: string[] = []
@@ -5164,6 +5188,82 @@ describe('a hold', () => {
     await settle(100)
     expect(asked).toEqual(['action', 'name', 'row'])
   })
+
+  it('says what an agent that handled the words has to say when it only says so as the turn ends, in what it left behind', async () => {
+    const { voice } = hearing('do it', 'do it')
+    voice.agents = [
+      ({ life }) => {
+        const verdict: { kind: 'handled'; say?: string } = { kind: 'handled' }
+        life?.own(() => void (verdict.say = 'Saved'))
+        return verdict
+      },
+    ]
+    const { fake, front } = world({ voice, home: () => ({ id: 'home', view: () => text({ body: 'Home' }) }) })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect(front()).toBe('Saved')
+  })
+
+  it('shows what was said before it reads the action an answer names, so a notice the app shows at that read is not written over', async () => {
+    const made: { shell?: Shell } = {}
+    const { voice } = hearing('do it', 'do it')
+    voice.agents = [
+      () => ({
+        kind: 'sure' as const,
+        get action() {
+          made.shell?.notice('Saved')
+          return 'refresh'
+        },
+      }),
+    ]
+    const { fake, front, ran, shell } = world({ voice })
+    made.shell = shell
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([ran, front()]).toEqual([['refresh'], 'Saved'])
+  })
+
+  it.each([
+    [
+      'what kind it is',
+      (holds: () => void) => {
+        let reads = 0
+        return {
+          get kind() {
+            if (++reads === 2) holds()
+            return 'sure' as const
+          },
+          action: 'refresh',
+        }
+      },
+    ],
+    [
+      'the action it names',
+      (holds: () => void) => ({
+        kind: 'sure' as const,
+        get action() {
+          holds()
+          return 'refresh'
+        },
+      }),
+    ],
+  ])(
+    'shows and runs nothing more of a turn when a new hold began as %s was read, once what the agent left behind had run: the glasses say that they listen',
+    async (_what, answer) => {
+      const made: { fake?: ReturnType<typeof fakeBridge> } = {}
+      let held = false
+      const { voice } = hearing('do it', 'do it')
+      voice.agents = [() => answer(() => void (held || ((held = true), made.fake?.hold())))]
+      const { fake, front, ran, shell } = world({ voice })
+      made.fake = fake
+      await settle()
+      await say(fake)
+      await settle(100)
+      expect([held, shell.busy, ran, front().split(' ')[0]]).toEqual([true, true, [], 'Listening'])
+    },
+  )
 
   it('says what an agent answers once what it left behind has made its answer a handled one with words', async () => {
     const did: string[] = []
