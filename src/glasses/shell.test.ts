@@ -2433,6 +2433,80 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect(fake.lines().join(' ')).not.toContain('Details')
   })
 
+  it('E15: reads nothing of a binding for a touch it drops because the glasses show no whole frame', async () => {
+    let reads = 0
+    let label = 'Pause'
+    const pause = action({ id: 'pause', say: 'Pause', targets: () => [{ id: 'now', say: 'Now', value: 'now' }], run: () => {} })
+    const tap = {
+      action: pause,
+      get target() {
+        reads++
+        return 'now'
+      },
+    }
+    const { fake, shell } = world({
+      home: () => ({ id: 'timer', view: () => boxes([{ id: 'time', x: 0, y: 0, w: 200, h: 40, text: label }], { on: { tap } }) }),
+    })
+    await settle()
+    const answer = held(fake)
+    label = 'Paused'
+    shell.redraw()
+    await settle(0)
+    const before = reads
+    fake.tap()
+    await settle(0)
+    const during = reads
+    answer()
+    await settle()
+    expect(during - before).toBe(0)
+  })
+
+  it('E15: reads nothing of a row for a tap it drops because the glasses show no whole frame', async () => {
+    let reads = 0
+    let title = 'Trail'
+    const go = action({ id: 'go', say: 'Go', targets: () => [{ id: 'north', say: 'North', value: 'north' }], run: () => {} })
+    Object.defineProperty(go, 'targets', {
+      value: () => [
+        {
+          get id() {
+            reads++
+            return 'north'
+          },
+          say: 'North',
+        },
+      ],
+    })
+    const { fake, shell } = world({ home: () => ({ id: 'trail', view: () => list({ title, action: go }) }) })
+    await settle()
+    const answer = held(fake)
+    title = 'Trail north'
+    shell.redraw()
+    await settle(0)
+    const before = reads
+    fake.tap()
+    await settle(0)
+    const during = reads
+    answer()
+    await settle()
+    expect(during - before).toBe(0)
+  })
+
+  it('E15: reads the action of a list once at a draw, for its rows, its menu and what a tap runs, so a tap runs the action whose rows are shown', async () => {
+    const did: string[] = []
+    const targets = () => [{ id: 'note', say: 'Note', value: 'note' }]
+    const open = action({ id: 'open', say: 'Open', targets, run: () => void did.push('open') })
+    const remove = action({ id: 'remove', say: 'Remove', targets, run: () => void did.push('remove') })
+    let reads = 0
+    const view = list({ title: 'Notes', action: open })
+    Object.defineProperty(view, 'action', { get: () => (++reads === 3 ? remove : open) })
+    const { fake } = world({ home: () => ({ id: 'notes', view: () => view }) })
+    await settle()
+    const atDraw = reads
+    fake.tap()
+    await settle()
+    expect([atDraw, did]).toEqual([1, ['open']])
+  })
+
   it('E15: runs no row of a list when reading what its tap is tied to moved the screen on', async () => {
     const sent: string[] = []
     const made: { router?: Router } = {}
@@ -4494,6 +4568,27 @@ describe('a hold', () => {
     expect(read).toBe(0)
   })
 
+  it.each([false, true])(
+    'says what an agent did though the agent itself ended the lifetime it was given, done with it (having opened another screen: %s)',
+    async elsewhere => {
+      const { voice } = hearing('remember the milk')
+      const made: { router?: Router } = {}
+      voice.agents = [
+        ({ life }) => {
+          if (elsewhere) made.router?.open({ id: 'saved', view: () => text({ body: 'The milk' }) })
+          life?.end()
+          return { kind: 'handled', say: 'Saved' }
+        },
+      ]
+      const { fake, front, router } = world({ voice })
+      made.router = router
+      await settle()
+      await say(fake)
+      await settle(100)
+      expect(front()).toBe('Saved')
+    },
+  )
+
   it('calls a turn off at a change of screen while only the model is at work on it', async () => {
     const { voice } = hearing('something else entirely')
     voice.model = { choose: () => new Promise(() => {}) }
@@ -4839,26 +4934,60 @@ describe('a hold', () => {
       targets: () => [{ id: 'r1', say: 'Run the migration', value: 'r1' }],
       run: id => void did.push(`allow ${id}`),
     })
-    const refresh = action({ id: 'refresh', say: 'Refresh', run: () => void did.push('refresh') })
-    const view = list({ title: 'Allow', action: allow })
-    Object.defineProperty(view, 'action', {
-      get: () => {
-        if (armed) {
-          armed = false
-          made.fake?.pick('Refresh')
-        }
-        return allow
-      },
+    Object.defineProperty(allow, 'targets', {
+      value: () => [
+        {
+          get id() {
+            if (armed) {
+              armed = false
+              made.fake?.pick('Refresh')
+            }
+            return 'r1'
+          },
+          say: 'Run the migration',
+        },
+      ],
     })
+    const refresh = action({ id: 'refresh', say: 'Refresh', run: () => void did.push('refresh') })
     const { fake, front } = world({
       voice: { transcribe: async () => ((armed = true), 'choose this one') },
-      home: () => ({ id: 'home', actions: () => [refresh], view: () => view }),
+      home: () => ({ id: 'home', actions: () => [refresh], view: () => list({ title: 'Allow', action: allow }) }),
     })
     made.fake = fake
     await settle()
     await say(fake)
     await settle(100)
     expect([armed, did, front()]).toEqual([false, ['refresh'], 'Allow: Run the migration?\nTap to confirm'])
+  })
+
+  it('still asks before a spoken choice runs the action the list was drawn with, though reading the row put another action in its place', async () => {
+    const did: string[] = []
+    let armed = false
+    const rows = () => [{ id: 'note', say: 'Note', value: 'note' }]
+    const archive = action({ id: 'archive', say: 'Archive', risk: 'voice', targets: rows, run: () => void did.push('archive') })
+    const remove = action({ id: 'remove', say: 'Remove', targets: rows, run: () => void did.push('remove') })
+    let current = archive
+    Object.defineProperty(archive, 'targets', {
+      value: () => [
+        {
+          get id() {
+            if (armed) current = remove
+            return 'note'
+          },
+          say: 'Note',
+        },
+      ],
+    })
+    const view = list({ title: 'Archive', action: archive })
+    Object.defineProperty(view, 'action', { get: () => current })
+    const { fake, front } = world({
+      voice: { transcribe: async () => ((armed = true), 'choose this one') },
+      home: () => ({ id: 'home', view: () => view }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([did, front()]).toEqual([[], 'Archive: Note?\nTap to confirm'])
   })
 
   it('still asks when the words pick the action and then its target from the list: no write without a tap', async () => {

@@ -111,6 +111,7 @@ interface Drawn {
   screen: Screen
   showing: object
   view: View
+  listed?: Action
   targets: readonly TargetInfo[]
   folded: readonly Action[]
   scrolls: boolean
@@ -255,8 +256,9 @@ export class Shell {
     let kept: View = view
     let drew: Read | null = null
     let targets: readonly TargetInfo[] = []
+    const listed = view.kind === 'list' ? view.action : undefined
     if (view.kind === 'list') {
-      targets = view.action.targets() ?? []
+      targets = listed?.targets() ?? []
       const laid = layoutList(view, targets, place)
       reached = laid.state
       boxes = laid.boxes
@@ -279,19 +281,18 @@ export class Shell {
       const bound = on?.[gesture]
       return bound ? [{ gesture, ...tied(bound) }] : []
     })
-    const byGesture = new Set(view.kind === 'list' ? [view.action.id] : ties.map(tie => tie.action.id))
+    const byGesture = new Set(listed ? [listed.id] : ties.map(tie => tie.action.id))
     const offered = !screen.view || this.#own.has(screen) ? [] : actions.filter(a => !byGesture.has(a.id))
     const fold = offered.length > MAX_MENU_ITEMS
     const shown = fold ? offered.slice(0, MAX_MENU_ITEMS - 1) : offered
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
     const under = targets[reached.cursor ?? place.cursor]
-    const aims: Aims =
-      view.kind === 'list'
-        ? under
-          ? { tap: aimOf('list', view.action, under.id) }
-          : {}
-        : Object.fromEntries(ties.map(({ gesture, action, target }) => [gesture, aimOf('boxes', action, target)]))
+    const aims: Aims = listed
+      ? under
+        ? { tap: aimOf('list', listed, under.id) }
+        : {}
+      : Object.fromEntries(ties.map(({ gesture, action, target }) => [gesture, aimOf('boxes', action, target)]))
     if (stale()) return
     this.#places.set(showing, Object.assign(place, reached))
     if (drew) this.#frames.drawing(showing, drew.view, last)
@@ -299,7 +300,16 @@ export class Shell {
     this.#pending = [...this.#pending.filter(asked => asked === progressOf(this.#glasses).sending || asked > frame), frame]
     if (this.#life.ended || !showings.onPath(showing)) return progressOf(this.#glasses).drop([frame])
     if (!this.#drawn || frame > this.#drawn.frame)
-      this.#drawn = { frame, screen, showing, view: kept, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
+      this.#drawn = {
+        frame,
+        screen,
+        showing,
+        view: kept,
+        ...(listed ? { listed } : {}),
+        targets,
+        folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [],
+        scrolls,
+      }
     this.#frames.asked(frame, showing, drew, view.kind, aims)
   }
 
@@ -320,9 +330,13 @@ export class Shell {
     this.#draw({ view, laid: text })
   }
 
-  #aimed(drawn: Drawn, gesture: Gesture, aim: string): boolean {
+  #onShow(drawn: Drawn): Aims | undefined {
     const seen = this.#frames.whole
-    return seen !== undefined && this.#glasses[WHOLE] && seen.showing === drawn.showing && seen.aims[gesture] === aim
+    return seen !== undefined && this.#glasses[WHOLE] && seen.showing === drawn.showing ? seen.aims : undefined
+  }
+
+  #aimed(drawn: Drawn, gesture: Gesture, aim: string): boolean {
+    return this.#onShow(drawn)?.[gesture] === aim
   }
 
   #bound(view: View): Action[] {
@@ -376,7 +390,7 @@ export class Shell {
 
   #row(drawn: Drawn, place: Place): { action: Action; target: string } | undefined {
     const target = drawn.targets[place.cursor]?.id
-    return drawn.view.kind !== 'list' || target === undefined ? undefined : { action: drawn.view.action, target }
+    return drawn.listed === undefined || target === undefined ? undefined : { action: drawn.listed, target }
   }
 
   #choose(drawn: Drawn, row: { action: Action; target: string } | undefined, said = false): void {
@@ -465,6 +479,7 @@ export class Shell {
     const { view } = drawn
     const moves = this.#moves
     if (view.kind === 'boxes') {
+      if (!this.#onShow(drawn)) return
       const bound = view.on?.[input.kind]
       if (!bound || moves !== this.#moves) return
       const { action: chosen, target } = tied(bound)
@@ -479,7 +494,7 @@ export class Shell {
       if (input.kind !== 'tap') return this.#scroll(drawn, place, 'swipe', step < 0)
     } else if (input.kind !== 'tap') place.cursor += step
     else {
-      const row = this.#row(drawn, place)
+      const row = this.#onShow(drawn) && this.#row(drawn, place)
       const aim = row && aimOf('list', row.action, row.target)
       return aim !== undefined && moves === this.#moves && this.#aimed(drawn, 'tap', aim) ? this.#choose(drawn, row) : undefined
     }
@@ -658,7 +673,7 @@ export class Shell {
       if (transcript !== null && !words) return finish(() => this.notice(this.#words.missed))
       const heard = words ? `"${words}"` : this.#words.thinking
       if (!moved()) this.#show(heard)
-      const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, moved)
+      const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, moved, mine)
       const done = () => (verdict.kind === 'handled' ? verdict.say : undefined)
       finish(
         () => {
@@ -697,6 +712,7 @@ export class Shell {
     said: { words: string; audio: Audio; life: Lifetime },
     navigate: boolean,
     moved: () => boolean,
+    mine: () => boolean,
   ): Promise<{ verdict: Verdict; more: boolean }> {
     const gone = () => said.life.ended || moved()
     const asking = (model: NavigatorModel): NavigatorModel => ({
@@ -721,7 +737,7 @@ export class Shell {
       if (gone()) throw new LifetimeEnded()
       if (!(navigate && index === 0)) this.#handed = true
       const verdict = await agent(heard)
-      if (said.life.ended) throw new LifetimeEnded()
+      if (!mine()) throw new LifetimeEnded()
       if (verdict.kind !== 'notMine') return { verdict, more: navigate && index === 0 && agents.length > 1 }
     }
     return { verdict: { kind: 'none' }, more: false }
