@@ -4,6 +4,14 @@ A voice-first app framework for [Even Realities G2](https://www.evenrealities.co
 
 An Earshot app declares what it can do as **actions**. The menu, the touchpad and your voice all run those same actions. Hold the touchpad, say what you want, and a navigator picks the action and its target. Because the app's abilities are data, an agent can pilot it.
 
+The example app in Even's simulator: its list of notes, a hold while Earshot listens, the question before an action that is marked as a risk, and the list after the tap.
+
+| The app's list                                                                                        | Hold, and say "delete welcome"                                                                               |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| ![The glasses show a list of three notes, with the cursor on Welcome](docs/pictures/list.png)         | ![A card along the bottom says Listening, beside bars that rise with the voice](docs/pictures/listening.png) |
+| **Earshot asks first**                                                                                | **Tap, and the note is gone**                                                                                |
+| ![The card asks: Delete note: Welcome? Tap to confirm. Swipe: Keep as a note](docs/pictures/asks.png) | ![The list shows the two notes that are left](docs/pictures/done.png)                                        |
+
 **Status: early.** Every slice below is built. The API will change until two apps run on it.
 
 | Slice | What                                                                                                                                   | State |
