@@ -554,7 +554,9 @@ The line, as states:
   secret that only guarded the live line left the calls open to anyone with the address. The caller says it in the
   body, as the greeting of a live line does, because a header takes no sign outside Latin-1 and a body takes any
   secret a greeting can; the relay forwards only the fields it lists, so the secret stays there. It is looked at
-  before the model, so a stranger learns nothing of what the relay allows, and `openRouter` refuses to carry a
+  before the model, so a stranger learns nothing of which models the relay allows. Which of the three calls it
+  forwards a stranger can tell: a call that is not forwarded (v0.0.51, the calls a developer names) is answered
+  404 before anything of it is read, the secret included, and one that is forwarded is answered 401. And `openRouter` refuses to carry a
   secret to a relay not named with `https` (plain only on this device), calls the address that was checked, follows
   it nowhere else, and gives its failures no `cause`, since whatever failed may hold the body that was sent.
   `fluxLive` and `openRouter` check a relay's address with one function (`src/relayAddress.ts`). A relay with no

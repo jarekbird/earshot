@@ -81,11 +81,12 @@ describe('a relay with a secret', () => {
     const { sent, post } = guarded([json({ ok: true })], { secret: SECRET, calls: ['decide'] })
     const decide = { model: 'typesafe/jev-1.14', state: 'x', questions: {} }
     const answers = [
+      await post('/api/v1/audio/transcriptions', speech),
       await post('/api/v1/audio/transcriptions', { ...speech, secret: SECRET }),
       await post('/api/alpha/decisions', decide),
       await post('/api/alpha/decisions', { ...decide, secret: SECRET }),
     ]
-    expect([answers.map(answer => answer.status), sent.length]).toEqual([[404, 401, 200], 1])
+    expect([answers.map(answer => answer.status), sent.length]).toEqual([[404, 404, 401, 200], 1])
   })
 
   it('answers what the upstream refused with its status and none of its words, also to a caller with the secret', async () => {

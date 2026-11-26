@@ -9,7 +9,7 @@ each version's commits say: they name what a version added, and may miss a chang
 ## 0.0.53 (2026-11-26)
 
 - A relay that has a secret asks its three calls for it too, not only live speech. A call that does not say it is
-  answered 401 before anything is forwarded. A relay with no secret answers as before.
+  answered 401 before anything is forwarded; one the relay does not forward at all is answered 404 first, as before. A relay with no secret answers as before.
 - `openRouter({ host, secret })` says the secret with each call. With a secret, the relay is named by its address
   alone with `https`, the calls go to the address that was checked and take no redirect, and an error carries no
   `cause`.
