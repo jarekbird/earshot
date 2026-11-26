@@ -344,6 +344,14 @@ export class Glasses {
     return this.#mic.onChange(listener)
   }
 
+  get micLeftOn(): boolean {
+    return this.#mic.leftOn
+  }
+
+  onMicLeftOn(listener: (leftOn: boolean) => unknown): () => void {
+    return this.#mic.onLeftOn(listener)
+  }
+
   // The Even app answers one call at a time, so a rebuild on its way holds back whatever is asked after it.
   holdRebuilds(until: PromiseLike<unknown>): void {
     this.#holds++
