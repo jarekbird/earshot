@@ -4486,10 +4486,16 @@ describe('a hold', () => {
     expect([before, atTheChange, [shell.busy, front()]]).toEqual(['"remember the milk"', [true, ''], [false, 'Saved']])
   })
 
-  it('E10: goes back at the first double tap on a screen that came while an agent of the app is at work on words said before it, and still says what the agent then says', async () => {
+  it('calls a turn off at a touch on a screen that came while an agent of the app is at work on it, and does nothing else: the lifetime the agent was given ends, and the next double tap goes back', async () => {
     let answer: (verdict: { kind: 'handled'; say: string }) => void = () => {}
+    const ended: boolean[] = []
     const { voice } = hearing('remember the milk')
-    voice.agents = [() => new Promise(done => (answer = done))]
+    voice.agents = [
+      ({ life }) => {
+        life?.own(() => void ended.push(true))
+        return new Promise(done => (answer = done))
+      },
+    ]
     const { fake, front, router, shell } = world({ voice })
     await settle()
     await say(fake)
@@ -4497,10 +4503,96 @@ describe('a hold', () => {
     await settle()
     fake.double()
     await settle()
-    const after = [router.depth, shell.busy]
+    const atTheTouch = [router.depth, shell.busy, [...ended]]
     answer({ kind: 'handled', say: 'Saved' })
     await settle()
-    expect([after, front()]).toEqual([[1, true], 'Saved'])
+    const said = front()
+    fake.double()
+    await settle()
+    expect([atTheTouch, said, router.depth]).toEqual([[2, false, [true]], '', 1])
+  })
+
+  it.each([
+    [
+      'what kind it is',
+      (opens: () => void) => {
+        let kinds = 0
+        let says = 0
+        return {
+          get kind() {
+            if (++kinds === 2) opens()
+            return 'handled' as const
+          },
+          get say() {
+            return ++says === 1 ? 'Saved' : 'Updated'
+          },
+        }
+      },
+    ],
+    [
+      'what it says',
+      (opens: () => void) => {
+        let says = 0
+        return {
+          kind: 'handled' as const,
+          get say() {
+            if (++says === 1) return 'Saved'
+            opens()
+            return 'Updated'
+          },
+        }
+      },
+    ],
+  ])(
+    'says what a handled answer said as it came when the screen changed again as %s was read once more, after the agent went to another screen and came back',
+    async (_what, answer) => {
+      const made: { router?: Router } = {}
+      const { voice } = hearing('count one more')
+      voice.transcribe = async () => null
+      voice.agents = [
+        () => {
+          made.router?.open({ id: 'progress', view: () => text({ body: 'Counting' }) })
+          made.router?.back()
+          return answer(() => made.router?.open({ id: 'later', view: () => text({ body: 'Later' }) }))
+        },
+      ]
+      const { fake, front, router } = world({ voice, home: () => ({ id: 'stock', view: () => text({ title: 'Stock', body: 'Count' }) }) })
+      made.router = router
+      await settle()
+      await say(fake)
+      await settle(100)
+      expect([fake.lines()[0], front()]).toEqual(['Later', 'Saved'])
+    },
+  )
+
+  it('reads what a handled answer says no second time when the screen changed again as its kind was read once more, after the agent went to another screen and came back', async () => {
+    const made: { router?: Router } = {}
+    let kinds = 0
+    let says = 0
+    const { voice } = hearing('count one more')
+    voice.transcribe = async () => null
+    voice.agents = [
+      () => {
+        made.router?.open({ id: 'progress', view: () => text({ body: 'Counting' }) })
+        made.router?.back()
+        return {
+          get kind() {
+            if (++kinds === 2) made.router?.open({ id: 'later', view: () => text({ body: 'Later' }) })
+            return 'handled' as const
+          },
+          get say() {
+            says++
+            return 'Saved'
+          },
+        }
+      },
+    ]
+    const { fake, router } = world({ voice, home: () => ({ id: 'stock', view: () => text({ title: 'Stock', body: 'Count' }) }) })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([kinds, says]).toEqual([2, 1])
   })
 
   it('says what an agent that handled the words has to say as it stands once what it left behind has run, also when the agent went to another screen and came back', async () => {

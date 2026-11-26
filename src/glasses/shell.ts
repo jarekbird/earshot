@@ -508,8 +508,7 @@ export class Shell {
     }
     if (input.kind === 'hold') return this.#hold(input.source)
     if (input.kind === 'release') return this.#release(input.source)
-    const elsewhere = this.#deciding !== null && this.#decidingOn !== showingsOf(this.#router).current
-    if (this.#recording || (this.#deciding && !elsewhere)) {
+    if (this.#recording || this.#deciding) {
       if (!this.#recording || input.kind === 'double') this.#callOff()
       return
     }
@@ -740,8 +739,10 @@ export class Shell {
         if (!back()) return away(done, true)
         const now = answer.now()
         if (!mine()) return
+        if (!back()) return away(done, true)
         const say = now === 'handled' ? (answer.holds(now) as { say?: string }).say : undefined
         if (!mine()) return
+        if (!back()) return away(done, true)
         away(say, now === 'handled')
       }
       finish(() => {
