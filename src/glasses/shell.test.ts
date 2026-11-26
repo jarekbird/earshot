@@ -1505,11 +1505,11 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(fake.lines()).toEqual(['Before'])
   })
 
-  it('runs a control the glasses show, though a picture beside it is refused again and again', async () => {
+  it('E15: runs no control while a picture beside it is refused, and runs it once the glasses show the whole frame', async () => {
     const ran: string[] = []
     const { fake, router } = world()
     const pause = action({ id: 'pause', say: 'Pause', run: () => void ran.push('pause') })
-    fake.refuse('picture', 100)
+    fake.refuse('picture', 3)
     router.open({
       id: 'player',
       view: () =>
@@ -1522,7 +1522,11 @@ describe('a text that stays at its end, swiped twice before the glasses have dra
     expect(fake.lines()).toEqual(['Tap to pause'])
     fake.tap()
     await settle(100)
-    expect(ran).toEqual(['pause'])
+    const early = [...ran]
+    await settle(60_000)
+    fake.tap()
+    await settle(100)
+    expect([early, ran]).toEqual([[], ['pause']])
   })
 
   it('sends the glasses none of several frames asked for before the router was closed, nor with an overlay after', async () => {
@@ -2084,6 +2088,7 @@ describe('a list', () => {
     const { fake, ran } = world()
     await settle()
     fake.down()
+    await settle()
     fake.tap()
     await settle()
     expect(ran).toEqual(['open Ben'])
@@ -2095,6 +2100,7 @@ describe('a list', () => {
     await settle()
     fake.down()
     fake.down()
+    await settle()
     fake.tap()
     await settle()
     fake.double()
@@ -2197,6 +2203,274 @@ describe('a screen of boxes', () => {
   })
 })
 
+describe('a tap while a redraw is on its way to the glasses', () => {
+  const held = (fake: ReturnType<typeof fakeBridge>) => {
+    const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
+    let answer: (() => void) | undefined
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      if (!answer) await new Promise<void>(done => (answer = done))
+      return send(upgrade)
+    }
+    return () => answer!()
+  }
+
+  it('E15: runs no row of a list but the one the glasses show the cursor on', async () => {
+    const { fake, cursor, ran } = world()
+    await settle()
+    const answer = held(fake)
+    fake.down()
+    await settle(0)
+    expect(cursor()).toBe(names[0])
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer()
+    await settle()
+    expect(cursor()).toBe(names[1])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[1]}`])
+  })
+
+  it('E15: runs nothing while the glasses still show the list under the one just opened, whole, though both have the same row under the cursor', async () => {
+    const { fake, open, ran, router } = world()
+    await settle(0)
+    const before = fake.calls.length
+    router.open({ id: 'again', view: () => list({ title: 'Again', action: open }) })
+    await settle(0)
+    fake.tap()
+    await settle(0)
+    expect([ran, fake.calls.slice(before), fake.lines()[0]]).toEqual([[], [], 'People'])
+    await settle()
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[0]}`])
+  })
+
+  it('E15: runs the row the glasses show also when its frame was asked for from inside the telling of an older one', async () => {
+    let once = false
+    const made: { world?: ReturnType<typeof world> } = {}
+    made.world = world({
+      watch: event => {
+        if (event.at !== 'ask' || !once || !made.world) return
+        once = false
+        made.world.people.unshift('Zed')
+        made.world.shell.redraw()
+      },
+    })
+    const { fake, ran, shell } = made.world
+    await settle()
+    once = true
+    shell.redraw()
+    await settle()
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['open Zed'])
+  })
+
+  it('E15: runs nothing while a redraw is being written, even one that leaves the row as it is: the glasses show a mix of two frames', async () => {
+    const { fake, ran, people, shell } = world()
+    await settle()
+    const answer = held(fake)
+    people.push('Dee')
+    shell.redraw()
+    await settle(0)
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer()
+    await settle()
+    expect(fake.lines().join(' ')).toContain('Dee')
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[0]}`])
+  })
+
+  it('E15: runs nothing while the marker of a list has moved and its rows have not: the same row is under the cursor in both frames, not in the mix', async () => {
+    const { fake, ran, people } = world()
+    await settle()
+    const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
+    let writes = 0
+    let answer: (() => void) | undefined
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      if (++writes === 2) await new Promise<void>(done => (answer = done))
+      return send(upgrade)
+    }
+    people.splice(0, 2, names[1], names[0])
+    fake.down()
+    await settle(0)
+    expect(answer).toBeDefined()
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer!()
+    await settle()
+    fake.tap()
+    await settle()
+    expect(ran).toEqual([`open ${names[0]}`])
+  })
+
+  it('E15: runs nothing on a gesture of a screen of boxes that the screen on show ties to something else', async () => {
+    let playing = false
+    const { fake, ran, shell } = world({
+      home: ({ ran }) => {
+        const play = action({ id: 'play', say: 'Play', run: () => void ran.push('play') })
+        const pause = action({ id: 'pause', say: 'Pause', run: () => void ran.push('pause') })
+        return {
+          id: 'player',
+          actions: () => [],
+          view: () =>
+            boxes([{ id: 'only', x: 0, y: 0, w: 576, h: 27, text: playing ? 'Playing' : 'Stopped' }], {
+              on: { tap: playing ? pause : play },
+            }),
+        }
+      },
+    })
+    await settle()
+    const answer = held(fake)
+    playing = true
+    shell.redraw()
+    await settle(0)
+    expect(fake.lines()).toEqual(['Stopped'])
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer()
+    await settle()
+    expect(fake.lines()).toEqual(['Playing'])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['pause'])
+  })
+
+  it('E15: runs nothing while a frame between the one answered and the newest may be partly on show', async () => {
+    let playing = false
+    const { fake, ran, shell } = world({
+      home: ({ ran }) => {
+        const play = action({ id: 'play', say: 'Play', run: () => void ran.push('play') })
+        const pause = action({ id: 'pause', say: 'Pause', run: () => void ran.push('pause') })
+        return {
+          id: 'player',
+          actions: () => [],
+          view: () =>
+            boxes(
+              [
+                { id: 'label', x: 0, y: 0, w: 576, h: 27, text: playing ? 'Pause' : 'Play' },
+                { id: 'state', x: 0, y: 27, w: 576, h: 27, text: playing ? 'Playing' : 'Stopped' },
+              ],
+              { on: { tap: playing ? pause : play } },
+            ),
+        }
+      },
+    })
+    await settle()
+    const send = fake.bridge.textContainerUpgrade.bind(fake.bridge)
+    let writes = 0
+    let answer: (() => void) | undefined
+    fake.bridge.textContainerUpgrade = async upgrade => {
+      if (++writes === 2) await new Promise<void>(done => (answer = done))
+      return send(upgrade)
+    }
+    playing = true
+    shell.redraw()
+    await settle(0)
+    expect(fake.lines()).toEqual(['Pause', 'Stopped'])
+    playing = false
+    shell.redraw()
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer!()
+    await settle()
+    expect(fake.lines()).toEqual(['Play', 'Stopped'])
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['play'])
+  })
+
+  const player = (shows: () => { text: string; picture: string; playing: boolean }) =>
+    world({
+      home: ({ ran }) => {
+        const play = action({ id: 'play', say: 'Play', run: () => void ran.push('play') })
+        const pause = action({ id: 'pause', say: 'Pause', run: () => void ran.push('pause') })
+        return {
+          id: 'player',
+          actions: () => [],
+          view: () =>
+            boxes([{ id: 'status', x: 0, y: 0, w: 576, h: 27, text: shows().text }], {
+              on: { tap: shows().playing ? pause : play },
+              pictures: [
+                { id: 'button', x: 300, y: 54, w: 200, h: 100, key: shows().picture, data: new Uint8Array([shows().picture.length]) },
+              ],
+            }),
+        }
+      },
+    })
+
+  it('E15: runs nothing while a picture of a frame between the one answered and the newest may be on show', async () => {
+    let now = { text: 'Song', picture: 'play', playing: false }
+    const { fake, ran, shell } = player(() => now)
+    await settle()
+    const hang = fake.bridge.updateImageRawData.bind(fake.bridge)
+    let answer: (() => void) | undefined
+    fake.bridge.updateImageRawData = async update => {
+      const result = await hang(update)
+      if (!answer) await new Promise<void>(done => (answer = done))
+      return result
+    }
+    now = { text: 'Song', picture: 'pause', playing: true }
+    shell.redraw()
+    await settle(0)
+    expect(answer).toBeDefined()
+    now = { text: 'Song', picture: 'play', playing: false }
+    shell.redraw()
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+    answer!()
+    await settle()
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['play'])
+  })
+
+  it('still runs what a tap is tied to while newer frames are asked for and none of them is sent yet: the glasses show the old one whole', async () => {
+    let now = { text: 'One', picture: 'play', playing: false }
+    const { fake, ran, shell } = player(() => now)
+    await settle()
+    now = { text: 'One', picture: 'play', playing: true }
+    shell.redraw()
+    now = { text: 'Two', picture: 'play', playing: false }
+    shell.redraw()
+    fake.tap()
+    await settle()
+    expect(ran).toEqual(['play'])
+    expect(fake.lines()).toEqual(['Two'])
+  })
+
+  it('E15: runs nothing on a tap of an empty list, also when the screen is on its way to tying a tap to that action', async () => {
+    let listed = true
+    const { fake, ran, shell } = world({
+      home: ({ refresh }) => ({
+        id: 'home',
+        actions: () => [],
+        view: () =>
+          listed
+            ? list({ title: 'Home', action: refresh })
+            : boxes([{ id: 'only', x: 0, y: 0, w: 576, h: 27, text: 'Refresh' }], { on: { tap: refresh } }),
+      }),
+    })
+    await settle()
+    fake.refuse('rebuild', 100)
+    listed = false
+    shell.redraw()
+    await settle(0)
+    fake.tap()
+    await settle(0)
+    expect(ran).toEqual([])
+  })
+})
+
 describe('a double tap', () => {
   it('goes back, and from the home screen asks Even to close the app', async () => {
     const { fake, router } = world()
@@ -2295,6 +2569,7 @@ describe("Even's menu", () => {
     expect(fake.lines()).toEqual(['More…', '> Action 9', 'Action 10', 'Last', 'Go back', 'Go home'])
     fake.down()
     fake.down()
+    await settle()
     fake.tap()
     await settle()
     expect(ran).toEqual(['last'])
@@ -2561,6 +2836,7 @@ describe('an action that asks first', () => {
     made.fake.pick('Delete')
     await settle()
     made.fake.down()
+    await settle()
     made.fake.tap()
     await settle()
     return made
@@ -2842,14 +3118,16 @@ describe('a hold', () => {
     expect(heard).toEqual([])
   })
 
-  it('ends the wait for a turn with the turn, when the screen it was said on is replaced', async () => {
-    const { fake, life, router } = world({ voice: { transcribe: () => new Promise<string>(() => {}), timeoutMs: 77_000 } })
+  it('keeps a turn going when the screen it was said on is replaced, and ends its wait with it: what an agent then says is still to come', async () => {
+    const { fake, front, life, router, shell } = world({ voice: { transcribe: () => new Promise<string>(() => {}), timeoutMs: 77_000 } })
     router.open({ id: 'card', view: () => text({ body: 'Card' }) })
     await settle()
     await say(fake)
-    const waiting = vi.getTimerCount()
     router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
-    expect(vi.getTimerCount()).toBeLessThan(waiting)
+    await settle(76_000)
+    const before = shell.busy
+    await settle(1_000)
+    expect([before, shell.busy, front()]).toEqual([true, false, ''])
     life.end()
   })
 
@@ -3032,9 +3310,9 @@ describe('a hold', () => {
     expect(asked).toEqual([])
   })
 
-  it('sends nothing to the transcriber when the screen was replaced as the app was asked how long a turn may take', async () => {
+  it('runs nothing that was said when the screen was replaced as the app was asked how long a turn may take, though the words are still heard', async () => {
     const { voice, asked } = hearing('open ben')
-    const { fake, router } = world({ voice })
+    const { fake, ran, router } = world({ voice })
     router.open({ id: 'card', view: () => text({ body: 'Card' }) })
     await settle()
     let moved = false
@@ -3049,10 +3327,10 @@ describe('a hold', () => {
     })
     await say(fake)
     await settle()
-    expect(asked).toEqual([])
+    expect([asked.length, ran]).toEqual([1, []])
   })
 
-  it('is no longer busy, and shows nothing over the next screen, when what a turn left behind throws as it is called off', async () => {
+  it('is no longer busy, and shows nothing, when what a turn left behind throws as a touch calls it off', async () => {
     const { fake, front, life, router, shell } = world({
       voice: {
         transcribe: (_audio, turn) => {
@@ -3069,7 +3347,7 @@ describe('a hold', () => {
     expect(shell.busy).toBe(true)
     const reported = vi.fn()
     vi.stubGlobal('reportError', reported)
-    expect(() => router.replace({ id: 'other', view: () => text({ body: 'Other' }) })).not.toThrow()
+    expect(() => fake.tap()).not.toThrow()
     expect(reported.mock.calls.map(([error]) => String(error))).toEqual([TURN_END])
     await settle()
     expect(shell.busy).toBe(false)
@@ -3229,8 +3507,8 @@ describe('a hold', () => {
     expect(asked).toHaveLength(1)
   })
 
-  it('lets nothing of what a turn left behind throw reach whoever changed the screen, only a sentence of its own', async () => {
-    const { fake, router } = world({
+  it('lets nothing of what a turn left behind throw reach the touch that called it off, only a sentence of its own', async () => {
+    const { fake } = world({
       voice: {
         transcribe: (_audio, turn) => {
           turn?.own(() => {
@@ -3247,7 +3525,7 @@ describe('a hold', () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
     let thrown: unknown
     try {
-      router.open({ id: 'other', view: () => text({ body: 'Other' }) })
+      fake.tap()
     } catch (error) {
       thrown = error
     }
@@ -3256,7 +3534,6 @@ describe('a hold', () => {
     expect(logged).not.toHaveBeenCalled()
     expect(reported.mock.calls.map(([error]) => String(error))).toEqual([TURN_END])
     expect(reported.mock.calls.map(([error]) => (error as Error).cause)).toEqual([undefined])
-    expect(fake.lines()).toContain('Other')
   })
 
   it('runs what was said, and lets only a sentence of its own out, when what the turn left behind throws as the turn ends', async () => {
@@ -3444,8 +3721,9 @@ describe('a hold', () => {
     expect(heard).toEqual([tone(200).length])
   })
 
-  it('shows the notice a screen gave as it left, though a turn that was being decided on it is called off with it', async () => {
-    const { fake, front, router, shell } = world({ voice: { transcribe: () => new Promise<string>(() => {}) } })
+  it('shows the notice a screen gave as it left for as long as a notice stays, though a turn that was being decided on it ends meanwhile with nothing to say', async () => {
+    let heard: (words: string) => void = () => {}
+    const { fake, front, router, shell } = world({ voice: { transcribe: () => new Promise<string>(done => (heard = done)) } })
     router.open({
       id: 'child',
       view: () => text({ body: 'Child' }),
@@ -3453,10 +3731,15 @@ describe('a hold', () => {
     })
     await settle()
     await say(fake)
-    expect(shell.busy).toBe(true)
     router.back()
     await settle()
-    expect([shell.busy, front()]).toEqual([false, 'Saved'])
+    const during = [shell.busy, front()]
+    heard('something no one handles')
+    await settle()
+    expect([during, [shell.busy, front()]]).toEqual([
+      [true, 'Saved'],
+      [false, 'Saved'],
+    ])
   })
 
   it('takes a notice away with the turn when a touch calls the turn off, as it always did', async () => {
@@ -3604,20 +3887,20 @@ describe('a hold', () => {
     expect(ran).toEqual([])
   })
 
-  it('hands no sound to a transcriber that the app gave only as the screen was replaced', async () => {
+  it('runs nothing that was said when the app gave its transcriber only as the screen was replaced, though the sound is still heard', async () => {
     const asked: number[] = []
     const { voice } = hearing()
-    const { fake, router } = world({ voice })
+    const { fake, ran, router } = world({ voice })
     await settle()
     Object.defineProperty(voice, 'transcribe', {
       get: () => {
         router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
-        return async (audio: { seconds: number }) => (asked.push(audio.seconds), 'refresh')
+        return async (audio: { seconds: number }) => (asked.push(audio.seconds), 'open ben')
       },
     })
     await say(fake)
     await settle()
-    expect(asked).toEqual([])
+    expect([asked, ran]).toEqual([[0.8], []])
   })
 
   it('asks no model that the app gave only as the screen was replaced', async () => {
@@ -3654,9 +3937,9 @@ describe('a hold', () => {
     expect(got).toEqual([''])
   })
 
-  it('sends nothing to the transcriber when a screen was opened and left as the app was asked how long a turn may take', async () => {
+  it('runs nothing that was said when a screen was opened and left as the app was asked how long a turn may take, though the words are still heard', async () => {
     const { voice, asked } = hearing('open ben')
-    const { fake, router } = world({ voice })
+    const { fake, ran, router } = world({ voice })
     await settle()
     Object.defineProperty(voice, 'timeoutMs', {
       get: () => {
@@ -3667,28 +3950,16 @@ describe('a hold', () => {
     })
     await say(fake)
     await settle()
-    expect(asked).toEqual([])
+    expect([asked.length, ran]).toEqual([1, []])
   })
 
-  it('draws the screen that was opened, and tells the listeners after it, also when what a turn left behind throws as it is called off', async () => {
-    const { fake, life, router } = world({
-      voice: {
-        transcribe: (_audio, turn) => {
-          turn?.own(() => {
-            throw new Error('cleanup failed')
-          })
-          return new Promise<string>(() => {})
-        },
-      },
-    })
+  it('draws the screen that was opened while a turn is being decided, and tells the listeners of it', async () => {
+    const { fake, life, router } = world({ voice: { transcribe: () => new Promise<string>(() => {}) } })
     const told: string[] = []
     router.onChange(current => void told.push(current.id))
     await settle()
     await say(fake)
-    const reported = vi.fn()
-    vi.stubGlobal('reportError', reported)
-    expect(() => router.open({ id: 'other', view: () => text({ body: 'Other' }) })).not.toThrow()
-    expect(reported.mock.calls.map(([error]) => String(error))).toEqual([TURN_END])
+    router.open({ id: 'other', view: () => text({ body: 'Other' }) })
     await settle()
     expect(told).toEqual(['other'])
     expect(fake.lines()).toContain('Other')
@@ -3964,6 +4235,7 @@ describe('a hold', () => {
     await say(fake)
     expect(fake.lines()).toEqual(['Which one?', '> Open: Ana', 'Open: Ben'])
     fake.down()
+    await settle()
     fake.tap()
     await settle()
     expect(ran).toEqual(['open Ben'])
@@ -4223,6 +4495,56 @@ describe('a hold', () => {
     await say(fake)
     expect(got).toEqual(['first remember the milk true', 'second remember the milk false'])
     expect(front()).toBe('Saved')
+  })
+
+  it('says what an agent did also when the agent itself went to another screen: the work is done, wherever the user now is', async () => {
+    const { voice } = hearing('remember the milk')
+    const made = world({ voice })
+    voice.agents = [
+      () => {
+        made.router.open({ id: 'saved', view: () => text({ title: 'Notes', body: 'The milk' }) })
+        return { kind: 'handled', say: 'Saved' }
+      },
+    ]
+    await settle()
+    await say(made.fake)
+    expect(made.fake.lines()).toContain('Notes')
+    expect(made.front()).toBe('Saved')
+  })
+
+  it('says nothing of an agent that answers after its turn ran out of time, on whichever screen', async () => {
+    const { voice } = hearing('remember the milk')
+    voice.timeoutMs = 2_000
+    const made = world({ voice })
+    let answer: ((verdict: { kind: 'handled'; say: string }) => void) | undefined
+    voice.agents = [
+      () => {
+        made.router.open({ id: 'saved', view: () => text({ title: 'Notes', body: 'The milk' }) })
+        return new Promise(done => (answer = done))
+      },
+    ]
+    await settle()
+    await say(made.fake)
+    await settle(3_000)
+    answer!({ kind: 'handled', say: 'Saved' })
+    await settle()
+    expect(made.fake.lines()).toContain('Notes')
+    expect(made.front()).toBe('')
+  })
+
+  it('says nothing after an agent that went to another screen and has nothing to say', async () => {
+    const { voice } = hearing('remember the milk')
+    const made = world({ voice })
+    voice.agents = [
+      () => {
+        made.router.open({ id: 'saved', view: () => text({ title: 'Notes', body: 'The milk' }) })
+        return { kind: 'handled' }
+      },
+    ]
+    await settle()
+    await say(made.fake)
+    expect(made.fake.lines()).toContain('Notes')
+    expect(made.front()).toBe('')
   })
 
   it('shows what a transcriber says went wrong, or that voice did not work', async () => {
@@ -4922,6 +5244,7 @@ describe('a hold', () => {
       expect(fake.lines()).toEqual(['Which one?', '> Open: Ana', 'Open: Ben', 'Keep as a note'])
       fake.down()
       fake.down()
+      await settle()
       fake.tap()
       await settle()
       expect(got.map(heard => heard.words)).toEqual(['ana ben'])

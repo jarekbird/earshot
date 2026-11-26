@@ -6,17 +6,30 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.45 (2026-11-24)
+## 0.0.47 (2026-11-25)
 
 - A swipe on a text counts from what the wearer has read. A swipe made before the glasses have drawn the last one
   goes on from where that one reached, and text that came in the meantime is laid out after them.
-- What belongs to a screen ends with it: a hold, a voice turn and a question that waits for a tap are called off
-  when the screen changes, and a menu pick from the screen before does not reach the next one. A screen opened
-  again after it was left starts at its beginning.
+- What belongs to a screen ends with it: a hold and a question that waits for a tap are called off when the
+  screen changes, and a menu pick from the screen before does not reach the next one. A voice turn that is being
+  decided goes on, as in 0.0.46, and runs nothing on a screen that came after, also one it came straight back to.
+  A screen opened again after it was left starts at its beginning.
 - One press of a touchpad records once, and a closed router sends the glasses nothing more.
 - Live speech from Flux numbers the turns it tells itself, one by one and on across lines, so one number gone wild
   no longer hides the turns after it. A turn numbered more than 2^32 ahead of the newest of its line is not told.
 - The router tells every listener of a change of screen, also when one of them throws.
+
+## 0.0.46 (2026-11-25)
+
+- What an agent says after it handled the words is shown also when the agent itself went to another screen. It was
+  dropped with every other verdict of a turn whose screen had changed.
+
+## 0.0.45 (2026-11-25)
+
+- A tap on a list runs only the row the glasses show the cursor on, and a gesture a screen of boxes ties to an
+  action runs only what the screen on show ties it to. A touch that comes while a redraw is still being written to
+  the glasses is dropped; it ran what the newest frame held, which was not yet on show.
+- A picture the glasses refuse is sent again, as a refused text already was.
 
 ## 0.0.44 (2026-11-24)
 

@@ -10,7 +10,7 @@ import { serve } from '../serve.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
 import { after, copied, Frames, type Read } from './frames.js'
-import { OVERLAY, plainFrame, progressOf, type Glasses } from './glasses.js'
+import { OVERLAY, plainFrame, progressOf, WHOLE, type Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { BODY, layoutList, layoutText, type LaidText, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
@@ -106,11 +106,15 @@ interface Place {
   away?: boolean
 }
 
+type Gesture = 'tap' | 'up' | 'down'
+type Aims = Partial<Record<Gesture, string>>
+
 interface Drawn {
   frame: number
   screen: Screen
   showing: object
   view: View
+  aims: Aims
   targets: readonly TargetInfo[]
   folded: readonly Action[]
   scrolls: boolean
@@ -149,11 +153,11 @@ export class Shell {
   #turn = 0
   #said = false
   #deciding: Lifetime | null = null
-  #decidingOn: object | null = null
   readonly #frames: Frames
   #pending: number[] = []
   #moves = 0
   #draws = 0
+  #asked: Array<{ frame: number; showing: object; aims: Aims }> = []
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -180,7 +184,7 @@ export class Shell {
         this.#moves++
         const { onPath, current } = showingsOf(router)
         this.#frames.left(onPath)
-        const spoken = this.#recording?.showing ?? this.#decidingOn
+        const spoken = this.#recording?.showing
         const closed = current !== undefined && !onPath(current)
         try {
           if (closed || (spoken !== undefined && spoken !== null && !onPath(spoken))) this.#callOff(true)
@@ -203,7 +207,7 @@ export class Shell {
     this.#life.own(
       showingsOf(router).onMove(() => {
         this.#moves++
-        const spoken = this.#recording?.showing ?? this.#decidingOn
+        const spoken = this.#recording?.showing
         try {
           if (spoken !== undefined && spoken !== null && spoken !== showingsOf(router).current) this.#callOff(true)
         } finally {
@@ -268,6 +272,16 @@ export class Shell {
     const shown = fold ? offered.slice(0, MAX_MENU_ITEMS - 1) : offered
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
+    const aim = (bound: Bound, target = boundTo(bound).target) => JSON.stringify([view.kind, boundTo(bound).action.id, target ?? null])
+    const under = targets[reached.cursor ?? place.cursor]
+    const aims: Aims =
+      view.kind === 'list'
+        ? under
+          ? { tap: aim(view.action, under.id) }
+          : {}
+        : view.kind === 'boxes'
+          ? Object.fromEntries(Object.entries(view.on ?? {}).map(([gesture, bound]) => [gesture, aim(bound)]))
+          : {}
     if (stale()) return
     this.#places.set(showing, Object.assign(place, reached))
     if (drew) this.#frames.drawing(showing, drew.view, last)
@@ -275,7 +289,10 @@ export class Shell {
     this.#pending = [...this.#pending.filter(asked => asked === progressOf(this.#glasses).sending || asked > frame), frame]
     if (this.#life.ended || !showings.onPath(showing)) return progressOf(this.#glasses).drop([frame])
     if (!this.#drawn || frame > this.#drawn.frame)
-      this.#drawn = { frame, screen, showing, view: kept, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
+      this.#drawn = { frame, screen, showing, view: kept, aims, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
+    this.#seen()
+    this.#asked.push({ frame, showing, aims })
+    this.#asked.sort((one, other) => one.frame - other.frame)
     this.#frames.asked(frame, showing, drew, view.kind)
   }
 
@@ -294,6 +311,20 @@ export class Shell {
     Object.assign(place, after(since, swiped))
     this.#frames.swiping(showing, { view, state: swiped }, since)
     this.#draw({ view, laid: text })
+  }
+
+  #seen(): { frame: number; showing: object; aims: Aims } | undefined {
+    const { shown } = progressOf(this.#glasses)
+    const at = this.#asked.findLastIndex(asked => asked.frame <= shown)
+    if (at > 0) this.#asked.splice(0, at)
+    return this.#asked[0]
+  }
+
+  #aimed(drawn: Drawn, gesture: Gesture): boolean {
+    const aim = drawn.aims[gesture]
+    const seen = this.#seen()
+    if (aim === undefined || !seen || seen.frame > progressOf(this.#glasses).shown || !this.#glasses[WHOLE]) return false
+    return seen.showing === drawn.showing && seen.aims[gesture] === aim
   }
 
   #bound(view: View): Action[] {
@@ -426,7 +457,7 @@ export class Shell {
     if (view.kind === 'boxes') {
       const moves = this.#moves
       const bound = view.on?.[input.kind]
-      if (!bound || moves !== this.#moves) return
+      if (!bound || moves !== this.#moves || !this.#aimed(drawn, input.kind)) return
       const { action: chosen, target } = boundTo(bound)
       return void this.#start(chosen, target)
     }
@@ -436,7 +467,7 @@ export class Shell {
     if (view.kind === 'text') {
       if (input.kind !== 'tap') return this.#scroll(drawn, place, 'swipe', step < 0)
     } else if (input.kind !== 'tap') place.cursor += step
-    else return this.#choose(drawn, place)
+    else return this.#aimed(drawn, 'tap') ? this.#choose(drawn, place) : undefined
     this.redraw()
   }
 
@@ -445,7 +476,6 @@ export class Shell {
     this.#slow?.cancel()
     const deciding = this.#deciding
     this.#deciding = null
-    this.#decidingOn = null
     serve(() => deciding?.end(), TURN_END)
     const pressed = this.#recording?.source
     try {
@@ -562,46 +592,53 @@ export class Shell {
 
   async #decide(voice: VoiceOptions, audio: Audio, passed?: string): Promise<void> {
     const turn = ++this.#turn
-    const showing = showingsOf(this.#router).current
+    const moves = this.#moves
     const life = new Lifetime()
     life.own(this.#life.own(() => serve(() => life.end(), TURN_END)))
     const mine = () => turn === this.#turn && !this.#life.ended
-    const moved = () => showingsOf(this.#router).current !== showing || !showingsOf(this.#router).onPath(showing)
-    const finish = (then: () => void) => {
+    const moved = () => moves !== this.#moves
+    const spare = () => void (this.#noticed || this.#clear())
+    const finish = (then: () => void, elsewhere: () => void = spare) => {
       if (!mine()) return
       slow.cancel()
       serve(() => life.end(), TURN_END)
       if (!mine()) return
       this.#deciding = null
-      this.#decidingOn = null
-      if (moved()) this.#clear()
+      if (moved()) elsewhere()
       else then()
     }
     this.#deciding = life
-    this.#decidingOn = showing ?? null
     let slow: Timer = { cancel: () => {} }
     let patience: number | undefined
     serve(() => void (patience = voice.timeoutMs ?? VOICE_TIMEOUT_MS), TURN_SET)
     if (patience === undefined) return finish(() => this.notice(this.#words.voiceFailed))
-    slow = this.#slow = this.#life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), patience)
+    slow = this.#slow = this.#life.timeout(() => {
+      if (!mine()) return
+      finish(() => this.notice(this.#words.slow))
+      this.#turn++
+    }, patience)
     if (!mine()) return slow.cancel()
     if (passed === undefined) this.#show(this.#words.thinking)
     try {
       const transcribe = passed === undefined ? voice.transcribe : undefined
-      if (!mine() || moved()) return finish(() => {})
+      if (!mine()) return
       const transcript = transcribe ? await Reflect.apply(transcribe, voice, [audio, life]) : (passed ?? null)
       const words = transcript?.trim() ?? ''
-      if (!mine() || moved()) return finish(() => {})
+      if (!mine()) return
       if (transcript !== null && !words) return finish(() => this.notice(this.#words.missed))
       const heard = words ? `"${words}"` : this.#words.thinking
-      this.#show(heard)
+      if (!moved()) this.#show(heard)
       const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null)
-      finish(() => {
-        if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
-        if (words) this.#show(heard, HEARD_MS)
-        else this.#clear()
-        this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
-      })
+      const done = verdict.kind === 'handled' && verdict.say !== undefined ? verdict.say : undefined
+      finish(
+        () => {
+          if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
+          if (words) this.#show(heard, HEARD_MS)
+          else this.#clear()
+          this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
+        },
+        () => (done === undefined ? spare() : this.notice(done)),
+      )
     } catch (error) {
       finish(() => {
         if (error instanceof LifetimeEnded) return this.#clear()

@@ -22,7 +22,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.45
+npm install github:jarekbird/earshot#v0.0.47
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -32,7 +32,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.45 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.47 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -150,7 +150,7 @@ const glasses = new Glasses(life, await waitForEvenAppBridge())
 const shell = new Shell(life, glasses, router)
 ```
 
-- `list({ title, action, empty })` shows the targets of one action as lines of text. A swipe moves the cursor and a tap runs the action on that item.
+- `list({ title, action, empty })` shows the targets of one action as lines of text. A swipe moves the cursor and a tap runs the action on that item. A tap counts only while the glasses show one whole frame with the cursor on that item: one that comes while the cursor's move, or any other redraw, is still being written to them is dropped. The same holds for a gesture a screen of boxes ties to an action.
 - `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines. With `end: true` it shows its last lines and goes on showing the last as the text grows, for a log or a transcript. A swipe up reads back, counted from the page the wearer is looking at (a swipe made before the last one is drawn goes on from that one, and text that came in the meantime is laid out after them), and the view holds that place while more comes at the end (a text that also loses lines at its start shifts under it); swiped back down to the end, it follows again. A page never holds more than the glasses take in one box: at the end the oldest lines give way, never the newest, and a swipe, or a spoken "scroll up", moves by no more than the page holds, so every line is reached.
 - `boxes(boxes, { on, pictures })` places each box yourself. `on` says which action a tap, a swipe up and a swipe down run: `{ tap: open, up: older, down: { action: open, target: 'next' } }`. A screen gets no raw touches, so whatever touch can do, voice can do too. The other way round is yours where a gesture runs an action on one target only: voice is offered every target of that action, so give touch a way to each, with a gesture for the action as a whole or a cursor of your own. A screen with no `view` lists its actions.
 - By voice, a long text scrolls a screenful ("scroll down"), a list's cursor moves ("move down") and "choose this one" runs the row it is on. The model is told which row that is, unless the row is private.
@@ -184,11 +184,11 @@ new Shell(life, glasses, router, {
 - The words show over the page, and the navigator picks from what the app can do now: go back, go home, each action, and the items of the rolling set.
 - When it is sure, the action runs, and one marked `confirm` still asks first. Mark an action `voice` to ask first only when the words chose it: a touch is the person's own act, the model's choice is a guess. A question is dropped when the screen changes before the tap. When it is unsure, the few candidates are listed to tap. When nothing fits, it says "No match". With `instead` (below), the person can turn the navigator's choice down and hand the words to your agents.
 - One hold is one command. The navigator picks one action and one target, so "open the shopping list and delete it" is not carried out as two steps. Its pick is a guess, least sure among items whose names are much alike: give those items text that tells them apart (below), and mark an action that is costly to get wrong `voice` or `confirm`.
-- `agents` get the words the navigator passes on, in order, with the recording (`audio`) and the turn's lifetime (`life`). An agent answers `{ kind: 'handled', say }`, `{ kind: 'notMine' }`, or with an action to run.
+- `agents` get the words the navigator passes on, in order, with the recording (`audio`) and the turn's lifetime (`life`). An agent answers `{ kind: 'handled', say }`, `{ kind: 'notMine' }`, or with an action to run. What a handled turn says is shown also when the screen changed while it was decided: the agent may have gone to another screen itself, and Earshot cannot tell that from the app changing screens for a reason of its own.
 - An agent that waits before it acts waits through `life`. Any touch while a command is being decided calls it off and does nothing else; a hold calls it off and listens again. Both end `life`.
 - `model` is what the navigator asks. It gets the question, and the turn's lifetime to end its request with, and gives each option a chance. Over 0.7 the navigator is sure; under that it lists the options over 0.15. The default matches the words against the labels and calls no service.
-- A double tap calls a command off while it listens, and so does leaving the app. What was said is dropped when the screen changed while it listened or was decided.
-- `onListen` is called when a hold starts to listen: bind there what the words are for. `shell.busy` is true from then until the command is done. A hold with no release ends after a minute (`maxHoldMs`, a day at the most). No answer in forty-five seconds is given up on (`timeoutMs`), which ends the turn's lifetime.
+- A double tap calls a command off while it listens, and so does leaving the app. What was said is dropped when the screen changed while it listened. When the screen changed while it was decided, no action is run and no choice is offered; only what an agent that handled the words says is still shown.
+- `onListen` is called when a hold starts to listen: bind there what the words are for. `shell.busy` is true from then until the command is done. A hold with no release ends after a minute (`maxHoldMs`, a day at the most). No answer in forty-five seconds is given up on (`timeoutMs`), which ends the turn's lifetime; an answer that comes after that shows nothing.
 - Throw `SayError` from a transcriber to say what went wrong in your own words.
 
 ### Listen for longer than a hold

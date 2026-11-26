@@ -14,6 +14,7 @@ import {
   OVERLAY_DIM,
   progressOf,
   REBUILD_GAP_MS,
+  WHOLE,
   type Drawing,
   type ListenOptions,
 } from './glasses.js'
@@ -402,6 +403,27 @@ describe('a rebuild the glasses refuse', () => {
     glasses.draw(frame(box('body', 'One', { h: 200 })))
     await settle(10_000)
     expect(fake.boxes().find(drawn => drawn.name === 'body')!.h).toBe(200)
+  })
+})
+
+describe('a picture the glasses refuse', () => {
+  it('is taken for one that may have landed: the picture from before it is sent again', async () => {
+    const { fake, glasses } = setup()
+    const picture = (key: string, value: number) => ({ id: 'chart', x: 0, y: 54, w: 200, h: 100, key, data: new Uint8Array([value]) })
+    glasses.draw({ boxes: [box('body', 'One')], pictures: [picture('a', 1)] })
+    await settle(1_000)
+    const hang = fake.bridge.updateImageRawData.bind(fake.bridge)
+    fake.bridge.updateImageRawData = async update => {
+      fake.bridge.updateImageRawData = hang
+      await hang(update)
+      return undefined as never
+    }
+    glasses.draw({ boxes: [box('body', 'One')], pictures: [picture('b', 2)] })
+    await settle()
+    expect([...fake.pictures()[0].data]).toEqual([2])
+    glasses.draw({ boxes: [box('body', 'One')], pictures: [picture('a', 1)] })
+    await settle(10_000)
+    expect([...fake.pictures()[0].data]).toEqual([1])
   })
 })
 
@@ -1943,12 +1965,13 @@ describe('watching the draws', () => {
     expect([glasses.shown, ends.filter(end => end.startsWith(`${second} `))]).toEqual([first, [`${second} false`]])
   })
 
-  it('adds no key to the glasses for what it tells the shell of its progress: the only two are the hold and the overlay', () => {
+  it('adds no key to the glasses for what it tells the shell of its progress: the only three are the hold, the overlay and whether one whole frame is on show', () => {
     const glasses = new Glasses(new Lifetime(), fakeBridge().bridge)
     const keys = (of: object) => Object.getOwnPropertySymbols(of).map(String)
     expect([...keys(glasses), ...keys(Glasses.prototype)].sort()).toEqual([
       'Symbol(the microphone, for a hold alone)',
       'Symbol(the overlay the glasses are known to show)',
+      'Symbol(whether the glasses show one whole frame, none partly sent since)',
     ])
     expect(typeof progressOf(glasses).drop).toBe('function')
   })
@@ -2160,6 +2183,42 @@ describe('watching the draws', () => {
     answer()
     await settle(60_000)
     expect([meanwhile, glasses[OVERLAY]]).toEqual([undefined, 'Status'])
+  })
+
+  it('does not take what the glasses hold for one whole frame after a frame partly written was taken back', async () => {
+    const fake = fakeBridge()
+    let second = 0
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (event.at === 'answer' && event.frame === second && !event.ok) progressOf(glasses).drop([second])
+      },
+    })
+    glasses.draw(frame(box('title', 'One'), box('body', 'Old', { y: 27 })))
+    await settle(REBUILD_GAP_MS)
+    const before = glasses[WHOLE]
+    const write = fake.bridge.textContainerUpgrade.bind(fake.bridge)
+    let writes = 0
+    fake.bridge.textContainerUpgrade = async upgrade => (++writes === 2 ? false : write(upgrade))
+    second = glasses.draw(frame(box('title', 'Two'), box('body', 'New', { y: 27 })))
+    await settle(60_000)
+    expect([before, fake.lines(), glasses[WHOLE]]).toEqual([true, ['Two', 'Old'], false])
+  })
+
+  it('hangs no picture again when the call for a newer one was never made, its frame taken back first', async () => {
+    const fake = fakeBridge()
+    let second = 0
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (event.at === 'call' && event.frame === second && event.op === 'picture') progressOf(glasses).drop([second])
+      },
+    })
+    const cover = (key: string, data: number[]) => ({ id: 'cover', x: 376, y: 54, w: 200, h: 100, key, data: new Uint8Array(data) })
+    glasses.draw({ ...frame(box('title', 'One')), pictures: [cover('v1', [1, 2, 3])] })
+    await settle(REBUILD_GAP_MS)
+    const before = fake.calls.length
+    second = glasses.draw({ ...frame(box('title', 'One')), pictures: [cover('v2', [4, 5, 6])] })
+    await settle(60_000)
+    expect([fake.pictures().map(picture => [...picture.data]), fake.calls.slice(before)]).toEqual([[[1, 2, 3]], []])
   })
 
   it('knows which overlay the glasses show by the time it tells of the end of the draw that changed it', async () => {

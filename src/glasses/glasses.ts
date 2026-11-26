@@ -113,6 +113,7 @@ interface Page {
 }
 
 export const OVERLAY = Symbol('the overlay the glasses are known to show')
+export const WHOLE = Symbol('whether the glasses show one whole frame, none partly sent since')
 
 const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
@@ -255,6 +256,7 @@ export class Glasses {
   readonly #progress = { shown: 0, menu: 0, sending: 0 }
   readonly #from = new Map<string, number>()
   readonly #following = new Set<() => void>()
+  #intact = true
   #over: string | null | undefined = null
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
@@ -320,6 +322,10 @@ export class Glasses {
 
   get [OVERLAY](): string | null | undefined {
     return this.#over
+  }
+
+  get [WHOLE](): boolean {
+    return this.#intact
   }
 
   get micOpen(): boolean {
@@ -502,6 +508,7 @@ export class Glasses {
           continue
         }
         if (drawn) this.#over = page.over
+        if (drawn && !page.left) this.#intact = true
         this.#progressed(drawn && !page.left ? { shown: frame, menu: frame, sending: 0 } : { sending: 0 })
         if (!drawn) {
           const inMs = retryDelay(++this.#failures)
@@ -558,6 +565,7 @@ export class Glasses {
       this.#watch({ at: 'answer', frame, op, ...named, boxes, ms: 0, ok: false, got: undefined })
       return false
     }
+    this.#intact = false
     let got: unknown
     try {
       got = await call()
@@ -665,11 +673,17 @@ export class Glasses {
     for (const [index, { id, name, picture }] of pictures.entries()) {
       if (this.#hung.get(id) === picture.key || (left && !this.#have.hung.has(id))) continue
       const update = new ImageRawDataUpdate({ containerID: id, containerName: name, imageData: picture.data })
-      const send = () => this.#bridge.updateImageRawData(update)
+      let made = false
+      const send = () => {
+        made = true
+        return this.#bridge.updateImageRawData(update)
+      }
       const accepted = await this.#ask(frame, 'picture', 1, send, ImageRawDataUpdateResult.success, name)
       if (this.#life.ended) return false
-      if (!accepted) drawn = false
-      else {
+      if (!accepted) {
+        if (made) this.#hung.delete(id)
+        drawn = false
+      } else {
         this.#hung.set(id, picture.key)
         if (!left) {
           this.#have.pictures[index] = picture
