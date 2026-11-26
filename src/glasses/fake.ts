@@ -6,7 +6,7 @@ export { overlayWords }
 import type { GlassesEvent, HoldSource } from './input.js'
 import { MAX_BOXES, MAX_BRIGHTNESS, MAX_TEXT_BOXES, MAX_TEXT_BYTES } from './limits.js'
 
-export type FakeOp = 'create' | 'rebuild' | 'update' | 'picture' | 'mic'
+export type FakeOp = 'create' | 'rebuild' | 'update' | 'picture' | 'mic' | 'mic close'
 
 export interface FakeBox {
   id: number
@@ -54,6 +54,7 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
     update: { times: 0, throws: false },
     picture: { times: 0, throws: false },
     mic: { times: 0, throws: false },
+    'mic close': { times: 0, throws: false },
   }
   let page: FakeBox[] | null = null
   let pictures: FakePicture[] = []
@@ -141,6 +142,7 @@ export function fakeBridge(options: { owned?: boolean } = {}) {
     audioControl: async (open, source) => {
       fake.calls.push(open ? 'mic open' : 'mic close')
       if (open && refused('mic')) return false
+      if (!open && refused('mic close')) throw new Error('The fake bridge failed to close the microphone.')
       fake.mic = open ? (source ?? 'glasses') : null
       return open
     },

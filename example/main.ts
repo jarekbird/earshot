@@ -162,7 +162,7 @@ const router: Router = new Router({
     id: 'notes',
     actions: () => [open, remove, counter, listen, send],
     context: () => `A list of ${notes.length} notes`,
-    view: () => list({ title: 'Earshot example', action: open, empty: 'No notes' }),
+    view: () => list({ title: glasses.micLeftOn ? 'The microphone may still be on' : 'Earshot example', action: open, empty: 'No notes' }),
   },
 })
 
@@ -194,6 +194,7 @@ const shell: Shell = new Shell(
     ? { voice: { ...hears, agents: [takeNote], otherwise: 'Something to remember as a new note', instead: 'Keep as a note', rolling } }
     : {},
 )
+life.own(glasses.onMicLeftOn(() => shell.redraw()))
 
 document.getElementById('status')!.textContent = hears
   ? 'Hold the touchpad and say what you want.'
