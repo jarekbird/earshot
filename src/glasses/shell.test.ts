@@ -4622,24 +4622,28 @@ describe('a hold', () => {
     expect(front()).toBe('Saved')
   })
 
-  it('reads nothing of an answer whose turn was called off in the moment after it came', async () => {
+  it('shows nothing of an answer whose turn was called off in the moment after it came, and reads nothing of it from then on', async () => {
     let answer: (verdict: { kind: 'handled'; say: string }) => void = () => {}
-    let read = 0
+    let closed = false
+    let late = 0
     const { voice } = hearing('remember the milk')
     voice.agents = [() => new Promise(done => (answer = done))]
-    const { fake, router } = world({ voice })
+    const { fake, front, router } = world({ voice })
     await settle()
     await say(fake)
     answer({
       kind: 'handled',
       get say() {
-        read++
+        if (closed) late++
         return 'Saved'
       },
     })
-    void Promise.resolve().then(() => router.close())
+    void Promise.resolve().then(() => {
+      closed = true
+      router.close()
+    })
     await settle()
-    expect(read).toBe(0)
+    expect([late, front()]).toEqual([0, ''])
   })
 
   it('says what an agent answered on the screen it was said on, though what the agent left behind takes the words away again as the turn ends', async () => {
@@ -4656,6 +4660,68 @@ describe('a hold', () => {
     await say(fake)
     await settle(100)
     expect(front()).toBe('Saved')
+  })
+
+  it('reads what kind of answer an agent gave once, however often it goes on to use it', async () => {
+    let answer: (verdict: { kind: 'handled'; say: string }) => void = () => {}
+    let reads = 0
+    const { voice } = hearing('remember the milk')
+    voice.agents = [() => new Promise(done => (answer = done))]
+    const { fake, front, router } = world({ voice })
+    await settle()
+    await say(fake)
+    router.open({ id: 'other', view: () => text({ body: 'Other' }) })
+    await settle()
+    answer({
+      get kind() {
+        if (++reads > 1) router.close()
+        return 'handled' as const
+      },
+      say: 'Saved',
+    })
+    await settle(100)
+    expect([reads, front()]).toEqual([1, 'Saved'])
+  })
+
+  it('asks the screen an agent went to for nothing more when the agent has handled the words there: only what it says is shown', async () => {
+    let asked = 0
+    const made: { router?: Router } = {}
+    const { voice } = hearing('remember the milk')
+    voice.transcribe = async () => null
+    voice.agents = [
+      async () => {
+        made.router?.open({ id: 'saved', view: () => (asked++, text({ body: 'The milk' })) })
+        await Promise.resolve()
+        return { kind: 'handled', say: 'Saved' }
+      },
+    ]
+    const { fake, front, router } = world({ voice })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([asked, front()]).toEqual([1, 'Saved'])
+  })
+
+  it('draws the screen a turn was said on anew when the agent that handled it went to another screen and came back, having changed what it shows', async () => {
+    let count = 0
+    const made: { router?: Router } = {}
+    const { voice } = hearing('count one more')
+    voice.transcribe = async () => null
+    voice.agents = [
+      () => {
+        made.router?.open({ id: 'progress', view: () => text({ body: 'Counting' }) })
+        made.router?.back()
+        count = 1
+        return { kind: 'handled', say: 'Saved' }
+      },
+    ]
+    const { fake, router } = world({ voice, home: () => ({ id: 'stock', view: () => text({ title: 'Stock', body: `Count ${count}` }) }) })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle(60_000)
+    expect(fake.lines()).toEqual(['Stock', 'Count 1'])
   })
 
   it('calls a turn off at a change of screen while only the model is at work on it', async () => {

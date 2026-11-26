@@ -125,6 +125,20 @@ const tied = (bound: Bound): { action: Action; target?: string } => {
 
 const aimOf = (kind: View['kind'], action: Action, target?: string): string => JSON.stringify([kind, action.id, target ?? null])
 
+function once(given: Verdict): Verdict {
+  const { kind } = given
+  if (kind === 'handled') {
+    const { say } = given as { say?: string }
+    return say === undefined ? { kind } : { kind, say }
+  }
+  if (kind === 'sure') {
+    const { action, target } = given as { action: string; target?: string }
+    return target === undefined ? { kind, action } : { kind, action, target }
+  }
+  if (kind === 'unsure') return { kind, candidates: (given as { candidates: Pick[] }).candidates }
+  return { kind }
+}
+
 const sameText = (one: Read['view'], other: Read['view']) => one.title === other.title && one.body === other.body && one.end === other.end
 
 export class Shell {
@@ -674,17 +688,19 @@ export class Shell {
       const heard = words ? `"${words}"` : this.#words.thinking
       if (!moved()) this.#show(heard)
       const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, moved, mine)
-      if (!mine()) return
       const done = verdict.kind === 'handled' ? verdict.say : undefined
-      const answered: Verdict = verdict.kind === 'handled' ? { kind: 'handled', ...(done === undefined ? {} : { say: done }) } : verdict
       finish(
         () => {
           if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
           if (words) this.#show(heard, HEARD_MS)
           else this.#clear()
-          this.#act(answered, more ? () => void this.#decide(voice, audio, words) : undefined)
+          this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
         },
-        () => (done === undefined ? spare() : this.notice(done)),
+        () => {
+          if (done === undefined) spare()
+          else this.notice(done)
+          if (verdict.kind === 'handled' && showingsOf(this.#router).current === showing) this.redraw()
+        },
       )
     } catch (error) {
       finish(() => {
@@ -733,8 +749,9 @@ export class Shell {
       }
       if (gone()) throw new LifetimeEnded()
       if (!(navigate && index === 0)) this.#handed = true
-      const verdict = await agent(heard)
+      const given = await agent(heard)
       if (!mine()) throw new LifetimeEnded()
+      const verdict = once(given)
       if (verdict.kind !== 'notMine') return { verdict, more: navigate && index === 0 && agents.length > 1 }
     }
     return { verdict: { kind: 'none' }, more: false }
