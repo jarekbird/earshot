@@ -50,12 +50,16 @@ export interface Sent {
 export const copied = (view: Words): Words =>
   text({ ...(view.title === undefined ? {} : { title: view.title }), body: view.body, end: view.end }) as Words
 
+export type Gesture = 'tap' | 'up' | 'down'
+export type Aims = Partial<Record<Gesture, string>>
+
 interface Asked {
   frame: number
   showing: unknown
   kind: View['kind']
   drew: Read | null
   since: Since
+  aims: Aims
 }
 
 export class Frames {
@@ -86,6 +90,11 @@ export class Frames {
     return this.#asked.find(asked => asked.frame === this.#progress.text)
   }
 
+  get whole(): { showing: unknown; aims: Aims } | undefined {
+    this.forget()
+    return this.#asked.find(asked => asked.frame === this.#progress.shown)
+  }
+
   swiping(showing: unknown, to: Read, since: Since = NONE): void {
     if (!this.#ended) this.#swiped.set(showing, { frame: Infinity, to, since })
   }
@@ -97,10 +106,10 @@ export class Frames {
     if (swiped) swiped.since = and(swiped.since, drawn)
   }
 
-  asked(frame: number, showing: unknown, drew: Read | null, kind: View['kind'] = 'text'): void {
+  asked(frame: number, showing: unknown, drew: Read | null, kind: View['kind'] = 'text', aims: Aims = {}): void {
     if (this.#ended) return
     const later = this.#asked.findIndex(asked => asked.frame > frame)
-    this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, showing, kind, drew, since: NONE })
+    this.#asked.splice(later < 0 ? this.#asked.length : later, 0, { frame, showing, kind, drew, since: NONE, aims })
     const swiped = this.#swiped.get(showing)
     if (swiped?.frame === Infinity) swiped.frame = frame
     this.forget()
@@ -121,10 +130,11 @@ export class Frames {
   }
 
   forget(): void {
-    const { menu, text, sending } = this.#progress
+    const { shown, menu, text, sending } = this.#progress
     const newest = this.#asked.at(-1)
-    for (const asked of this.#asked) if (asked.frame === menu && asked.frame < text) asked.drew = null
-    this.#asked = this.#asked.filter(asked => asked.frame === menu || asked.frame === text || asked.frame === sending || asked === newest)
+    const still = (frame: number) => frame === shown || frame === menu || frame === text || frame === sending
+    for (const asked of this.#asked) if ((asked.frame === menu || asked.frame === shown) && asked.frame < text) asked.drew = null
+    this.#asked = this.#asked.filter(asked => still(asked.frame) || asked === newest)
     for (const [showing, swiped] of this.#swiped) {
       const drawn = (asked: Asked) => asked.showing === showing && asked.frame >= swiped.frame && asked.frame === text
       if (this.#asked.some(drawn)) this.#swiped.delete(showing)

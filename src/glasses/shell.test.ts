@@ -3133,16 +3133,14 @@ describe('a hold', () => {
     expect(heard).toEqual([])
   })
 
-  it('keeps a turn going when the screen it was said on is replaced, and ends its wait with it: what an agent then says is still to come', async () => {
-    const { fake, front, life, router, shell } = world({ voice: { transcribe: () => new Promise<string>(() => {}), timeoutMs: 77_000 } })
+  it('ends the wait for a turn with the turn, when the screen it was said on is replaced', async () => {
+    const { fake, life, router } = world({ voice: { transcribe: () => new Promise<string>(() => {}), timeoutMs: 77_000 } })
     router.open({ id: 'card', view: () => text({ body: 'Card' }) })
     await settle()
     await say(fake)
+    const waiting = vi.getTimerCount()
     router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
-    await settle(76_000)
-    const before = shell.busy
-    await settle(1_000)
-    expect([before, shell.busy, front()]).toEqual([true, false, ''])
+    expect(vi.getTimerCount()).toBeLessThan(waiting)
     life.end()
   })
 
@@ -3345,7 +3343,7 @@ describe('a hold', () => {
     expect(asked).toEqual([])
   })
 
-  it('is no longer busy, and shows nothing, when what a turn left behind throws as a touch calls it off', async () => {
+  it('is no longer busy, and shows nothing over the next screen, when what a turn left behind throws as it is called off', async () => {
     const { fake, front, life, router, shell } = world({
       voice: {
         transcribe: (_audio, turn) => {
@@ -3362,7 +3360,7 @@ describe('a hold', () => {
     expect(shell.busy).toBe(true)
     const reported = vi.fn()
     vi.stubGlobal('reportError', reported)
-    expect(() => fake.tap()).not.toThrow()
+    expect(() => router.replace({ id: 'other', view: () => text({ body: 'Other' }) })).not.toThrow()
     expect(reported.mock.calls.map(([error]) => String(error))).toEqual([TURN_END])
     await settle()
     expect(shell.busy).toBe(false)
@@ -3522,8 +3520,8 @@ describe('a hold', () => {
     expect(asked).toHaveLength(1)
   })
 
-  it('lets nothing of what a turn left behind throw reach the touch that called it off, only a sentence of its own', async () => {
-    const { fake } = world({
+  it('lets nothing of what a turn left behind throw reach whoever changed the screen, only a sentence of its own', async () => {
+    const { fake, router } = world({
       voice: {
         transcribe: (_audio, turn) => {
           turn?.own(() => {
@@ -3540,7 +3538,7 @@ describe('a hold', () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
     let thrown: unknown
     try {
-      fake.tap()
+      router.open({ id: 'other', view: () => text({ body: 'Other' }) })
     } catch (error) {
       thrown = error
     }
@@ -3549,6 +3547,7 @@ describe('a hold', () => {
     expect(logged).not.toHaveBeenCalled()
     expect(reported.mock.calls.map(([error]) => String(error))).toEqual([TURN_END])
     expect(reported.mock.calls.map(([error]) => (error as Error).cause)).toEqual([undefined])
+    expect(fake.lines()).toContain('Other')
   })
 
   it('runs what was said, and lets only a sentence of its own out, when what the turn left behind throws as the turn ends', async () => {
@@ -3736,9 +3735,8 @@ describe('a hold', () => {
     expect(heard).toEqual([tone(200).length])
   })
 
-  it('shows the notice a screen gave as it left for as long as a notice stays, though a turn that was being decided on it ends meanwhile with nothing to say', async () => {
-    let heard: (words: string) => void = () => {}
-    const { fake, front, router, shell } = world({ voice: { transcribe: () => new Promise<string>(done => (heard = done)) } })
+  it('shows the notice a screen gave as it left, though a turn that was being decided on it is called off with it', async () => {
+    const { fake, front, router, shell } = world({ voice: { transcribe: () => new Promise<string>(() => {}) } })
     router.open({
       id: 'child',
       view: () => text({ body: 'Child' }),
@@ -3746,15 +3744,10 @@ describe('a hold', () => {
     })
     await settle()
     await say(fake)
+    expect(shell.busy).toBe(true)
     router.back()
     await settle()
-    const during = [shell.busy, front()]
-    heard('something no one handles')
-    await settle()
-    expect([during, [shell.busy, front()]]).toEqual([
-      [true, 'Saved'],
-      [false, 'Saved'],
-    ])
+    expect([shell.busy, front()]).toEqual([false, 'Saved'])
   })
 
   it('takes a notice away with the turn when a touch calls the turn off, as it always did', async () => {
@@ -3985,36 +3978,145 @@ describe('a hold', () => {
     expect([took, shell.busy, front()]).toEqual([[], false, ''])
   })
 
-  it('takes its own card down at once when the screen changes while a turn is still being decided', async () => {
-    const { fake, front, router, shell } = world({ voice: { transcribe: () => new Promise<string>(() => {}) } })
+  it('takes its own card down at once when the screen changes while an agent of the app is at work, and still says what the agent then says', async () => {
+    let answer: (verdict: { kind: 'handled'; say: string }) => void = () => {}
+    const { voice } = hearing('remember the milk')
+    voice.agents = [() => new Promise(done => (answer = done))]
+    const { fake, front, router, shell } = world({ voice })
     await settle()
     await say(fake)
     const before = front()
     router.open({ id: 'other', view: () => text({ body: 'Other' }) })
     await settle()
-    expect([before, shell.busy, front()]).toEqual(['…', true, ''])
+    const atTheChange = [shell.busy, front()]
+    answer({ kind: 'handled', say: 'Saved' })
+    await settle()
+    expect([before, atTheChange, [shell.busy, front()]]).toEqual(['"remember the milk"', [true, ''], [false, 'Saved']])
   })
 
-  it('leaves a card the screen that came drew itself, at the change and when the turn then ends', async () => {
-    let heard: (words: string) => void = () => {}
-    const { fake, front, glasses, router } = world({ voice: { transcribe: () => new Promise<string>(done => (heard = done)) } })
+  it('leaves a card the screen that came drew itself, at the change and when an agent that was at work then ends with nothing to say', async () => {
+    let answer: (verdict: { kind: 'handled' }) => void = () => {}
+    const { voice } = hearing('remember the milk')
+    voice.agents = [() => new Promise(done => (answer = done))]
+    const { fake, front, glasses, router } = world({ voice })
     await settle()
     await say(fake)
     router.open({ id: 'trail', view: () => text({ body: 'Trail' }), enter: () => glasses.overlay('GPS unavailable') })
     await settle()
     const atTheChange = front()
-    heard('')
+    answer({ kind: 'handled' })
     await settle()
     expect([atTheChange, front()]).toEqual(['GPS unavailable', 'GPS unavailable'])
   })
 
-  it('draws the screen that was opened while a turn is being decided, and tells the listeners of it', async () => {
-    const { fake, life, router } = world({ voice: { transcribe: () => new Promise<string>(() => {}) } })
+  it('writes no card of its own over a card the next screen drew, when that screen was opened as the app was asked how long a turn may take', async () => {
+    const { voice, asked } = hearing('open ben')
+    const { fake, front, glasses, router } = world({ voice })
+    await settle()
+    let moved = false
+    Object.defineProperty(voice, 'timeoutMs', {
+      get: () => {
+        if (!moved) {
+          moved = true
+          router.open({ id: 'trail', view: () => text({ body: 'Trail' }), enter: () => glasses.overlay('GPS unavailable') })
+        }
+        return 5_000
+      },
+    })
+    await say(fake)
+    await settle()
+    expect([asked, front()]).toEqual([[], 'GPS unavailable'])
+  })
+
+  it('leaves a notice the app gave while an agent of the app was at work, at the change of screen and when the agent ends with nothing to say', async () => {
+    let answer: (verdict: { kind: 'handled' }) => void = () => {}
+    const { voice } = hearing('remember the milk')
+    voice.agents = [() => new Promise(done => (answer = done))]
+    const { fake, front, router, shell } = world({ voice })
+    await settle()
+    await say(fake)
+    shell.notice('Saved')
+    router.open({ id: 'other', view: () => text({ body: 'Other' }) })
+    await settle(100)
+    const atTheChange = front()
+    answer({ kind: 'handled' })
+    await settle(100)
+    expect([atTheChange, front()]).toEqual(['Saved', 'Saved'])
+  })
+
+  it('asks no further agent once the screen was left and come back to while an agent of the app was at work', async () => {
+    let answer: (verdict: { kind: 'notMine' }) => void = () => {}
+    const took: string[] = []
+    const { voice } = hearing('tell the team')
+    voice.agents = [() => new Promise(done => (answer = done)), ({ words }) => (took.push(words), { kind: 'handled', say: 'Told' })]
+    const { fake, front, router, shell } = world({ voice })
+    await settle()
+    await say(fake)
+    router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+    router.back()
+    answer({ kind: 'notMine' })
+    await settle()
+    expect([took, shell.busy, front()]).toEqual([[], false, ''])
+  })
+
+  it('ends the lifetime a transcriber was given when the screen changes while it is still hearing, so it sends nothing more', async () => {
+    const lives: Lifetime[] = []
+    const { fake, router, shell } = world({
+      voice: { transcribe: (_audio, life) => (life && lives.push(life), new Promise<string>(() => {})) },
+    })
+    await settle()
+    await say(fake)
+    const during = lives.map(life => life.ended)
+    router.replace({ id: 'other', view: () => text({ body: 'Other' }) })
+    expect([during, lives.map(life => life.ended), shell.busy]).toEqual([[false], [true], false])
+  })
+
+  it('calls the next turn off at a change of screen while it is still hearing, though the agent of a turn that ran out of time never answered', async () => {
+    const { voice } = hearing('remember the milk')
+    voice.timeoutMs = 2_000
+    voice.agents = [() => new Promise(() => {})]
+    const { fake, router, shell } = world({ voice })
+    await settle()
+    await say(fake)
+    await settle(3_000)
+    voice.transcribe = () => new Promise<string>(() => {})
+    await say(fake)
+    const before = shell.busy
+    router.open({ id: 'other', view: () => text({ body: 'Other' }) })
+    expect([before, shell.busy]).toEqual([true, false])
+  })
+
+  it('calls a turn off at a change of screen while only the model is at work on it', async () => {
+    const { voice } = hearing('something else entirely')
+    voice.model = { choose: () => new Promise(() => {}) }
+    const { fake, front, router, shell } = world({ voice })
+    await settle()
+    await say(fake)
+    const before = shell.busy
+    router.open({ id: 'other', view: () => text({ body: 'Other' }) })
+    await settle()
+    expect([before, shell.busy, front()]).toEqual([true, false, ''])
+  })
+
+  it('draws the screen that was opened, and tells the listeners after it, also when what a turn left behind throws as it is called off', async () => {
+    const { fake, life, router } = world({
+      voice: {
+        transcribe: (_audio, turn) => {
+          turn?.own(() => {
+            throw new Error('cleanup failed')
+          })
+          return new Promise<string>(() => {})
+        },
+      },
+    })
     const told: string[] = []
     router.onChange(current => void told.push(current.id))
     await settle()
     await say(fake)
-    router.open({ id: 'other', view: () => text({ body: 'Other' }) })
+    const reported = vi.fn()
+    vi.stubGlobal('reportError', reported)
+    expect(() => router.open({ id: 'other', view: () => text({ body: 'Other' }) })).not.toThrow()
+    expect(reported.mock.calls.map(([error]) => String(error))).toEqual([TURN_END])
     await settle()
     expect(told).toEqual(['other'])
     expect(fake.lines()).toContain('Other')

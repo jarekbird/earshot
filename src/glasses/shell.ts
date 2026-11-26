@@ -9,7 +9,7 @@ import { SayError } from '../say.js'
 import { serve } from '../serve.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
-import { after, copied, Frames, type Read } from './frames.js'
+import { after, copied, Frames, type Aims, type Gesture, type Read } from './frames.js'
 import { OVERLAY, plainFrame, progressOf, WHOLE, type Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { BODY, layoutList, layoutText, type LaidText, type TextState } from './layout.js'
@@ -106,9 +106,6 @@ interface Place {
   away?: boolean
 }
 
-type Gesture = 'tap' | 'up' | 'down'
-type Aims = Partial<Record<Gesture, string>>
-
 interface Drawn {
   frame: number
   screen: Screen
@@ -153,11 +150,12 @@ export class Shell {
   #turn = 0
   #said = false
   #deciding: Lifetime | null = null
+  #decidingOn: object | null = null
+  #handed = false
   readonly #frames: Frames
   #pending: number[] = []
   #moves = 0
   #draws = 0
-  #asked: Array<{ frame: number; showing: object; aims: Aims }> = []
 
   constructor(parent: Lifetime, glasses: Glasses, router: Router, options: ShellOptions = {}) {
     this.#life = parent.child()
@@ -184,7 +182,7 @@ export class Shell {
         this.#moves++
         const { onPath, current } = showingsOf(router)
         this.#frames.left(onPath)
-        const spoken = this.#recording?.showing
+        const spoken = this.#recording?.showing ?? (this.#handed ? undefined : this.#decidingOn)
         const closed = current !== undefined && !onPath(current)
         try {
           if (closed || (spoken !== undefined && spoken !== null && !onPath(spoken))) this.#callOff(true)
@@ -207,7 +205,7 @@ export class Shell {
     this.#life.own(
       showingsOf(router).onMove(() => {
         this.#moves++
-        const spoken = this.#recording?.showing
+        const spoken = this.#recording?.showing ?? (this.#handed ? undefined : this.#decidingOn)
         try {
           if (spoken !== undefined && spoken !== null && spoken !== showingsOf(router).current) this.#callOff(true)
         } finally {
@@ -291,10 +289,7 @@ export class Shell {
     if (this.#life.ended || !showings.onPath(showing)) return progressOf(this.#glasses).drop([frame])
     if (!this.#drawn || frame > this.#drawn.frame)
       this.#drawn = { frame, screen, showing, view: kept, aims, targets, folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [], scrolls }
-    this.#seen()
-    this.#asked.push({ frame, showing, aims })
-    this.#asked.sort((one, other) => one.frame - other.frame)
-    this.#frames.asked(frame, showing, drew, view.kind)
+    this.#frames.asked(frame, showing, drew, view.kind, aims)
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
@@ -314,17 +309,10 @@ export class Shell {
     this.#draw({ view, laid: text })
   }
 
-  #seen(): { frame: number; showing: object; aims: Aims } | undefined {
-    const { shown } = progressOf(this.#glasses)
-    const at = this.#asked.findLastIndex(asked => asked.frame <= shown)
-    if (at > 0) this.#asked.splice(0, at)
-    return this.#asked[0]
-  }
-
   #aimed(drawn: Drawn, gesture: Gesture): boolean {
     const aim = drawn.aims[gesture]
-    const seen = this.#seen()
-    if (aim === undefined || seen?.frame !== progressOf(this.#glasses).shown || !this.#glasses[WHOLE]) return false
+    const seen = this.#frames.whole
+    if (aim === undefined || !seen || !this.#glasses[WHOLE]) return false
     return seen.showing === drawn.showing && seen.aims[gesture] === aim
   }
 
@@ -481,6 +469,8 @@ export class Shell {
     this.#slow?.cancel()
     const deciding = this.#deciding
     this.#deciding = null
+    this.#decidingOn = null
+    this.#handed = false
     serve(() => deciding?.end(), TURN_END)
     const pressed = this.#recording?.source
     try {
@@ -598,6 +588,7 @@ export class Shell {
   async #decide(voice: VoiceOptions, audio: Audio, passed?: string): Promise<void> {
     const turn = ++this.#turn
     const moves = this.#moves
+    const showing = showingsOf(this.#router).current
     const life = new Lifetime()
     life.own(this.#life.own(() => serve(() => life.end(), TURN_END)))
     const mine = () => turn === this.#turn && !this.#life.ended
@@ -609,10 +600,12 @@ export class Shell {
       serve(() => life.end(), TURN_END)
       if (!mine()) return
       this.#deciding = null
+      this.#decidingOn = null
       if (moved()) elsewhere()
       else then()
     }
     this.#deciding = life
+    this.#decidingOn = showing ?? null
     let slow: Timer = { cancel: () => {} }
     let patience: number | undefined
     serve(() => void (patience = voice.timeoutMs ?? VOICE_TIMEOUT_MS), TURN_SET)
@@ -633,7 +626,7 @@ export class Shell {
       if (transcript !== null && !words) return finish(() => this.notice(this.#words.missed))
       const heard = words ? `"${words}"` : this.#words.thinking
       if (!moved()) this.#show(heard)
-      const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null)
+      const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, moved)
       const done = verdict.kind === 'handled' && verdict.say !== undefined ? verdict.say : undefined
       finish(
         () => {
@@ -666,10 +659,9 @@ export class Shell {
     voice: VoiceOptions,
     said: { words: string; audio: Audio; life: Lifetime },
     navigate: boolean,
+    moved: () => boolean,
   ): Promise<{ verdict: Verdict; more: boolean }> {
-    const showings = showingsOf(this.#router)
-    const showing = showings.current
-    const gone = () => said.life.ended || showings.current !== showing || !showings.onPath(showing)
+    const gone = () => said.life.ended || moved()
     const asking = (model: NavigatorModel): NavigatorModel => ({
       choose: (question, life) => {
         const choose = model.choose
@@ -690,6 +682,7 @@ export class Shell {
         ...(screen ? { screen } : {}),
       }
       if (gone()) throw new LifetimeEnded()
+      if (!(navigate && index === 0)) this.#handed = true
       const verdict = await agent(heard)
       if (verdict.kind !== 'notMine') return { verdict, more: navigate && index === 0 && agents.length > 1 }
     }

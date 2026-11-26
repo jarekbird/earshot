@@ -26,6 +26,24 @@ describe('the frames a shell asked for', () => {
     expect(frames.kept).toBe(1)
   })
 
+  it('keeps what a touch would run on the frame that is whole on the glasses, and no more frames for it, however many were asked while they were behind', () => {
+    const progress = { shown: 1, menu: 1, text: 1, sending: 2 }
+    const frames = new Frames(progress)
+    const list = screen('list')
+    for (let frame = 1; frame <= 500; frame++) frames.asked(frame, list, null, 'list', { tap: `row ${frame}` })
+    expect([frames.whole?.aims, frames.kept]).toEqual([{ tap: 'row 1' }, 3])
+    Object.assign(progress, { shown: 1, menu: 2, text: 2, sending: 500 })
+    expect([frames.whole?.aims, frames.whole?.showing, frames.kept]).toEqual([{ tap: 'row 1' }, list, 3])
+    Object.assign(progress, { shown: 500, menu: 500, text: 500, sending: 0 })
+    expect([frames.whole?.aims, frames.kept]).toEqual([{ tap: 'row 500' }, 1])
+  })
+
+  it('knows of no whole frame of the shell while the glasses show one that was not asked for through it', () => {
+    const frames = new Frames({ shown: 7, menu: 7, text: 7, sending: 0 })
+    frames.asked(3, screen('list'), null, 'list', { tap: 'row' })
+    expect(frames.whole).toBeUndefined()
+  })
+
   it('counts a swipe from where the last swipe reached until a frame as new is on the glasses, then from what they show', () => {
     const progress = { shown: 1, menu: 1, text: 1, sending: 0 }
     const frames = new Frames(progress)
