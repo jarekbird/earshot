@@ -111,7 +111,6 @@ interface Drawn {
   screen: Screen
   showing: object
   view: View
-  listed?: Action
   targets: readonly TargetInfo[]
   folded: readonly Action[]
   scrolls: boolean
@@ -305,7 +304,6 @@ export class Shell {
         screen,
         showing,
         view: kept,
-        ...(listed ? { listed } : {}),
         targets,
         folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [],
         scrolls,
@@ -389,8 +387,10 @@ export class Shell {
   }
 
   #row(drawn: Drawn, place: Place): { action: Action; target: string } | undefined {
-    const target = drawn.targets[place.cursor]?.id
-    return drawn.listed === undefined || target === undefined ? undefined : { action: drawn.listed, target }
+    const under = drawn.targets[place.cursor]
+    if (drawn.view.kind !== 'list' || !under) return undefined
+    const action = drawn.view.action
+    return { action, target: under.id }
   }
 
   #choose(drawn: Drawn, row: { action: Action; target: string } | undefined, said = false): void {
@@ -674,7 +674,7 @@ export class Shell {
       const heard = words ? `"${words}"` : this.#words.thinking
       if (!moved()) this.#show(heard)
       const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, moved, mine)
-      const done = () => (verdict.kind === 'handled' ? verdict.say : undefined)
+      const done = verdict.kind === 'handled' ? verdict.say : undefined
       finish(
         () => {
           if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
@@ -682,12 +682,7 @@ export class Shell {
           else this.#clear()
           this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
         },
-        () => {
-          const say = done()
-          if (!mine()) return
-          if (say === undefined) spare()
-          else this.notice(say)
-        },
+        () => (done === undefined ? spare() : this.notice(done)),
       )
     } catch (error) {
       finish(() => {

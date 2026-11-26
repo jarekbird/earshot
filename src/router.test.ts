@@ -388,6 +388,23 @@ describe('what the framework keeps to itself', () => {
     expect([told, showingsOf(router).current === undefined]).toEqual([[false, true], false])
   })
 
+  it('tells every follower that the last screen is lost, also when one of them throws, and lets the error of the screen that could not be entered through', () => {
+    const router = new Router({ home: screen('home') })
+    const told: boolean[] = []
+    showingsOf(router).onLeave(lost => {
+      if (lost) throw new Error('a follower failed')
+    })
+    showingsOf(router).onLeave(lost => void told.push(lost))
+    const broken: Screen = {
+      id: 'broken',
+      enter: () => {
+        throw new Error('could not be entered')
+      },
+    }
+    expect(() => router.replace(broken)).toThrow('could not be entered')
+    expect(told).toEqual([false, true])
+  })
+
   it('tells of no loss when a screen over another was replaced by one that could not be entered: the one under it is left', () => {
     const router = new Router({ home: screen('home') })
     router.open(screen('child'))

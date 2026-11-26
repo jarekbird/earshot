@@ -2507,6 +2507,20 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect([atDraw, did]).toEqual([1, ['open']])
   })
 
+  it('E15: asks the action a list has now, when the app put another of the same name in its place without a redraw: a blocked one says why and nothing runs', async () => {
+    const went: string[] = []
+    const rows = () => [{ id: 'north', say: 'North', value: 'north' }]
+    const open = action({ id: 'go', say: 'Go', targets: rows, run: to => void went.push(to) })
+    const closed = action({ id: 'go', say: 'Go', targets: rows, blocked: () => 'Route closed', run: to => void went.push(`closed ${to}`) })
+    const view = list({ title: 'Trail', action: open })
+    const { fake, front } = world({ home: () => ({ id: 'trail', view: () => view }) })
+    await settle()
+    Object.assign(view, { action: closed })
+    fake.tap()
+    await settle(100)
+    expect([went, front()]).toEqual([[], 'Route closed'])
+  })
+
   it('E15: runs no row of a list when reading what its tap is tied to moved the screen on', async () => {
     const sent: string[] = []
     const made: { router?: Router } = {}
@@ -4588,6 +4602,25 @@ describe('a hold', () => {
       expect(front()).toBe('Saved')
     },
   )
+
+  it('says what an agent answered on another screen though what the agent left behind takes the words away again as the turn ends', async () => {
+    const { voice } = hearing('remember the milk')
+    const made: { router?: Router } = {}
+    voice.agents = [
+      ({ life }) => {
+        const verdict: { kind: 'handled'; say?: string } = { kind: 'handled', say: 'Saved' }
+        life?.own(() => void delete verdict.say)
+        made.router?.open({ id: 'saved', view: () => text({ body: 'The milk' }) })
+        return verdict
+      },
+    ]
+    const { fake, front, router } = world({ voice })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect(front()).toBe('Saved')
+  })
 
   it('calls a turn off at a change of screen while only the model is at work on it', async () => {
     const { voice } = hearing('something else entirely')

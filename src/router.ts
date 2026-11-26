@@ -220,7 +220,13 @@ export class Router {
     try {
       after()
     } finally {
-      if (!this.#stack.length) for (const told of [...this.#left]) told(true)
+      for (const told of this.#stack.length ? [] : [...this.#left]) {
+        try {
+          told(true)
+        } catch (error) {
+          errors.push(error)
+        }
+      }
     }
     if (errors.length === 1) throw errors[0]
     if (errors.length) throw new AggregateError(errors, 'Cleanups failed when screens left.')
