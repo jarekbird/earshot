@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.55
+npm install github:jarekbird/earshot#v0.0.56
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.55 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.56 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -212,7 +212,7 @@ const noted: NavigatorModel = {
 
 The navigator counts "choose this one" with the row it stands for only after your model has answered: a wrapper sees the two as the model gave them.
 
-- A double tap calls a command off while it listens, and so does leaving the app. What was said is dropped when the screen changed while it listened. When the screen changed while it was decided, no action is run and no choice is offered; only what an agent that handled the words says is still shown.
+- A double tap calls a command off while it listens, and so does leaving the app. What was said is dropped when the screen changed while it listened. When the screen changed while it was decided, no action is run, no choice is offered and no further agent is asked; only what an agent that had already handled the words says is still shown.
 - `onListen` is called when a hold starts to listen: bind there what the words are for. `shell.busy` is true from then until the command is done. A hold with no release ends after a minute (`maxHoldMs`, a day at the most). No answer in forty-five seconds is given up on (`timeoutMs`), which ends the turn's lifetime; an answer that comes after that shows nothing.
 - Throw `SayError` from a transcriber to say what went wrong in your own words.
 
