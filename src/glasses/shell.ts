@@ -510,7 +510,8 @@ export class Shell {
       if (transcript !== null && !words) return finish(() => this.notice(this.#words.missed))
       const heard = words ? `"${words}"` : this.#words.thinking
       this.#show(heard)
-      const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null)
+      const still = () => mine() && !moved()
+      const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, still)
       const done = verdict.kind === 'handled' && verdict.say !== undefined ? verdict.say : undefined
       finish(
         () => {
@@ -542,10 +543,12 @@ export class Shell {
     voice: VoiceOptions,
     said: { words: string; audio: Audio; life: Lifetime },
     navigate: boolean,
+    still: () => boolean,
   ): Promise<{ verdict: Verdict; more: boolean }> {
     const agents = [...(navigate ? [navigator(voice.model ?? matchWords)] : []), ...(voice.agents ?? [])]
     for (const [index, agent] of agents.entries()) {
       if (said.life.ended) throw new LifetimeEnded()
+      if (!still()) break
       const screen = this.#context()
       const verdict = await agent({
         ...said,
