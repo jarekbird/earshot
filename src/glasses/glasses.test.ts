@@ -41,7 +41,7 @@ describe('the first draw', () => {
     expect(fake.lines()).toEqual(['Threads', 'One', 'Two'])
   })
 
-  it('takes over a page left by an earlier load of the app', async () => {
+  it('E11: takes over a page left by an earlier load of the app', async () => {
     const { fake, glasses } = setup({ owned: true })
     glasses.draw(frame(box('title', 'Threads')))
     await settle()
@@ -59,7 +59,7 @@ describe('a later draw', () => {
     return made
   }
 
-  it('updates in place the boxes whose text changed', async () => {
+  it('E11: updates in place the boxes whose text changed', async () => {
     const { fake, glasses } = await drawn()
     glasses.draw(frame(box('title', 'Threads'), box('body', 'Two', { y: 27 })))
     await settle()
@@ -67,7 +67,7 @@ describe('a later draw', () => {
     expect(fake.lines()).toEqual(['Threads', 'Two'])
   })
 
-  it('updates in place a box whose brightness changed', async () => {
+  it('E11: updates in place a box whose brightness changed', async () => {
     const { fake, glasses } = await drawn()
     glasses.draw(frame(box('title', 'Threads', { brightness: 1 }), box('body', 'One', { y: 27 })))
     await settle()
@@ -82,7 +82,7 @@ describe('a later draw', () => {
     expect(fake.calls).toEqual([])
   })
 
-  it('rebuilds the page when a box is added, removed, moved, resized or renamed', async () => {
+  it('E11: rebuilds the page when a box is added, removed, moved, resized or renamed', async () => {
     for (const next of [
       frame(box('title', 'Threads'), box('body', 'One', { y: 27 }), box('foot', 'x', { y: 261 })),
       frame(box('title', 'Threads')),
@@ -266,7 +266,7 @@ describe('the overlay', () => {
     for (const line of kept) expect(textWidth(line)).toBeLessThanOrEqual(576)
   })
 
-  it('dims the page in place and writes over it, bright', async () => {
+  it('E11: dims the page in place and writes over it, bright', async () => {
     const { fake, glasses } = await drawn()
     glasses.overlay('Listening')
     await settle()
@@ -336,7 +336,7 @@ describe('the menu', () => {
     expect(fake.menuItems()).toEqual([])
   })
 
-  it('rebuilds the page only when it changes', async () => {
+  it('E11: rebuilds the page only when it changes', async () => {
     const { fake, glasses } = setup()
     glasses.draw({ boxes: [box('title', 'One')], menu })
     await settle(REBUILD_GAP_MS)
@@ -375,7 +375,7 @@ describe('the menu', () => {
 })
 
 describe('a rebuild the glasses refuse', () => {
-  it('is taken for one that may have landed: the page before it is built again, not only written into', async () => {
+  it('E11: is taken for one that may have landed: the page before it is built again, not only written into', async () => {
     const { fake, glasses } = setup()
     glasses.draw(frame(box('body', 'One', { h: 200 })))
     await settle(1_000)
@@ -1643,7 +1643,7 @@ describe('pictures', () => {
     expect(fake.stack()).toEqual(['input', 'chart', 'title'])
   })
 
-  it('sends a picture again only when its key changes, and rebuilds nothing for it', async () => {
+  it('E11: sends a picture again only when its key changes, and rebuilds nothing for it', async () => {
     const { fake, glasses } = setup()
     glasses.draw(withPictures(picture('chart', 'v1')))
     await settle(REBUILD_GAP_MS)
