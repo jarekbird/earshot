@@ -265,6 +265,25 @@ describe('the navigator', () => {
       ])
     })
 
+    it('are told to the model: the one names the other it counts toward, so a wrapper of the model can add them up as the navigator does', () => {
+      const { options } = questionFor(withThis('welcome')).question
+      const named = options.find(option => option.say === 'Open note: Welcome')!
+      expect(options.find(option => option.say === 'Choose this one')!.same).toBe(named.id)
+      expect(options.filter(option => option.same !== undefined)).toHaveLength(1)
+      expect(questionFor(withThis('gone')).question.options.filter(option => option.same !== undefined)).toEqual([])
+    })
+
+    it('stay one when the model it asked changed the question it was handed', async () => {
+      const meddling = navigator({
+        choose: async question => {
+          const chosen = { [idOf(question, 'Choose this one')]: 0.45, [idOf(question, 'Open note: Welcome')]: 0.45 }
+          for (const option of question.options) delete option.same
+          return chosen
+        },
+      })
+      expect(await meddling(withThis('welcome'))).toEqual({ kind: 'sure', action: 'open', target: 'welcome' })
+    })
+
     it('are two when the other is not in the question: an action that stands for nothing offered runs as itself', async () => {
       const one = answering(q => ({ [idOf(q, 'Choose this one')]: 0.9 }))
       expect(await one(withThis('gone'))).toEqual({ kind: 'sure', action: 'this' })

@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.57
+npm install github:jarekbird/earshot#v0.0.58
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.57 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.58 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -203,14 +203,17 @@ import { matchWords, SURE_AT, type NavigatorModel } from 'earshot'
 const noted: NavigatorModel = {
   async choose(question, life) {
     const chances = await matchWords.choose(question, life)
-    for (const option of question.options)
-      if (option.action && (chances[option.id] ?? 0) >= SURE_AT) console.log('runs', option.action, option.target)
+    for (const option of question.options) {
+      const counted = question.options.filter(other => other === option || other.same === option.id)
+      const chance = counted.reduce((sum, other) => sum + (chances[other.id] ?? 0), 0)
+      if (option.action && option.same === undefined && chance >= SURE_AT) console.log('runs', option.action, option.target)
+    }
     return chances
   },
 }
 ```
 
-The navigator counts "choose this one" with the row it stands for only after your model has answered: a wrapper sees the two as the model gave them.
+The navigator counts "choose this one" with the row it stands for only after your model has answered, so your model gives each of the two its own chance. The option that counts toward another names it in `same`, the other's `id`: add its chance to that one, as above, and your wrapper sees what the navigator will decide.
 
 - A double tap calls a command off while it listens, and so does leaving the app. What was said is dropped when the screen changed while it listened. When the screen changed while it was decided, no action is run, no choice is offered and no further agent is asked; only what an agent that had already handled the words says is still shown.
 - `onListen` is called when a hold starts to listen: bind there what the words are for. `shell.busy` is true from then until the command is done. A hold with no release ends after a minute (`maxHoldMs`, a day at the most). No answer in forty-five seconds is given up on (`timeoutMs`), which ends the turn's lifetime; an answer that comes after that shows nothing.
@@ -308,7 +311,7 @@ new Shell(life, glasses, router, { voice: { transcribe, rolling, agents: [send],
 - **The rolling set:** items the app adds, each an action on one of its targets, newest first. Adding one again makes it the newest. It holds 255 less the options above, and the oldest leaves. It belongs to the app, so an item can be picked from any screen. A `private` target never enters it.
 - **`otherwise`** names what your other agents take. The navigator offers it only when there is another agent, and picking it passes the words on.
 - **`instead`** names the same thing for the person, in a few words: "Keep as a note". With it, the person can turn the navigator's choice down. A question it raises ("Delete note: Milk? Tap to confirm") gains the line "Swipe: Keep as a note", and its list of candidates gains that as the last row. A swipe either way, or that row, hands the same words to your agents, and what the navigator chose does not run. It is read when the question is asked, so it can name what these words were for. Without it, or with no agent, nothing is offered and a swipe drops the question as before. Like the confirming tap, the swipe has no spoken form: a hold calls the question off and listens anew. A choice that needs no tap has already run: there is nothing to turn down.
-- **Context,** all optional: a `hint` on an action, `context()` on a screen for what is on it now, and text with a rolling item that tells it from the others. A choice or a rolling item with no text of its own is offered with its action's `hint`, on whichever screen.
+- **Context,** all optional: a `hint` on an action, `context()` on a screen for what is on it now, and text with a rolling item that tells it from the others. A choice or a rolling item with no text of its own is offered with its action's `hint`, on whichever screen. So word a hint for every target of its action: one that describes most of them ("Shows a recipe and its steps") is put to the model for the odd one too. Give that one text of its own.
 - Context can be any length. Over 1,200 characters an item, Earshot asks `compact(text, limit)` for a shorter one in the background and uses the last characters until it is back, or if it fails. Text that is still changing is compacted once it has been still for five seconds. Without `compact`, the last characters are used.
 - A whole question carries at most 240,000 characters. Past that, the oldest rolling items send their name only.
 

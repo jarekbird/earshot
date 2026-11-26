@@ -10,6 +10,7 @@ export interface Option {
   role?: 'pass' | 'none'
   action?: string
   target?: string
+  same?: string
 }
 
 export interface Question {
@@ -63,11 +64,11 @@ const NONE = 'none'
 
 type Meaning = Pick | typeof PASS | typeof NONE
 
-export function questionFor(heard: Heard): { question: Question; meanings: Map<string, Meaning>; same: Map<string, string> } {
+export function questionFor(heard: Heard): { question: Question; meanings: Map<string, Meaning> } {
   const meanings = new Map<string, Meaning>()
   const options: Option[] = []
   let length = heard.words.length + (heard.screen?.length ?? 0)
-  const offer = (meaning: Meaning, option: Omit<Option, 'id' | 'action' | 'target'>) => {
+  const offer = (meaning: Meaning, option: Omit<Option, 'id' | 'action' | 'target' | 'same'>) => {
     const id = `o${options.length}`
     const runs =
       typeof meaning === 'object' ? { action: meaning.action, ...(meaning.target === undefined ? {} : { target: meaning.target }) } : {}
@@ -103,15 +104,13 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
     full ||= length + item.say.length + context.length > QUESTION_LIMIT
     offer({ action: item.action.id, target: item.target, say: item.say }, { say: item.say, ...(context && !full ? { context } : {}) })
   }
-  const same = new Map<string, string>()
-  const idOf = (action: string, target?: string) =>
-    [...meanings].find(([, meaning]) => typeof meaning === 'object' && meaning.action === action && meaning.target === target)?.[0]
+  const offering = (action: string, target?: string) => options.find(option => option.action === action && option.target === target)
   for (const action of heard.actions as readonly Standing[]) {
     const stands = action[SAME]?.()
-    const [from, to] = stands ? [idOf(action.id), idOf(stands.action, stands.target)] : []
-    if (from !== undefined && to !== undefined) same.set(from, to)
+    const [from, to] = stands ? [offering(action.id), offering(stands.action, stands.target)] : []
+    if (from && to) from.same = to.id
   }
-  return { question: { words: heard.words, ...(heard.screen ? { screen: heard.screen } : {}), options }, meanings, same }
+  return { question: { words: heard.words, ...(heard.screen ? { screen: heard.screen } : {}), options }, meanings }
 }
 
 const verdictOf = (meaning: Meaning): Verdict => {
@@ -122,7 +121,8 @@ const verdictOf = (meaning: Meaning): Verdict => {
 
 export function navigator(model: NavigatorModel): Agent {
   return async heard => {
-    const { question, meanings, same } = questionFor(heard)
+    const { question, meanings } = questionFor(heard)
+    const same = question.options.flatMap(option => (option.same === undefined ? [] : [[option.id, option.same]]))
     const chances = { ...(await model.choose(question, heard.life)) }
     for (const [from, to] of same) {
       if (!Object.hasOwn(chances, from)) continue
