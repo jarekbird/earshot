@@ -261,7 +261,8 @@ text, so Jev is enough.
 - The thresholds that turn probabilities into verdicts live with the navigator. `SURE_AT` is exported, and each
   option names the action and the target it would run: an app that wraps the model, to weigh its answer or to note
   what was decided, then tells options apart by id and draws the line where the navigator does, with neither the
-  options' words nor the number repeated in the app.
+  options' words nor the number repeated in the app. An option that counts toward another names it (`same`), so
+  that a wrapper can add the two up before the navigator does and comes to the verdict the navigator will.
 - Two options that would do the same thing are one choice. The shell's "choose this one" stands for the row under
   the cursor, which the question also offers by name. Both are put to the model, since each is how a person may
   say it, and the chance of the first is added to the second before anything is compared. The row by name is
