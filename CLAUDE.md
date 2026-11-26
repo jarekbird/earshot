@@ -27,6 +27,10 @@ Checks cite these IDs. Changing one needs Jarek's OK.
 - **E11** A page the glasses are known to show is rebuilt only when its boxes, its pictures' boxes or its menu change.
   Text and brightness change in place, and the overlay rebuilds nothing. A page that is not known is built: the
   first one, one that an earlier load of the app left, and the next after a rebuild the glasses refused.
+- **E12** After an `await`, the shell runs nothing and asks no further agent unless the command, the screen and the
+  target are still the ones it began with: an answer that was for another screen is dropped. It may still say what
+  was already done or tried (what an agent that handled the words has to say, why an action that ran could not
+  finish), and it draws the screen on show again.
 - **E13** The relay's hosts, the Node server and the example's Worker, are one server: each only hands requests to
   `relay`, and a setting or a feature of one is in the other in the same change. Only where a host listens, and how
   it takes and opens a WebSocket, is its own.
