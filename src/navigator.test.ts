@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { action } from './action.js'
 import { Lifetime } from './lifetime.js'
-import { MAX_OPTIONS, matchWords, navigator, questionFor, QUESTION_LIMIT, SURE_AT, type Heard, type Question } from './navigator.js'
+import { MAX_OPTIONS, matchWords, navigator, questionFor, QUESTION_LIMIT, SAME, SURE_AT, type Heard, type Question } from './navigator.js'
 import type { RollingItem } from './rolling.js'
 
 const back = action({ id: 'back', say: 'Go back', run: () => {} })
@@ -96,6 +96,51 @@ describe('the question', () => {
     expect(context('Refresh')).toBeUndefined()
   })
 
+  it('tells the model what an item from another screen does, when the item has no text of its own', () => {
+    const elsewhere = action({
+      id: 'thread',
+      say: 'Open thread',
+      hint: 'Shows one conversation',
+      targets: () => [
+        { id: 't1', say: 'Billing', value: 1 },
+        { id: 't2', say: 'Ana', value: 2 },
+      ],
+      run: () => {},
+    })
+    const rolling = [
+      { action: elsewhere, target: 't1', say: 'Open thread: Billing', context: '' },
+      { action: elsewhere, target: 't2', say: 'Open thread: Ana', context: 'She asked about Friday' },
+      item(remove, 'welcome'),
+    ]
+    const { question } = questionFor(heard('x', { actions: [refresh, back, home], rolling }))
+    const context = (say: string) => question.options.find(option => option.say === say)!.context
+    expect(context('Open thread: Billing')).toBe('Shows one conversation')
+    expect(context('Open thread: Ana')).toBe('She asked about Friday')
+    expect(context('Delete note: Welcome')).toBeUndefined()
+  })
+
+  it('names the action and the target each option would run, so a model of the app tells options apart without reading their words', () => {
+    const { question } = questionFor(heard('x'))
+    const runs = (say: string) => {
+      const { action, target } = question.options.find(option => option.say === say)!
+      return [action, target]
+    }
+    expect(runs('Open note: Voice')).toEqual(['open', 'voice'])
+    expect(runs('Open note (show the list)')).toEqual(['open', undefined])
+    expect(runs('Refresh')).toEqual(['refresh', undefined])
+    expect(runs('Go back')).toEqual(['back', undefined])
+    expect(runs('Delete note: Welcome')).toEqual(['delete', 'welcome'])
+    expect(runs('None of these')).toEqual([undefined, undefined])
+    expect(runs('Not a navigation command')).toEqual([undefined, undefined])
+  })
+
+  it('names them for an item from another screen too', () => {
+    const elsewhere = action({ id: 'thread', say: 'Open thread', targets: () => [{ id: 't1', say: 'Billing', value: 1 }], run: () => {} })
+    const rolling = [{ action: elsewhere, target: 't1', say: 'Open thread: Billing', context: '' }]
+    const { question } = questionFor(heard('x', { rolling }))
+    expect(question.options.find(option => option.say === 'Open thread: Billing')).toMatchObject({ action: 'thread', target: 't1' })
+  })
+
   it('gives every option its own id', () => {
     const { question } = questionFor(heard('x'))
     expect(new Set(question.options.map(option => option.id)).size).toBe(question.options.length)
@@ -115,6 +160,14 @@ describe('the question', () => {
     const sent = question.options.filter(option => option.say.startsWith('Open note: ')).map(option => option.context?.length ?? 0)
     expect(sent).toEqual([100_000, 100_000, 0, 0])
     expect(sent.reduce((sum, length) => sum + length, 0)).toBeLessThanOrEqual(QUESTION_LIMIT)
+  })
+
+  it('counts what an action does toward that length too, when it stands in for the text of an item', () => {
+    const wordy = action({ id: 'wordy', say: 'Open', hint: 'x'.repeat(100_000), targets: () => notes, run: () => {} })
+    const rolling = [0, 1, 2, 3].map(n => ({ action: wordy, target: 'voice', say: `Open: ${n}`, context: '' }))
+    const { question } = questionFor(heard('x', { actions: [refresh, back, home], rolling }))
+    const sent = question.options.filter(option => option.say.startsWith('Open: ')).map(option => option.context?.length ?? 0)
+    expect(sent).toEqual([100_000, 100_000, 0, 0])
   })
 })
 
@@ -166,6 +219,61 @@ describe('the navigator', () => {
         { action: 'delete', target: 'welcome', say: 'Delete note: Welcome' },
         { action: 'refresh', say: 'Refresh' },
       ],
+    })
+  })
+
+  describe('two options that would do the same thing', () => {
+    const standingFor = (target: string | undefined) =>
+      Object.assign(action({ id: 'this', say: 'Choose this one', run: () => {} }), {
+        [SAME]: () => (target === undefined ? undefined : { action: 'open', target }),
+      })
+    const withThis = (target: string | undefined) => heard('x', { actions: [open, remove, refresh, standingFor(target), back, home] })
+
+    it('count as one: a vote the model split between them is one vote, and what runs is the option that names it', async () => {
+      const split = answering(q => ({
+        [idOf(q, 'Choose this one')]: 0.45,
+        [idOf(q, 'Open note: Welcome')]: 0.45,
+        [idOf(q, 'Refresh')]: 0.1,
+      }))
+      expect(await split(withThis('welcome'))).toEqual({ kind: 'sure', action: 'open', target: 'welcome' })
+    })
+
+    it('count as one when the model voted for the one that stands for the other alone', async () => {
+      const one = answering(q => ({ [idOf(q, 'Choose this one')]: 0.9 }))
+      expect(await one(withThis('welcome'))).toEqual({ kind: 'sure', action: 'open', target: 'welcome' })
+    })
+
+    it('are never both in the list to choose from', async () => {
+      const unsure = answering(q => ({
+        [idOf(q, 'Choose this one')]: 0.3,
+        [idOf(q, 'Open note: Welcome')]: 0.3,
+        [idOf(q, 'Refresh')]: 0.3,
+      }))
+      expect(await unsure(withThis('welcome'))).toEqual({
+        kind: 'unsure',
+        candidates: [
+          { action: 'open', target: 'welcome', say: 'Open note: Welcome' },
+          { action: 'refresh', say: 'Refresh' },
+        ],
+      })
+    })
+
+    it('are both still put to the model, each in its own words', () => {
+      expect(says(questionFor(withThis('welcome')).question).filter(say => /Choose this one|Open note: Welcome/.test(say))).toEqual([
+        'Open note: Welcome',
+        'Choose this one',
+      ])
+    })
+
+    it('are two when the other is not in the question: an action that stands for nothing offered runs as itself', async () => {
+      const one = answering(q => ({ [idOf(q, 'Choose this one')]: 0.9 }))
+      expect(await one(withThis('gone'))).toEqual({ kind: 'sure', action: 'this' })
+      expect(await one(withThis(undefined))).toEqual({ kind: 'sure', action: 'this' })
+    })
+
+    it('are two for another row: only the row an action stands for is counted with it', async () => {
+      const split = answering(q => ({ [idOf(q, 'Choose this one')]: 0.45, [idOf(q, 'Open note: Voice')]: 0.45 }))
+      expect((await split(withThis('welcome'))).kind).toBe('unsure')
     })
   })
 

@@ -5038,6 +5038,42 @@ describe('a hold', () => {
     expect(ran).toEqual(['open Ben'])
   })
 
+  it('runs the row under the cursor when the model split its vote between that row by name and "Choose this one"', async () => {
+    const voice: VoiceOptions = {
+      ...hearing('ana').voice,
+      model: {
+        choose: async question => {
+          const id = (say: string) => question.options.find(option => option.say === say)!.id
+          return { [id('Choose this one')]: 0.5, [id('Open: Ana')]: 0.5 }
+        },
+      },
+    }
+    const { fake, ran } = world({ voice })
+    await settle()
+    await say(fake)
+    expect(ran).toEqual(['open Ana'])
+    expect(fake.lines()[0]).toMatch(/^Ana\b/)
+  })
+
+  it('keeps the two apart on a list the shell made itself: there "choose this one" also closes the list, as a tap does', async () => {
+    const filed: string[] = []
+    const file = action({
+      id: 'file',
+      say: 'File under',
+      targets: () => ['Work', 'Home'].map(name => ({ id: name.toLowerCase(), say: name, value: name })),
+      run: name => void filed.push(name),
+    })
+    const { fake } = world({ voice: hearing('choose this one').voice, appActions: () => [file] })
+    await settle()
+    fake.pick('File under')
+    await settle()
+    expect(fake.lines()).toEqual(['File under', '> Work', 'Home'])
+    await say(fake)
+    await settle()
+    expect(filed).toEqual(['Work'])
+    expect(fake.lines()[0]).toBe('People')
+  })
+
   it('tells the model which row the cursor is on, unless that row is private', async () => {
     const screens: (string | undefined)[] = []
     const voice: VoiceOptions = {
@@ -5322,7 +5358,10 @@ describe('a hold', () => {
     })
     const refresh = action({ id: 'refresh', say: 'Refresh', run: () => void did.push('refresh') })
     const { fake, front } = world({
-      voice: { transcribe: async () => ((armed = true), 'choose this one') },
+      voice: {
+        transcribe: async () => 'choose this one',
+        model: { choose: (question, life) => ((armed = true), matchWords.choose(question, life)) },
+      },
       home: () => ({ id: 'home', actions: () => [refresh], view: () => list({ title: 'Allow', action: allow }) }),
     })
     made.fake = fake
@@ -5353,7 +5392,10 @@ describe('a hold', () => {
     const view = list({ title: 'Archive', action: archive })
     Object.defineProperty(view, 'action', { get: () => current })
     const { fake, front } = world({
-      voice: { transcribe: async () => ((armed = true), 'choose this one') },
+      voice: {
+        transcribe: async () => 'choose this one',
+        model: { choose: (question, life) => ((armed = true), matchWords.choose(question, life)) },
+      },
       home: () => ({ id: 'home', view: () => view }),
     })
     await settle()

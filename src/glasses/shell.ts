@@ -2,7 +2,7 @@ import { action, unless, type Action, type TargetInfo } from '../action.js'
 import { joinPcm, levelOf, problemWith, QUIET, secondsOf, type Audio, type Sound } from '../audio.js'
 import { Lifetime, LifetimeEnded, type Timer } from '../lifetime.js'
 import { ITEM_LIMIT } from '../context.js'
-import { matchWords, navigator, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
+import { matchWords, navigator, SAME, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
 import type { Rolling } from '../rolling.js'
 import { showingsOf, type Router, type Screen } from '../router.js'
 import { SayError } from '../say.js'
@@ -418,14 +418,22 @@ export class Shell {
             : [
                 move(UP, this.#words.moveUp, -1, 'cursor'),
                 move(DOWN, this.#words.moveDown, 1, 'cursor'),
-                action({
-                  id: CHOOSE,
-                  say: this.#words.choose,
-                  run: () => {
-                    const said = this.#said
-                    this.#choose(drawn, this.#row(drawn, place), said)
+                Object.assign(
+                  action({
+                    id: CHOOSE,
+                    say: this.#words.choose,
+                    run: () => {
+                      const said = this.#said
+                      this.#choose(drawn, this.#row(drawn, place), said)
+                    },
+                  }),
+                  {
+                    [SAME]: () => {
+                      const row = this.#own.has(drawn.screen) ? undefined : this.#row(drawn, place)
+                      return row && { action: row.action.id, target: row.target }
+                    },
                   },
-                }),
+                ),
               ]
     const taken = new Set(actions.map(a => a.id))
     return [...actions, ...own.filter(a => !taken.has(a.id) && (taken.add(a.id), true))]
