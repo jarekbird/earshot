@@ -483,15 +483,19 @@ export class Shell {
     const life = this.#life.child()
     const mine = () => turn === this.#turn && !this.#life.ended
     const moved = () => this.#router.current !== screen
-    const finish = (then: () => void) => {
+    const finish = (then: () => void, elsewhere = () => this.#clear()) => {
       if (!mine()) return
       this.#deciding = null
       slow.cancel()
       life.end()
-      if (moved()) this.#clear()
+      if (moved()) elsewhere()
       else then()
     }
-    const slow = this.#life.timeout(() => finish(() => (this.#turn++, this.notice(this.#words.slow))), voice.timeoutMs ?? VOICE_TIMEOUT_MS)
+    const slow = this.#life.timeout(() => {
+      if (!mine()) return
+      finish(() => this.notice(this.#words.slow))
+      this.#turn++
+    }, voice.timeoutMs ?? VOICE_TIMEOUT_MS)
     this.#deciding = life
     if (passed === undefined) this.#show(this.#words.thinking)
     try {
@@ -502,12 +506,16 @@ export class Shell {
       const heard = words ? `"${words}"` : this.#words.thinking
       this.#show(heard)
       const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null)
-      finish(() => {
-        if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
-        if (words) this.#show(heard, HEARD_MS)
-        else this.#clear()
-        this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
-      })
+      const done = verdict.kind === 'handled' && verdict.say !== undefined ? verdict.say : undefined
+      finish(
+        () => {
+          if (transcript === null && (verdict.kind === 'none' || verdict.kind === 'notMine')) return this.notice(this.#words.missed)
+          if (words) this.#show(heard, HEARD_MS)
+          else this.#clear()
+          this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
+        },
+        () => (done === undefined ? this.#clear() : this.notice(done)),
+      )
     } catch (error) {
       finish(() => {
         if (error instanceof LifetimeEnded) return this.#clear()
