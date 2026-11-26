@@ -1,6 +1,6 @@
 {
   "name": "earshot",
-  "version": "0.0.47",
+  "version": "0.0.49",
   "description": "A voice-first app framework for Even Realities G2 glasses: declare what your app can do, then hold and say it.",
   "license": "MIT",
   "type": "module",
