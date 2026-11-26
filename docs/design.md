@@ -257,6 +257,11 @@ text, so Jev is enough.
   item leaves. Touch still reaches an item that left (E3).
 
 - The thresholds that turn probabilities into verdicts live with the navigator.
+- Two options that would do the same thing are one choice. The shell's "choose this one" stands for the row under
+  the cursor, which the question also offers by name. Both are put to the model, since each is how a person may
+  say it, and the chance of the first is added to the second before anything is compared. The row by name is
+  what runs. On a list the shell made itself (a list of candidates, of an action's targets, of more actions)
+  choosing a row also closes the list, so there the two are not the same and stay apart.
 - Private targets never enter the rolling set (E6) and are picked by touch.
 
 ### Context
@@ -265,7 +270,9 @@ An app improves the navigator's picks with context, all optional:
 
 - a screen: what is on it now;
 - an action: a hint of when to pick it;
-- a rolling item: anything that tells it from the others, for example the latest text of a conversation.
+- a rolling item: anything that tells it from the others, for example the latest text of a conversation. An item
+  with no text is offered with its action's hint, as a choice on the screen is: from another screen its name
+  alone would say nothing of what it does.
 
 The app hands Earshot the text whenever it changes, at any length. Earshot makes it fit:
 

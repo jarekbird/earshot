@@ -53,13 +53,15 @@ export const SURE_AT = 0.7
 const UNSURE_FROM = 0.15
 const UNSURE_AT_MOST = 3
 const STANDARD = ['back', 'home']
+export const SAME = Symbol('what an action stands for: the action and the target it would run')
+type Standing = Action & { [SAME]?: () => { action: string; target: string } | undefined }
 const PASS = 'pass'
 const LIST = ' (show the list)'
 const NONE = 'none'
 
 type Meaning = Pick | typeof PASS | typeof NONE
 
-export function questionFor(heard: Heard): { question: Question; meanings: Map<string, Meaning> } {
+export function questionFor(heard: Heard): { question: Question; meanings: Map<string, Meaning>; same: Map<string, string> } {
   const meanings = new Map<string, Meaning>()
   const options: Option[] = []
   let length = heard.words.length + (heard.screen?.length ?? 0)
@@ -93,13 +95,19 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
   let full = false
   const rolling = heard.rolling.filter(item => !offered.has(`${item.action.id}\n${item.target}`))
   for (const item of rolling.slice(0, Math.max(0, MAX_OPTIONS - options.length))) {
-    full ||= length + item.say.length + item.context.length > QUESTION_LIMIT
-    offer(
-      { action: item.action.id, target: item.target, say: item.say },
-      { say: item.say, ...(item.context && !full ? { context: item.context } : {}) },
-    )
+    const context = item.context || item.action.hint || ''
+    full ||= length + item.say.length + context.length > QUESTION_LIMIT
+    offer({ action: item.action.id, target: item.target, say: item.say }, { say: item.say, ...(context && !full ? { context } : {}) })
   }
-  return { question: { words: heard.words, ...(heard.screen ? { screen: heard.screen } : {}), options }, meanings }
+  const same = new Map<string, string>()
+  const idOf = (action: string, target?: string) =>
+    [...meanings].find(([, meaning]) => typeof meaning === 'object' && meaning.action === action && meaning.target === target)?.[0]
+  for (const action of heard.actions as readonly Standing[]) {
+    const stands = action[SAME]?.()
+    const [from, to] = stands ? [idOf(action.id), idOf(stands.action, stands.target)] : []
+    if (from !== undefined && to !== undefined) same.set(from, to)
+  }
+  return { question: { words: heard.words, ...(heard.screen ? { screen: heard.screen } : {}), options }, meanings, same }
 }
 
 const verdictOf = (meaning: Meaning): Verdict => {
@@ -110,8 +118,14 @@ const verdictOf = (meaning: Meaning): Verdict => {
 
 export function navigator(model: NavigatorModel): Agent {
   return async heard => {
-    const { question, meanings } = questionFor(heard)
-    const ranked = Object.entries(await model.choose(question, heard.life))
+    const { question, meanings, same } = questionFor(heard)
+    const chances = { ...(await model.choose(question, heard.life)) }
+    for (const [from, to] of same) {
+      if (!Object.hasOwn(chances, from)) continue
+      chances[to] = (Object.hasOwn(chances, to) ? chances[to] : 0) + chances[from]
+      delete chances[from]
+    }
+    const ranked = Object.entries(chances)
       .flatMap(([id, chance]) => {
         const meaning = meanings.get(id)
         return meaning === undefined ? [] : [{ meaning, chance }]

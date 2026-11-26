@@ -2,7 +2,7 @@ import { action, type Action, type TargetInfo } from '../action.js'
 import { joinPcm, levelOf, problemWith, QUIET, secondsOf, type Audio, type Sound } from '../audio.js'
 import { LifetimeEnded, type Lifetime, type Timer } from '../lifetime.js'
 import { ITEM_LIMIT } from '../context.js'
-import { matchWords, navigator, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
+import { matchWords, navigator, SAME, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
 import type { Rolling } from '../rolling.js'
 import type { Router, Screen } from '../router.js'
 import { SayError } from '../say.js'
@@ -283,7 +283,12 @@ export class Shell {
             : [
                 move(UP, this.#words.moveUp, -1, 'cursor'),
                 move(DOWN, this.#words.moveDown, 1, 'cursor'),
-                action({ id: CHOOSE, say: this.#words.choose, run: () => this.#choose(drawn, place, this.#said) }),
+                Object.assign(action({ id: CHOOSE, say: this.#words.choose, run: () => this.#choose(drawn, place, this.#said) }), {
+                  [SAME]: () => {
+                    const under = drawn.targets[place.cursor]
+                    return under && !this.#own.has(drawn.screen) ? { action: view.action.id, target: under.id } : undefined
+                  },
+                }),
               ]
     const taken = new Set(actions.map(a => a.id))
     return [...actions, ...own.filter(a => !taken.has(a.id) && (taken.add(a.id), true))]
