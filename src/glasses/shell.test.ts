@@ -1581,7 +1581,7 @@ describe('a hold', () => {
     expect(ran).toEqual(['queue', 'archive'])
   })
 
-  it('drops its question when the screen changes before the tap', async () => {
+  it('E12: drops its question when the screen changes before the tap', async () => {
     const { voice } = hearing('stop it')
     const { fake, front, ran, router } = world({
       voice,
@@ -1681,7 +1681,7 @@ describe('a hold', () => {
     expect(front()).toBe('Saved')
   })
 
-  it('says what an agent did also when the agent itself went to another screen: the work is done, wherever the user now is', async () => {
+  it('E12: says what an agent did also when the agent itself went to another screen: the work is done, wherever the user now is', async () => {
     const { voice } = hearing('remember the milk')
     const made = world({ voice })
     voice.agents = [
@@ -1785,7 +1785,7 @@ describe('a hold', () => {
     expect(ran).toEqual([])
   })
 
-  it('drops the answer when the screen changed while it was deciding', async () => {
+  it('E12: drops the answer when the screen changed while it was deciding', async () => {
     let answer = (_: string) => {}
     const { fake, front, ran, router } = world({ voice: { transcribe: () => new Promise<string>(done => (answer = done)) } })
     await settle()
@@ -1987,7 +1987,7 @@ describe('a hold', () => {
     expect(sent).toEqual([])
   })
 
-  it('asks no further agent once the command was called off, however late the model answers', async () => {
+  it('E12: asks no further agent once the command was called off, however late the model answers', async () => {
     let answer = (_: Record<string, number>) => {}
     const took: string[] = []
     const voice: VoiceOptions = {
@@ -2007,6 +2007,49 @@ describe('a hold', () => {
     answer({})
     await settle()
     expect(took).toEqual([])
+  })
+
+  it('E12: asks no further agent once the screen changed while the first was deciding: the words were for the screen before', async () => {
+    let answer = (_: Record<string, number>) => {}
+    const took: string[] = []
+    const voice: VoiceOptions = {
+      transcribe: async () => 'tell the team',
+      model: { choose: ({ options }) => new Promise(done => (answer = () => done({ [options.find(o => o.role === 'pass')!.id]: 1 }))) },
+      agents: [
+        ({ words }) => {
+          took.push(words)
+          return { kind: 'handled', say: 'Told' }
+        },
+      ],
+    }
+    const { fake, front, router } = world({ voice })
+    await settle()
+    await say(fake)
+    router.open({ id: 'about', view: () => text({ title: 'About', body: 'Earshot' }) })
+    answer({})
+    await settle()
+    expect(took).toEqual([])
+    expect(front()).toBe('')
+  })
+
+  it('E12: draws the screen on show again when an action finishes after the screen changed, and runs nothing more', async () => {
+    let finish = () => {}
+    let drawn = 0
+    const slow = action({ id: 'sync', say: 'Sync', run: () => new Promise<void>(done => (finish = done)) })
+    const { fake, router, ran } = world({
+      home: ({ open }) => ({ id: 'people', actions: () => [open, slow], view: () => list({ action: open }) }),
+    })
+    await settle()
+    fake.pick('Sync')
+    await settle()
+    router.open({ id: 'about', view: () => (drawn++, text({ title: 'About', body: 'Earshot' })) })
+    await settle()
+    const before = drawn
+    finish()
+    await settle()
+    expect(drawn).toBeGreaterThan(before)
+    expect(fake.lines()).toEqual(['About', 'Earshot'])
+    expect(ran).toEqual([])
   })
 
   it('tells the app when it starts to listen, and is busy from then until the command is done', async () => {
