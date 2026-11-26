@@ -6,7 +6,7 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.46 (2026-11-25)
+## 0.0.47 (2026-11-25)
 
 - A relay that has a secret asks its three calls for it too, not only live speech. A call that does not say it is
   answered 401 before anything is forwarded. A relay with no secret answers as before.
@@ -18,6 +18,11 @@ each version's commits say: they name what a version added, and may miss a chang
   with no live upstream, where the setting used to be ignored.
 - **An app must** give such a relay a fitting secret or take the setting out: one under 16 characters, or over 1,024
   as JSON writes them, was ignored before with no live upstream and now makes no relay.
+
+## 0.0.46 (2026-11-25)
+
+- What an agent says after it handled the words is shown also when the agent itself went to another screen. It was
+  dropped with every other verdict of a turn whose screen had changed.
 
 ## 0.0.45 (2026-11-25)
 
