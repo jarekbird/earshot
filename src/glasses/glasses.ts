@@ -641,7 +641,10 @@ export class Glasses {
     for (const [index, box] of boxes.entries()) {
       const noted = () => {
         this.#from.set(box.name, frame)
-        if (index > 0) this.#have.boxes[index - 1] = kept(box, frame)
+        if (index === 0) return
+        const had = this.#have.boxes[index - 1]
+        const now = kept(box, frame)
+        this.#have.boxes[index - 1] = had && JSON.stringify(had.under) === JSON.stringify(now.under) ? { ...now, frame: had.frame } : now
       }
       if (this.#sent.get(box.id) === stateOf(box)) {
         if (!left && !this.#takenBack(frame)) noted()

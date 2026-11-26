@@ -2657,6 +2657,42 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect(went).toEqual([cursor()])
   })
 
+  it('E15: runs nothing of a new frame on a tap that comes as the shell reads what kind of view it asked for, after it asked: the glasses still show the frame before', async () => {
+    const did: string[] = []
+    const made: { fake?: ReturnType<typeof fakeBridge> } = {}
+    let armed = false
+    let asked = false
+    let paused = false
+    const play = action({ id: 'play', say: 'Play', run: () => void did.push('play') })
+    const pause = action({ id: 'pause', say: 'Pause', run: () => void did.push('pause') })
+    const { fake, shell } = world({
+      watch: event => void (event.at === 'ask' && armed && (asked = true)),
+      home: () => ({
+        id: 'player',
+        view: () => {
+          if (!paused) return boxes([{ id: 'state', x: 0, y: 0, w: 576, h: 27, text: 'Play' }], { on: { tap: play } })
+          const view = boxes([{ id: 'state', x: 0, y: 0, w: 576, h: 27, text: 'Pause' }], { on: { tap: pause } })
+          Object.defineProperty(view, 'kind', {
+            get: () => {
+              if (asked) {
+                asked = armed = false
+                made.fake?.tap()
+              }
+              return 'boxes'
+            },
+          })
+          return view
+        },
+      }),
+    })
+    made.fake = fake
+    await settle()
+    paused = armed = true
+    shell.redraw()
+    await settle(100)
+    expect([fake.lines(), did]).toEqual([['Pause'], []])
+  })
+
   it('E15: runs no row on a tap that comes right after the swipe that moved the cursor, before the glasses were sent the move', async () => {
     const { fake, ran } = world()
     await settle()
@@ -5469,6 +5505,28 @@ describe('a hold', () => {
     await say(fake)
     await settle(100)
     expect(front()).toBe('Already saved')
+  })
+
+  it('says what an agent that handled the words on another screen says, also when it put the words into its answer in the moment after it gave it', async () => {
+    let answer: (verdict: { kind: 'handled'; say?: string }) => void = () => {}
+    const made: { router?: Router } = {}
+    const { voice } = hearing('save it')
+    voice.agents = [
+      () => {
+        made.router?.open({ id: 'result', view: () => text({ body: 'Result' }) })
+        return new Promise(done => (answer = done))
+      },
+    ]
+    const { fake, front, router } = world({ voice })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle()
+    const verdict: { kind: 'handled'; say?: string } = { kind: 'handled' }
+    answer(verdict)
+    queueMicrotask(() => void (verdict.say = 'Saved'))
+    await settle(100)
+    expect([fake.lines()[0], front()]).toEqual(['Result', 'Saved'])
   })
 
   it('says what an agent that handled the words has to say when it only says so as the turn ends, in what it left behind', async () => {

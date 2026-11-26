@@ -128,12 +128,12 @@ const aimOf = (kind: View['kind'], action: string, target?: string): string => J
 
 interface Answer {
   kind: Verdict['kind']
-  say?: string
+  says: () => string | undefined
   now: () => Verdict['kind']
   holds: (kind: Verdict['kind']) => Verdict
 }
 
-const NONE: Answer = { kind: 'none', now: () => 'none', holds: () => ({ kind: 'none' }) }
+const NONE: Answer = { kind: 'none', says: () => undefined, now: () => 'none', holds: () => ({ kind: 'none' }) }
 
 const replyOf = (given: Verdict): { kind: 'handled'; say?: string } => {
   const { say } = given as { say?: string }
@@ -143,10 +143,10 @@ const replyOf = (given: Verdict): { kind: 'handled'; say?: string } => {
 function once(given: Verdict, mine: () => boolean): Answer {
   const { kind } = given
   if (!mine()) throw new LifetimeEnded()
-  const said = kind === 'handled' ? replyOf(given) : undefined
+  let said: { kind: 'handled'; say?: string } | undefined
   return {
     kind,
-    ...said,
+    says: () => (said = kind === 'handled' ? replyOf(given) : undefined)?.say,
     now: () => given.kind,
     holds: now => {
       const stands = asItStands(given, now)
@@ -335,11 +335,12 @@ export class Shell {
     const menu = shown.map(a => ({ id: this.#item(a.id), name: a.say }))
     if (fold) menu.push({ id: this.#item(MORE), name: this.#words.more })
     const row = targets[reached.cursor ?? place.cursor]?.id
+    const { kind } = view
     const aims: Aims = listed
       ? row === undefined
         ? {}
-        : { tap: aimOf(view.kind, listed.id, row) }
-      : Object.fromEntries(ties.map(({ gesture, action, target }) => [gesture, aimOf(view.kind, action.id, target)]))
+        : { tap: aimOf(kind, listed.id, row) }
+      : Object.fromEntries(ties.map(({ gesture, action, target }) => [gesture, aimOf(kind, action.id, target)]))
     if (stale()) return
     this.#places.set(showing, Object.assign(place, reached))
     if (drew) this.#frames.drawing(showing, drew.view, last)
@@ -357,7 +358,7 @@ export class Shell {
         scrolls,
         ...(row === undefined ? {} : { row }),
       }
-    this.#frames.asked(frame, showing, drew, view.kind, aims)
+    this.#frames.asked(frame, showing, drew, kind, aims)
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
@@ -728,7 +729,7 @@ export class Shell {
       const heard = words ? `"${words}"` : this.#words.thinking
       if (!moved()) this.#show(heard)
       const { answer, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, moved, mine)
-      const done = answer.say
+      const done = mine() ? answer.says() : undefined
       const back = () => answer.kind === 'handled' && showingsOf(this.#router).current === showing
       const away = (say: string | undefined, handled: boolean) => {
         if (say === undefined) spare()
