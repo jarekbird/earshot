@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.49
+npm install github:jarekbird/earshot#v0.0.50
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.49 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.50 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -221,6 +221,7 @@ const screen: Screen = {
 - A hold still works while you listen, and it has the microphone to itself: your listeners hear a sound exactly when no touchpad is held down. The shell does this. An app that draws everything itself and has no shell hears every sound, and its holds are its own to handle. That is so whenever they joined, whichever touchpads were pressed meanwhile, and also when the command was called off, did not open the microphone, or reached its longest length before the release. It is so with no voice set up, too. A voice command is never part of what you are listening to, and no listener can take it from the shell. A hold whose recording is over no longer asks for the microphone, so with nothing else listening it closes. If no release comes for a touchpad, it counts as let go after twice the longest hold, or when the app leaves the foreground.
 - Capture stops without a word when the phone suspends the app. So when no sound has arrived for three seconds, Earshot takes the microphone for closed and asks for it again. `reopenAfterMs` sets another time, from half a second to a day, or `false` for none. The microphone is one for all listeners, so the shortest time among them counts, and `false` adds none. Silence never makes Earshot ask again during a hold, whatever the listeners said. A hold asks for the microphone once as it starts to record, open or not, so a hold right after the phone suspended the app still hears.
 - `glasses.micOpen` says whether Earshot takes the microphone for open now: from the moment it opened or sound arrived, until the sound stops arriving or the microphone is closed. `glasses.onMic(told)` is told each time that changes, in the order it happened, and `false` once more each time the microphone refuses to open. `false` means Earshot is not hearing; it does not mean the glasses' microphone is closed. For that, wait for the promise of the function that stopped your last listener.
+- `glasses.micLeftOn` says that the glasses' microphone may still be on though nothing listens: Earshot asked the glasses to close it and the call failed. It holds from the failed close until a close goes through, or until a listener or a hold wants the microphone again, and it stays if the app ended and every close failed. `glasses.onMicLeftOn(told)` is told each time it changes. This is the one way to learn of a close that failed after a hold, which the shell opens and closes for you. Earshot shows nothing of its own for it: say it where your user will see it.
 - A microphone that refuses to open is asked again after half a second, then one, two and four. So is a close that fails to go through. Earshot makes one such call at a time, so a close on its way is answered before the next listener's open is asked. A close that fails as the app ends is still asked again, five times in all. A close counts as done when the Even app answers it, whatever it answers: Even's simulator answers `false` to a close that worked.
 - A listener that throws does not stop the others or the microphone, and a listener of the touchpad (`onInput`) that throws does not keep the shell from taking a hold. Earshot reports that a listener threw, and not what, since the error may carry what was heard: to the page's own error reporting (`reportError`), or to the console where there is none. The same goes for a listener that is an `async` function and fails later. Catch in your own listener what you want to see.
 - `listen` is for the glasses' microphone. An app that opens the phone's microphone through the SDK itself also reads that sound from the SDK.
@@ -421,7 +422,7 @@ fake.sound(pcm) // what the microphone hears, between a hold and a release
 fake.sound(pcm, 'other') // the same, with who the Even app says spoke
 ```
 
-The stand-in refuses what Even's simulator refuses: a ninth text box, text of 1,000 bytes, a second page. `fake.refuse('rebuild', 2)` makes it refuse on request.
+The stand-in refuses what Even's simulator refuses: a ninth text box, text of 1,000 bytes, a second page. `fake.refuse('rebuild', 2)` makes it refuse on request, and `fake.refuse('mic close', 2)` makes two closes of the microphone fail.
 
 ## Text for the glasses
 

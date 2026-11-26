@@ -425,6 +425,10 @@ The microphone is open while anything listens. A hold is one listener; an app th
   again each time an open is refused. False means not hearing, which silence alone can make it: the sure sign that the
   glasses' microphone is closed is the promise of the function that stopped the last listener. A microphone that
   opens after the last listener left is closed and not told of.
+- `micLeftOn` says that a close failed while nothing wanted the microphone, so it may still be on; `onMicLeftOn` is
+  told each change. It is true from that failed close until a close goes through or something wants the microphone
+  again, and it is the one sign of a failed close an app gets after a hold. Earshot goes on asking for the close;
+  what the user is told is the app's.
 - Each sound says whether there was a break before it in what that listener heard (`gap`): the first sound, the
   first after a hold, the first after the microphone was closed, opened or asked for again.
 - The function that stops a listener gives a promise that is kept when the machine is calm: nothing asked, nothing
