@@ -167,8 +167,19 @@ interface Kept {
   frame: number
 }
 
-const askedAs = ({ id, x, y, w, h, text, brightness }: Box): string =>
-  JSON.stringify([id, x, y, w, h, clipBytes(text), brightness ?? MAX_BRIGHTNESS])
+const looksOf = ({ id, x, y, w, h, text, brightness }: Box): string =>
+  JSON.stringify([
+    id,
+    x,
+    y,
+    w,
+    h,
+    brightness ?? MAX_BRIGHTNESS,
+    clipBytes(text),
+    wrapText(cleanText(text), w).slice(0, Math.ceil(h / LINE_HEIGHT)),
+  ])
+
+const looksAlike = (one: Box, other: Box): boolean => looksOf(one) === looksOf(other)
 
 const kept = ({ box, text, brightness }: Placed, frame: number): Kept => ({
   under: box,
@@ -647,7 +658,7 @@ export class Glasses {
         if (index === 0) return
         const had = this.#have.boxes[index - 1]
         const now = kept(box, frame)
-        this.#have.boxes[index - 1] = had && askedAs(had.under) === askedAs(now.under) ? { ...now, frame: had.frame } : now
+        this.#have.boxes[index - 1] = had && looksAlike(had.under, now.under) ? { ...now, frame: had.frame } : now
       }
       if (this.#sent.get(box.id) === stateOf(box)) {
         if (!left && !this.#takenBack(frame)) noted()

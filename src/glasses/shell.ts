@@ -292,6 +292,15 @@ export class Shell {
   }
 
   #draw(read?: { view: Read['view']; laid: (state: TextState) => LaidText }): void {
+    this.#asks++
+    try {
+      this.#paint(read)
+    } finally {
+      this.#asks--
+    }
+  }
+
+  #paint(read?: { view: Read['view']; laid: (state: TextState) => LaidText }): void {
     if (this.#life.ended) return
     const showings = showingsOf(this.#router)
     const showing = showings.current
@@ -352,26 +361,21 @@ export class Shell {
     if (stale()) return
     this.#places.set(showing, Object.assign(place, reached))
     if (drew) this.#frames.drawing(showing, drew.view, last)
-    this.#asks++
-    try {
-      const frame = this.#glasses.draw({ boxes, pictures, menu })
-      this.#pending = [...this.#pending.filter(asked => asked === progressOf(this.#glasses).sending || asked > frame), frame]
-      if (this.#life.ended || !showings.onPath(showing)) return progressOf(this.#glasses).drop([frame])
-      if (!this.#drawn || frame > this.#drawn.frame)
-        this.#drawn = {
-          frame,
-          screen,
-          showing,
-          view: kept,
-          targets,
-          folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [],
-          scrolls,
-          ...(row === undefined ? {} : { row }),
-        }
-      this.#frames.asked(frame, showing, drew, kind, aims)
-    } finally {
-      this.#asks--
-    }
+    const frame = this.#glasses.draw({ boxes, pictures, menu })
+    this.#pending = [...this.#pending.filter(asked => asked === progressOf(this.#glasses).sending || asked > frame), frame]
+    if (this.#life.ended || !showings.onPath(showing)) return progressOf(this.#glasses).drop([frame])
+    if (!this.#drawn || frame > this.#drawn.frame)
+      this.#drawn = {
+        frame,
+        screen,
+        showing,
+        view: kept,
+        targets,
+        folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [],
+        scrolls,
+        ...(row === undefined ? {} : { row }),
+      }
+    this.#frames.asked(frame, showing, drew, kind, aims)
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
@@ -551,7 +555,9 @@ export class Shell {
       const shown = this.#onShow(drawn)?.[input.kind]
       if (this.#asks > 0 || drawn !== this.#drawn || shown === undefined || this.#frames.newest?.aims[input.kind] !== shown) return
       const still = () => moves === this.#moves && drawn === this.#drawn
-      const bound = view.on?.[input.kind]
+      const { on } = view
+      if (!still()) return
+      const bound = on?.[input.kind]
       if (!bound || !still()) return
       const chosen = boundTo(bound).action
       if (!still()) return

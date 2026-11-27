@@ -2819,6 +2819,64 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect([armed, did]).toEqual([false, []])
   })
 
+  it('E15: runs nothing on a tap that comes while the app is asked for the view of a redraw, though the screen already ties the tap to something else', async () => {
+    const did: string[] = []
+    const made: { fake?: ReturnType<typeof fakeBridge> } = {}
+    let armed = false
+    let label = 'Open'
+    const open = action({ id: 'open', say: 'Open', run: () => void did.push('open') })
+    const remove = action({ id: 'remove', say: 'Remove', run: () => void did.push('remove') })
+    const on: { tap: Action } = { tap: open }
+    const { fake, shell } = world({
+      home: () => ({
+        id: 'home',
+        view: () => {
+          if (armed) {
+            armed = false
+            made.fake?.tap()
+          }
+          return boxes([{ id: 'control', x: 0, y: 0, w: 200, h: 40, text: label }], { on })
+        },
+      }),
+    })
+    made.fake = fake
+    await settle()
+    on.tap = remove
+    label = 'Remove'
+    armed = true
+    shell.redraw()
+    await settle(100)
+    expect([armed, did]).toEqual([false, []])
+  })
+
+  it('E15: reads no binding of a gesture at a tap once reading what the view ties gestures to had the app ask for yet another frame', async () => {
+    const made: { shell?: Shell } = {}
+    let armed = false
+    let taps = 0
+    const keep = action({ id: 'keep', say: 'Keep', run: () => {} })
+    const on = {}
+    Object.defineProperty(on, 'tap', { enumerable: true, get: () => (taps++, keep) })
+    const view = boxes([{ id: 'control', x: 0, y: 0, w: 200, h: 40, text: 'Keep' }], { on })
+    Object.defineProperty(view, 'on', {
+      get: () => {
+        if (armed) {
+          armed = false
+          made.shell?.redraw()
+        }
+        return on
+      },
+    })
+    const { fake, shell } = world({ home: () => ({ id: 'home', view: () => view }) })
+    made.shell = shell
+    await settle()
+    armed = true
+    const before = taps
+    fake.tap()
+    const during = taps - before
+    await settle(100)
+    expect([armed, during]).toEqual([false, 1])
+  })
+
   it.each([
     ['what the tap is tied to', 'binding'],
     ['the action it is tied to', 'action'],

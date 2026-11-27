@@ -2386,6 +2386,26 @@ describe('watching the draws', () => {
     expect([unsent, glasses[WHOLE]]).toEqual([true, true])
   })
 
+  it('shows nothing of a frame that was taken back under a notice that comes after, when its label differed only where the glasses take none of it until a notice wraps it', async () => {
+    const fake = fakeBridge()
+    let second = 0
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (event.at === 'call' && event.frame === second && event.op === 'picture') progressOf(glasses).drop([second])
+      },
+    })
+    const cover = (key: string, data: number[]) => ({ id: 'cover', x: 376, y: 54, w: 200, h: 100, key, data: new Uint8Array(data) })
+    const padding = ' '.repeat(MAX_TEXT_BYTES - 3)
+    const label = (words: string) => box('label', `${padding}${words}`, { w: 370, h: 288 })
+    glasses.draw({ ...frame(label('Old label')), pictures: [cover('v1', [1, 2, 3])] })
+    await settle(REBUILD_GAP_MS)
+    second = glasses.draw({ ...frame(label('New label')), pictures: [cover('v2', [4, 5, 6])] })
+    await settle(60_000)
+    glasses.overlay('Status')
+    await settle(60_000)
+    expect(fake.lines().join(' ')).not.toContain('New')
+  })
+
   it('knows which overlay the glasses show by the time it tells of the end of the draw that changed it', async () => {
     const fake = fakeBridge()
     const known: (string | null | undefined)[] = []
