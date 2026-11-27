@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.62
+npm install github:jarekbird/earshot#v0.0.63
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.62 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.63 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -166,7 +166,7 @@ const shell = new Shell(life, glasses, router)
 - A double tap goes up, to the screen the current one was opened from. From the home screen it asks Even to close the app.
 - Even's menu lists the screen's and the app's other actions. Over ten, the rest go behind "More…". An action with targets asks which one in a list, or on the app's own screen when the action has `choose`. A target can carry its own `risk`, so only the targets that write ask first.
 - An action that is blocked says why over the page, which dims for a few seconds. An action with `risk: 'confirm'` asks first, and only a tap confirms.
-- Call `shell.redraw()` when what a screen shows has changed. `shell.notice(text)` says something over the page. A tap or a swipe while a notice shows only takes it away, since it covers rows; a double tap still goes up, and a pick from Even's menu still runs.
+- Call `shell.redraw()` when what a screen shows has changed. `shell.notice(text)` says something over the page. While the touchpad is held it goes under "Listening" and not over it, and it gives way to the command at the release. A tap or a swipe while a notice shows only takes it away, since it covers rows; a double tap still goes up, and a pick from Even's menu still runs.
 - `new Shell(life, glasses, router, { words })` lets you change Earshot's own few words.
 
 ## Hold to talk
@@ -188,7 +188,7 @@ new Shell(life, glasses, router, {
 })
 ```
 
-- A hold opens the glasses' microphone and shows "Listening" with eight bars that rise with the voice. The release of the touchpad that was held closes it, unless your app is listening too (below). A release that names another touchpad, or none when the hold named one, does not end it. A recording under half a second, or a silent one, is not sent anywhere.
+- A hold opens the glasses' microphone and shows "Listening" with eight bars that rise with the voice. The microphone opens at the press, so no word is cut off, and "Listening" is drawn a moment after. If the glasses refuse that write, Earshot asks again; until it lands, the hold records with "Listening" not yet on show. The release of the touchpad that was held closes it, unless your app is listening too (below). A release that names another touchpad, or none when the hold named one, does not end it. A recording under half a second, or a silent one, is not sent anywhere.
 - `transcribe` gets the sound as 16 kHz, 16-bit, one-channel PCM, and the turn's lifetime to end its request with, and gives back the words. Earshot opens no connection itself; where the sound goes is yours to decide. A transcriber that cannot transcribe gives back `null`: no model is asked, and the agents get the recording with no words.
 - The words show over the page, and the navigator picks from what the app can do now: go back, go home, each action, and the items of the rolling set.
 - When it is sure, the action runs, and one marked `confirm` still asks first. Mark an action `voice` to ask first only when the words chose it: a touch is the person's own act, the model's choice is a guess. A question is dropped when the screen changes before the tap. When it is unsure, the few candidates are listed to tap. When nothing fits, it says "No match". With `instead` (below), the person can turn the navigator's choice down and hand the words to your agents.
