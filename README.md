@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.58
+npm install github:jarekbird/earshot#v0.0.59
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.58 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.59 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -329,7 +329,7 @@ new Shell(life, glasses, router, { voice: { transcribe: service.transcribe, mode
 
 - `host` is your relay (below), not OpenRouter. List it in your `app.json` whitelist, with the `g2-microphone` permission. Earshot holds no address of its own.
 - A recording has thirty seconds to come back as words, a question twelve; both fit in the forty-five the shell gives a command. `service.transcribe` and `service.model` end their requests with the turn's lifetime, so a command that is called off stops asking.
-- A lost connection, too many requests and a busy service each say so in a few words. When the relay is refused or out of credit the glasses say "Voice is off for now". After any but the first of those Earshot holds back for thirty seconds. For your log, each error carries what it knows: a `SayError` or `RelayError` has the `status` the relay answered with, and its `cause` is what kept the call from being made or read.
+- A lost connection, too many requests and a busy service each say so in a few words. When the relay is refused, out of credit or not set up the glasses say "Voice is off for now". After any but the first of those Earshot holds back for thirty seconds. For your log, each error carries what it knows: a `SayError` or `RelayError` has the `status` the relay answered with, and its `cause` is what kept the call from being made or read.
 - `models: { speech, decide, compact }` and `language` change the defaults: `openai/whisper-large-v3-turbo`, `typesafe/jev-1.14` and `mistralai/mistral-nemo`.
 - Tried live on 20 November 2026: Jev answered in about 0.2 seconds, picked the wanted option on 12 of 12 test phrases, and 24 questions cost $0.0006. Through the relay as a Cloudflare Worker, a question took about 0.35 seconds end to end, and eleven seconds of speech became the right words in 1.7 seconds.
 
@@ -374,7 +374,7 @@ export default {
 }
 ```
 
-`relayOptions` names every setting a host passes, set or not, so a host cannot leave one out. `Env` is those settings as your Worker has them, and `sockets` is how a Worker takes and opens a WebSocket, for live speech: copy both from `example/worker.ts`, which is this Worker. A relay without live speech needs no `sockets`, and what `relay` gives back takes one request, as it always did. `MODELS` is the same comma-separated list as `EARSHOT_RELAY_MODELS`, and `CALLS` the same as `EARSHOT_RELAY_CALLS`. The two are one server: what the Node server does the Worker does. With settings that make no relay (no key, an upstream not named with `https`, a call it does not know) the Node server does not start and says why. A Worker cannot refuse to start, so it catches that: it writes why to its own log, and `notSetUp` answers every request with 503 and the browser's first check as a relay does, so your app's page can read the status. Left uncaught, the page would see only a failed connection.
+`relayOptions` names every setting a host passes, set or not, so a host cannot leave one out. `Env` is those settings as your Worker has them, and `sockets` is how a Worker takes and opens a WebSocket, for live speech: copy both from `example/worker.ts`, which is this Worker. A relay without live speech needs no `sockets`, and what `relay` gives back takes one request, as it always did. `MODELS` is the same comma-separated list as `EARSHOT_RELAY_MODELS`, and `CALLS` the same as `EARSHOT_RELAY_CALLS`. The two are one server: what the Node server does the Worker does. With settings that make no relay (no key, an upstream not named with `https`, a call it does not know) the Node server does not start and says why. A Worker cannot refuse to start, so it catches that: it writes why to its own log, and `notSetUp` answers every request with 501 and the browser's first check as a relay does, so your app's page can read the status. Earshot's own transport takes 501 as it takes a relay that is refused: the glasses say "Voice is off for now", not that a service is busy. Left uncaught, the page would see only a failed connection.
 
 `serve` from `earshot/relay/node` starts the same Node server from your own code. Closing that server tells its live callers it is going (1001) and lets go of their upstreams at once. A caller who does not answer a goodbye is let go of a second later. A WebSocket on a path of your own stays yours: add your `upgrade` listener to the server it returns, and have it look at the path before it takes the upgrade, since with live speech on both listeners hear every upgrade (`ws` with `noServer` and `handleUpgrade` for your path; its `{ server, path }` form answers 400 on every other path, the relay's included). With no live speech set, the server takes no WebSocket at all. It can be closed and set listening again.
 
