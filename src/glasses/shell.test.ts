@@ -1880,6 +1880,50 @@ describe('a hold', () => {
     expect(front()).toBe('')
   })
 
+  describe('a hold whose "Listening" does not reach the glasses', () => {
+    const unseen = async (asked: number[] = []) => {
+      const made = world({ voice: { transcribe: async audio => (asked.push(audio.seconds), 'refresh') } })
+      await settle()
+      made.fake.refuse('update', 1_000)
+      made.fake.hold()
+      await settle(50)
+      expect([made.front(), made.fake.mic]).toEqual(['', 'glasses'])
+      return made
+    }
+
+    it('E20: ends after three seconds and lets go of the microphone: it does not record on with nothing saying so', async () => {
+      const made = await unseen()
+      made.fake.sound(tone(400))
+      await settle(2_900)
+      expect(made.fake.mic).toBe('glasses')
+      await settle(200)
+      expect([made.fake.mic, made.shell.busy]).toEqual([null, false])
+    })
+
+    it('E20: sends nothing of what it heard, and the same press starts no other hold', async () => {
+      const asked: number[] = []
+      const made = await unseen(asked)
+      made.fake.sound(tone(800))
+      await settle(3_100)
+      made.fake.hold()
+      await settle(50)
+      made.fake.sound(tone(800))
+      made.fake.release()
+      await settle(400)
+      expect([asked, made.ran, made.fake.mic]).toEqual([[], [], null])
+    })
+
+    it('E20: goes on when "Listening" reached the glasses, however long it is held', async () => {
+      const made = world({ voice: { transcribe: async () => 'refresh' } })
+      await settle()
+      made.fake.hold()
+      await settle(50)
+      made.fake.sound(tone(400))
+      await settle(5_000)
+      expect([made.front().split(' ')[0], made.fake.mic]).toEqual(['Listening', 'glasses'])
+    })
+  })
+
   describe('a notice while the touchpad is held', () => {
     const held = async () => {
       const made = world({ voice: { transcribe: async () => 'refresh' } })
@@ -1917,13 +1961,16 @@ describe('a hold', () => {
       expect(made.front().split(' ')[0]).toBe('Listening')
     })
 
-    it('stays for its time when the app then changes the screen, which ends the hold', async () => {
+    it('stays for what is left of its time when the app then changes the screen, which ends the hold, and no longer', async () => {
       const made = await held()
       made.shell.notice('That thread is gone')
+      await settle(2_500)
       made.router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })
-      await settle()
+      await settle(0)
       expect([made.front(), made.fake.mic]).toEqual(['That thread is gone', null])
-      await settle(10_000)
+      await settle(400)
+      expect(made.front()).toBe('That thread is gone')
+      await settle(200)
       expect(made.front()).toBe('')
     })
 

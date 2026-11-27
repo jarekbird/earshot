@@ -80,6 +80,7 @@ const WORDS: ShellWords = {
   swipe: 'Swipe',
 }
 const NOTICE_MS = 3_000
+const LISTENING_SEEN_MS = 3_000
 const HEARD_MS = 1_500
 const VOICE_TIMEOUT_MS = 45_000
 const MAX_HOLD_MS = 60_000
@@ -110,7 +111,7 @@ interface Recording {
   screen: Screen
   source: HoldSource
   hear: (sound: Sound) => void
-  noted: () => string | undefined
+  noted: () => { text: string; ms: number } | undefined
   note: (text: string) => void
   end: () => void
 }
@@ -179,8 +180,8 @@ export class Shell {
           const noted = this.#recording.noted()
           this.#recording.end()
           this.#spent = true
-          if (noted === undefined) this.#clearOfTurn()
-          else this.notice(noted)
+          if (noted && noted.ms > 0) this.#show(noted.text, noted.ms)
+          else this.#clearOfTurn()
         }
         this.redraw()
       }),
@@ -467,19 +468,33 @@ export class Shell {
     const chunks: Uint8Array[] = []
     const bars = Array<string>(METER_BARS).fill(QUIET)
     let noted: string | undefined
+    let gone = 0
     let fading: Timer | undefined
     const listening = () =>
       this.#show(`${this.#words.listening} ${bars.join('')}${noted === undefined ? '' : `\n${noted}`}`, undefined, true)
     let meter: Timer | undefined
     const limit = this.#life.timeout(() => this.#finish(), longest)
-    const recording = {
+    let seen = false
+    const look = () => {
+      const onShow = this.#glasses[OVERLAY]
+      seen ||= typeof onShow === 'string' && onShow.startsWith(this.#words.listening)
+    }
+    const unseen = this.#life.timeout(() => {
+      look()
+      if (seen || this.#recording !== recording) return
+      recording.end()
+      this.#spent = true
+      this.#clearOfTurn()
+    }, LISTENING_SEEN_MS)
+    const recording: Recording = {
       chunks,
       screen: this.#router.current,
       source,
-      noted: () => noted,
+      noted: () => (noted === undefined ? undefined : { text: noted, ms: gone - Date.now() }),
       note: (text: string) => {
         fading?.cancel()
         noted = text
+        gone = Date.now() + this.#noticeMs
         fading = this.#life.timeout(() => {
           noted = undefined
           listening()
@@ -487,6 +502,7 @@ export class Shell {
         listening()
       },
       hear: ({ pcm }: Sound) => {
+        look()
         chunks.push(pcm)
         bars.push(levelOf(pcm))
         bars.shift()
@@ -499,6 +515,7 @@ export class Shell {
         limit.cancel()
         meter?.cancel()
         fading?.cancel()
+        unseen.cancel()
         if (this.#recording !== recording) return
         this.#recording = null
         this.#held?.want(false)
