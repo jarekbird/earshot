@@ -39,6 +39,7 @@ const REFUSALS: Record<number, string> = {
   401: 'Voice is off for now',
   402: 'Voice is off for now',
   403: 'Voice is off for now',
+  501: 'Voice is off for now',
   429: 'Too many requests',
 }
 const NO_CONNECTION = 'No connection'

@@ -408,7 +408,7 @@ describe('the check a browser makes first', () => {
 describe('a host that cannot refuse to start, with settings that make no relay', () => {
   it('says that it is not set up with a status a page can read, to any page', async () => {
     const answer = notSetUp(new Request('https://relay.example/api/alpha/decisions', { method: 'POST', body: '{}' }))
-    expect(answer.status).toBe(503)
+    expect(answer.status).toBe(501)
     expect(answer.headers.get('access-control-allow-origin')).toBe('*')
     expect(await answer.json()).toEqual({ error: 'This relay is not set up.' })
   })
@@ -426,9 +426,19 @@ describe('a host that cannot refuse to start, with settings that make no relay',
     expect(mine.status).toBe(204)
   })
 
+  it("is told from a busy upstream by its status, which Earshot's own transport turns into words for the glasses", async () => {
+    const said: string[] = []
+    const service = openRouter({
+      host: 'https://relay.example',
+      fetch: async input => notSetUp(new Request(String(input), { method: 'POST' })),
+    })
+    await service.model.choose({ words: 'open voice', options: [] }).catch(error => said.push(error.say))
+    expect(said).toEqual(['Voice is off for now'])
+  })
+
   it('says the same to a caller that asks for the live line', () => {
     const asks = new Request('https://relay.example/api/v1/live', { headers: { upgrade: 'websocket' } })
-    expect(notSetUp(asks).status).toBe(503)
+    expect(notSetUp(asks).status).toBe(501)
   })
 })
 
