@@ -172,8 +172,11 @@ heard was for a screen that is gone, so it lets go of the microphone and takes "
 says the glasses listen while they do not, or hides that they do. The same press starts no other hold. For as long as
 a hold records, "Listening" is on show (E20): a notice in that time is written as a line under it, for the notice's own
 time, and is shown on for what is left of that time when the hold ends by a change of screen. The microphone opens at
-the press, before the glasses have drawn anything, so that the first word is not lost. `Glasses` knows which overlay it
-shows for certain; a hold for which that is not yet "Listening" three seconds on ends, as one whose screen changed does.
+the press, before the glasses have drawn anything, so that the first word is not lost. `Glasses` remembers the overlay
+of the last page the glasses answered in full. A hold for which no page answered since the press held "Listening" ends
+three seconds on, as one whose screen changed does. It goes by pages answered, not by what is certain at one moment:
+while the meter is drawn again faster than the glasses answer, no moment is certain, and "Listening" is on show all the
+same.
 
 Not built yet, and belonging to the next slice: Jev as the model, the rolling queue of items, context and its
 compaction, and the default transports.
