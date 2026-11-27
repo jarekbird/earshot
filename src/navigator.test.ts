@@ -216,6 +216,11 @@ describe('the navigator', () => {
       expect(await never(heard('Open note.'))).toEqual({ kind: 'sure', action: 'open' })
     })
 
+    it('is that same option when its whole text was said, the words that say it shows a list too', async () => {
+      expect(await never(heard('Open note (show the list)'))).toEqual({ kind: 'sure', action: 'open' })
+      expect(await never(heard('open note, show the list.'))).toEqual({ kind: 'sure', action: 'open' })
+    })
+
     it('still goes to the model when the words only hold a name, or name two options', async () => {
       const asked: string[] = []
       const asks = navigator({
