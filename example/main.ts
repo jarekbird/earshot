@@ -22,6 +22,7 @@ import {
   text,
   wrapText,
   type Agent,
+  type Audio,
   type LiveState,
   type NavigatorModel,
   type Speaker,
@@ -60,7 +61,12 @@ const speech = () => {
 const life = new Lifetime()
 const bridge = await waitForEvenAppBridge()
 const glasses = new Glasses(life, bridge, { trace: EARSHOT_TRACE })
-const service = EARSHOT_RELAY ? openRouter({ host: EARSHOT_RELAY }) : undefined
+const calls = (host: string, said: string) => ({ said, service: openRouter({ host, ...(said ? { secret: said } : {}) }) })
+const relayed = EARSHOT_RELAY ? { host: EARSHOT_RELAY, made: calls(EARSHOT_RELAY, secret.value) } : undefined
+const service = (from: NonNullable<typeof relayed>) => {
+  if (from.made.said !== secret.value) from.made = calls(from.host, secret.value)
+  return from.made.service
+}
 
 const open = action({
   id: 'open',
@@ -177,7 +183,7 @@ life.own(
   }),
 )
 
-const rolling = new Rolling(life, service ? { compact: service.compact } : {})
+const rolling = new Rolling(life, relayed ? { compact: (words, limit) => service(relayed).compact(words, limit) } : {})
 for (const note of notes) rolling.add(open, note.id, note.body)
 const takeNote: Agent = heard => {
   const [, body] = /^remember (.+)/i.exec(heard.words) ?? []
@@ -203,7 +209,10 @@ const noted = (model: NavigatorModel): NavigatorModel => ({
 })
 const hears = scripted
   ? { transcribe: scriptedSpeech(scripted), model: noted(matchWords) }
-  : service && { transcribe: service.transcribe, model: noted(service.model) }
+  : relayed && {
+      transcribe: (audio: Audio, turn?: Lifetime) => service(relayed).transcribe(audio, turn),
+      model: noted({ choose: (question, turn) => service(relayed).model.choose(question, turn) }),
+    }
 const shell: Shell = new Shell(
   life,
   glasses,

@@ -38,6 +38,150 @@ function setup(answers: (Response | Error)[] = [], more: Pick<RelayOptions, 'mod
 
 const speech = { model: 'openai/whisper-large-v3-turbo', input_audio: { data: 'UklGRg==', format: 'wav' } }
 
+describe('a relay with a secret', () => {
+  const SECRET = 'a phrase of the developer'
+  const guarded = (answers: Response[] = [], options: Partial<Parameters<typeof relay>[0]> = { secret: SECRET }) => {
+    const sent: Sent[] = []
+    const handle = relay({
+      key: 'sk-developer',
+      upstream: 'https://upstream.example',
+      ...options,
+      fetch: async (url, init) => {
+        sent.push({ url: String(url), key: new Headers(init?.headers).get('authorization'), body: JSON.parse(String(init?.body)) })
+        return answers.shift() ?? json({})
+      },
+    })
+    const post = (path: string, body: unknown) =>
+      handle(new Request(`https://relay.example${path}`, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) }))
+    return { sent, post }
+  }
+  const CALLS: [string, Record<string, unknown>][] = [
+    ['/api/v1/audio/transcriptions', speech],
+    ['/api/alpha/decisions', { model: 'typesafe/jev-1.14', state: 'x', questions: {} }],
+    ['/api/v1/chat/completions', { model: 'mistralai/mistral-nemo', messages: [] }],
+  ]
+
+  it.each(CALLS)('turns away a call to %s that does not say it, and forwards nothing', async (path, body) => {
+    const { sent, post } = guarded()
+    const answers = [await post(path, body), await post(path, { ...body, secret: `${SECRET}!` }), await post(path, { ...body, secret: 7 })]
+    expect(answers.map(answer => answer.status)).toEqual([401, 401, 401])
+    expect(await answers[0].json()).toEqual({ error: 'Not an app this relay knows.' })
+    expect(sent).toEqual([])
+  })
+
+  it.each(CALLS)('forwards a call to %s that says it, and the secret goes no further', async (path, body) => {
+    const { sent, post } = guarded([json({ ok: true })])
+    const answer = await post(path, { ...body, secret: SECRET })
+    expect([answer.status, await answer.json()]).toEqual([200, { ok: true }])
+    expect(sent).toEqual([{ url: `https://upstream.example${path}`, key: 'Bearer sk-developer', body }])
+    expect(JSON.stringify(sent)).not.toContain(SECRET)
+  })
+
+  it('with only some calls named: a call it does not forward is refused as such whoever asks, and a named one still asks for the secret', async () => {
+    const { sent, post } = guarded([json({ ok: true })], { secret: SECRET, calls: ['decide'] })
+    const decide = { model: 'typesafe/jev-1.14', state: 'x', questions: {} }
+    const answers = [
+      await post('/api/v1/audio/transcriptions', speech),
+      await post('/api/v1/audio/transcriptions', { ...speech, secret: SECRET }),
+      await post('/api/alpha/decisions', decide),
+      await post('/api/alpha/decisions', { ...decide, secret: SECRET }),
+    ]
+    expect([answers.map(answer => answer.status), sent.length]).toEqual([[404, 404, 401, 200], 1])
+  })
+
+  it('answers what the upstream refused with its status and none of its words, also to a caller with the secret', async () => {
+    const { post } = guarded([new Response(JSON.stringify({ error: `you said ${SECRET}` }), { status: 429 })])
+    const answer = await post('/api/v1/audio/transcriptions', { ...speech, secret: SECRET })
+    expect([answer.status, await answer.text()]).toEqual([429, JSON.stringify({ error: 'The upstream answered 429.' })])
+  })
+
+  it('says nothing of its models to a caller without the secret', async () => {
+    const { post } = guarded()
+    const answer = await post('/api/v1/audio/transcriptions', { model: 'not/listed' })
+    expect([answer.status, await answer.text()]).toEqual([401, JSON.stringify({ error: 'Not an app this relay knows.' })])
+  })
+
+  it('asks its calls for the secret of live speech too: a relay has one secret', async () => {
+    const live = { upstream: 'wss://speech.example/v1', key: 'live-developer', secret: SECRET }
+    const { sent, post } = guarded([json({})], { live })
+    expect((await post('/api/v1/audio/transcriptions', speech)).status).toBe(401)
+    expect((await post('/api/v1/audio/transcriptions', { ...speech, secret: SECRET })).status).toBe(200)
+    expect(sent).toHaveLength(1)
+    expect(() => guarded([], { live, secret: SECRET })).not.toThrow()
+    expect(() => guarded([], { live, secret: `${SECRET} of another kind` })).toThrow('one secret')
+  })
+
+  it('is given once by the settings a host reads, where it always was for live speech, so that options an app already reads keep their shape', () => {
+    const settings = {
+      key: 'sk-developer',
+      upstream: 'https://upstream.example',
+      models: undefined,
+      liveUpstream: 'wss://speech.example/v1',
+      liveKey: 'live-developer',
+      liveModels: undefined,
+      secret: SECRET,
+      calls: undefined,
+    }
+    const options = relayOptions(settings)
+    expect([options.secret, options.live?.secret]).toEqual([undefined, SECRET])
+    const { live: lone } = relayOptions({ ...settings, secret: undefined })
+    expect(() => guarded([], { live: lone })).toThrow('Live speech needs a secret')
+  })
+
+  it.each([null, false, 0, 7, {}])(
+    'is not made with %j for a secret, by the settings or by hand: only unset or empty means none',
+    given => {
+      const settings = {
+        key: 'sk-developer',
+        upstream: 'https://upstream.example',
+        models: undefined,
+        liveUpstream: undefined,
+        liveKey: undefined,
+        liveModels: undefined,
+        secret: given as unknown as string,
+        calls: undefined,
+      }
+      expect(() => relay(relayOptions(settings))).toThrow('needs a secret')
+      expect(() => guarded([], { secret: given as unknown as string })).toThrow('needs a secret')
+      expect(() => relay(relayOptions({ ...settings, liveUpstream: 'wss://speech.example/v1', liveKey: 'k' }))).toThrow('needs a secret')
+    },
+  )
+
+  it.each(['', 'a'.repeat(15), 'a'.repeat(1_025), 0])('is not made with the secret %j: none is left out, not given empty', secret => {
+    expect(() => guarded([], { secret: secret as string })).toThrow('needs a secret')
+  })
+
+  it('comes from the settings a host reads, with live speech or without, and an empty setting is none', () => {
+    const settings = {
+      key: 'sk-developer',
+      upstream: 'https://upstream.example',
+      models: undefined,
+      liveUpstream: undefined,
+      liveKey: undefined,
+      liveModels: undefined,
+      calls: undefined,
+    }
+    const calls = { key: 'sk-developer', upstream: 'https://upstream.example' }
+    expect(relayOptions({ ...settings, secret: SECRET })).toEqual({ ...calls, secret: SECRET })
+    expect(relayOptions({ ...settings, secret: '' })).toEqual(calls)
+    expect(relayOptions({ ...settings, liveUpstream: 'wss://speech.example/v1', liveKey: 'k', secret: SECRET })).toEqual({
+      ...calls,
+      live: { upstream: 'wss://speech.example/v1', key: 'k', secret: SECRET },
+    })
+  })
+
+  it('is asked of the callers Earshot ships, which then get their answers as before', async () => {
+    const { sent, post } = guarded([json({ text: 'open voice' })])
+    const service = openRouter({
+      host: 'https://relay.example',
+      secret: SECRET,
+      fetch: (url, init) => post(new URL(String(url)).pathname, String(init?.body)),
+    })
+    expect(await service.transcribe({ pcm: new Uint8Array(3_200), seconds: 0.1 })).toBe('open voice')
+    expect(sent).toHaveLength(1)
+  })
+})
+
 describe('a call from the app', () => {
   it("goes to the upstream with the developer's key, and its answer comes back", async () => {
     const { sent, post } = setup([json({ text: 'open voice' })])

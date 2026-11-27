@@ -1,3 +1,4 @@
+import { getEventListeners } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Lifetime, LifetimeEnded } from '../lifetime.js'
 import { RelayError, SayError } from '../say.js'
@@ -30,6 +31,208 @@ function ready(...answers: (Response | Error)[]) {
   const { sent, fetcher } = service(...answers)
   return { sent, router: openRouter({ host: 'https://relay.example', fetch: fetcher }) }
 }
+
+describe('a relay that asks for a secret', () => {
+  const SECRET = 'a phrase of the developer'
+
+  it('is told the secret with each of the three calls, in the body and in no header', async () => {
+    const { sent, fetcher } = service(json({ text: 'x' }), json({ answers: {} }), json({ choices: [{ message: { content: 'short' } }] }))
+    const router = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: fetcher })
+    await router.transcribe({ pcm: tone(), seconds: 0.1 })
+    await router.model.choose({ words: 'open', options: [{ id: 'a', say: 'A' }] })
+    await router.compact('a long text', 40)
+    expect(sent.map(call => [call.body.secret, call.key])).toEqual(Array(3).fill([SECRET, null]))
+  })
+
+  it('sends no secret when the app named none', async () => {
+    const { sent, router } = ready(json({ text: 'x' }))
+    await router.transcribe({ pcm: tone(), seconds: 0.1 })
+    expect('secret' in sent[0].body).toBe(false)
+  })
+
+  it.each(['http://relay.example', 'ws://relay.example', 'relay.example', ''])(
+    'is not named %j: a secret travels to it, so its address is whole and with https',
+    host => {
+      expect(() => openRouter({ host, secret: SECRET })).toThrow('https')
+      expect(() => openRouter({ host })).not.toThrow()
+    },
+  )
+
+  it.each(['https://relay.example/', 'http://localhost:8787', 'http://127.0.0.1:8787', 'http://[::1]:8787'])('may be named %j', host => {
+    expect(() => openRouter({ host, secret: SECRET })).not.toThrow()
+  })
+
+  it.each([
+    'https://relay.example/?to=elsewhere',
+    'https://relay.example/#part',
+    'https://name@relay.example',
+    'https://name:word@relay.example',
+  ])('is not named %j: by its address alone', host => {
+    expect(() => openRouter({ host, secret: SECRET })).toThrow('address alone')
+    expect(() => openRouter({ host })).not.toThrow()
+  })
+
+  it.each([
+    ['https:relay.example', 'https://relay.example/api/v1/audio/transcriptions'],
+    ['https://relay.example/base//', 'https://relay.example/base/api/v1/audio/transcriptions'],
+    ['HTTPS://Relay.Example:443', 'https://relay.example/api/v1/audio/transcriptions'],
+  ])('is called at the address that was checked, never at the text %j as a page would read it', async (host, called) => {
+    const { sent, fetcher } = service(json({ text: 'x' }))
+    await openRouter({ host, secret: SECRET, fetch: fetcher }).transcribe({ pcm: tone(), seconds: 0.1 })
+    expect(new URL(sent[0].url, 'https://app.example/panel/').href).toBe(called)
+  })
+
+  it('gets its failures told without what was sent: an error of a call that carried the secret has no cause', async () => {
+    const telling = async (_url: string | URL | Request, init?: RequestInit) => {
+      throw Object.assign(new Error('the request failed'), { request: init?.body })
+    }
+    const unread = async () => new Response('not json', { status: 200 })
+    const failed = async (fetcher: typeof fetch, secret?: string) =>
+      openRouter({ host: 'https://relay.example', ...(secret === undefined ? {} : { secret }), fetch: fetcher })
+        .transcribe({ pcm: tone(), seconds: 0.1 })
+        .catch((error: Error) => error)
+    const errors = [await failed(telling, SECRET), await failed(unread, SECRET)]
+    expect(errors.map(error => [(error as Error).constructor.name, (error as Error).cause])).toEqual([
+      ['SayError', undefined],
+      ['RelayError', undefined],
+    ])
+    expect(JSON.stringify(errors.map(error => ({ ...(error as Error) })))).not.toContain(SECRET)
+    const open = [await failed(telling), await failed(unread)]
+    expect(open.map(error => (error as Error).cause instanceof Error)).toEqual([true, true])
+  })
+
+  it.each([
+    ['a redirect', 307, () => new Response(null, { status: 307, headers: { location: 'https://elsewhere.example/api' } })],
+    ['a redirect it may not look into', undefined, () => Object.defineProperty(new Response(null), 'type', { value: 'opaqueredirect' })],
+    ['a moved-for-good', 301, () => new Response('{"text":"from elsewhere"}', { status: 301 })],
+  ])(
+    'says there is no connection when the relay answers with %s, with the status it could see, and reads nothing of it',
+    async (_name, status, moved) => {
+      const { sent, fetcher } = service(moved())
+      const failed = await openRouter({ host: 'https://relay.example', secret: SECRET, fetch: fetcher })
+        .transcribe({ pcm: tone(), seconds: 0.1 })
+        .catch((error: SayError) => error)
+      expect(failed instanceof SayError && [failed.say, failed.status, failed.cause, sent.length]).toEqual([
+        'No connection',
+        status,
+        undefined,
+        1,
+      ])
+    },
+  )
+
+  it.each([307, 401])(
+    'leaves an answer of %i unused when it comes after its turn has ended: the next turn is not held back for it',
+    async status => {
+      let answer = (_response: Response) => {}
+      const late = new Promise<Response>(resolve => (answer = resolve))
+      const answers = [late, Promise.resolve(json({ text: 'the next turn' }))]
+      const router = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: async () => answers.shift() ?? json({}) })
+      const life = new Lifetime()
+      const failed = router.transcribe({ pcm: tone(), seconds: 0.1 }, life).catch((error: Error) => error)
+      life.end()
+      answer(new Response(null, { status }))
+      expect(await failed).toBeInstanceOf(LifetimeEnded)
+      expect(await router.transcribe({ pcm: tone(), seconds: 0.1 })).toBe('the next turn')
+    },
+  )
+
+  it('leaves unused what it reads of an answer once its turn has ended, and lets go of an answer it will not read', async () => {
+    let finish = (_text: string) => {}
+    const slow = new Response(
+      new ReadableStream<Uint8Array>({
+        start: stream => void (finish = text => (stream.enqueue(new TextEncoder().encode(text)), stream.close())),
+      }),
+    )
+    const read = new Lifetime()
+    const reading = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: async () => slow })
+      .transcribe({ pcm: tone(), seconds: 0.1 }, read)
+      .catch((error: Error) => error)
+    await vi.advanceTimersByTimeAsync(0)
+    read.end()
+    finish('{"text":"late"}')
+    expect(await reading).toBeInstanceOf(LifetimeEnded)
+
+    let let_go = 0
+    let answer = (_response: Response) => {}
+    const late = new Promise<Response>(resolve => (answer = resolve))
+    const unread = new Lifetime()
+    const leaving = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: () => late })
+      .transcribe({ pcm: tone(), seconds: 0.1 }, unread)
+      .catch((error: Error) => error)
+    unread.end()
+    answer(new Response(new ReadableStream({ cancel: () => (let_go++, new Promise<void>(() => {})) }), { status: 200 }))
+    expect([await leaving, let_go].map(seen => (seen instanceof LifetimeEnded ? 'ended' : seen))).toEqual(['ended', 1])
+  })
+
+  it.each([401, 429, 500, 418])('lets go of an answer of %i it does not read, without waiting for it', async status => {
+    let let_go = 0
+    const unread = new ReadableStream({ cancel: () => (let_go++, new Promise<void>(() => {})) })
+    const router = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: async () => new Response(unread, { status }) })
+    const failed = await router.transcribe({ pcm: tone(), seconds: 0.1 }).catch((error: Error) => error)
+    expect([failed instanceof Error, let_go]).toEqual([true, 1])
+  })
+
+  it('holds no later turn back for a refusal whose turn ended as the answer was let go of', async () => {
+    const life = new Lifetime()
+    const ending = new ReadableStream({ cancel: () => life.end() })
+    const answers = [new Response(ending, { status: 401 }), json({ text: 'the next turn' })]
+    const router = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: async () => answers.shift() ?? json({}) })
+    expect(await router.transcribe({ pcm: tone(), seconds: 0.1 }, life).catch((error: Error) => error)).toBeInstanceOf(LifetimeEnded)
+    expect(await router.transcribe({ pcm: tone(), seconds: 0.1 })).toBe('the next turn')
+  })
+
+  it('leaves nothing listening on a call once its answer is read, with a turn or without', async () => {
+    const signals: AbortSignal[] = []
+    const fetcher = async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.signal) signals.push(init.signal)
+      return json({ text: 'x', choices: [{ message: { content: 'short' } }] })
+    }
+    const router = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: fetcher })
+    await router.compact('a long text', 40)
+    await router.transcribe({ pcm: tone(), seconds: 0.1 }, new Lifetime())
+    expect(signals.map(signal => getEventListeners(signal, 'abort').length)).toEqual([0, 0])
+  })
+
+  it.each([undefined, SECRET])('ends with its turn while it reads an answer that never ends (secret: %s)', async secret => {
+    const endless = () =>
+      new Response(new ReadableStream<Uint8Array>({ start: stream => stream.enqueue(new TextEncoder().encode('{"text":')) }))
+    const life = new Lifetime()
+    const router = openRouter({ host: 'https://relay.example', ...(secret ? { secret } : {}), fetch: async () => endless() })
+    const failed = router.transcribe({ pcm: tone(), seconds: 0.1 }, life).catch((error: Error) => error)
+    await vi.advanceTimersByTimeAsync(0)
+    life.end()
+    expect(await failed).toBeInstanceOf(LifetimeEnded)
+  })
+
+  it('ends with its turn also while it lets go of a redirect that will not be let go of', async () => {
+    const stuck = new ReadableStream({ cancel: () => new Promise<void>(() => {}) })
+    const life = new Lifetime()
+    const router = openRouter({
+      host: 'https://relay.example',
+      secret: SECRET,
+      fetch: async () => new Response(stuck, { status: 307 }),
+    })
+    const failed = router.transcribe({ pcm: tone(), seconds: 0.1 }, life).catch((error: Error) => error)
+    await vi.advanceTimersByTimeAsync(0)
+    life.end()
+    expect(await failed).toBeInstanceOf(SayError)
+  })
+
+  it('is followed to no other address: a call that carries the secret takes no redirect, and one without goes as before', async () => {
+    const modes: (RequestRedirect | undefined)[] = []
+    const fetcher = async (_url: string | URL | Request, init?: RequestInit) => (
+      modes.push(init?.redirect),
+      json({ text: 'x', choices: [{ message: { content: 'y' } }] })
+    )
+    const guarded = openRouter({ host: 'https://relay.example', secret: SECRET, fetch: fetcher })
+    await guarded.transcribe({ pcm: tone(), seconds: 0.1 })
+    await guarded.model.choose({ words: 'open', options: [{ id: 'a', say: 'A' }] })
+    await guarded.compact('a long text', 40)
+    await openRouter({ host: 'https://relay.example', fetch: fetcher }).transcribe({ pcm: tone(), seconds: 0.1 })
+    expect(modes).toEqual(['manual', 'manual', 'manual', undefined])
+  })
+})
 
 describe('speech to text', () => {
   it('sends the recording as a sound file to the host the app named, with no key, and gives the words', async () => {

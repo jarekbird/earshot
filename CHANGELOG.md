@@ -6,6 +6,19 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
+## 0.0.64 (2026-11-27)
+
+- A relay that has a secret asks its three calls for it too, not only live speech. A call that does not say it is
+  answered 401 before anything is forwarded; one the relay does not forward at all is answered 404 first, as before. A relay with no secret answers as before.
+- `openRouter({ host, secret })` says the secret with each call. With a secret, the relay is named by its address
+  alone with `https`, the calls go to the address that was checked and take no redirect, and an error carries no
+  `cause`.
+- **An app must** give `openRouter` its relay's secret when the relay has one (`SECRET`, `EARSHOT_RELAY_SECRET`),
+  or a hold says "Voice is off for now". That goes for a relay with live speech, and for one that had a secret set
+  with no live upstream, where the setting used to be ignored.
+- **An app must** give such a relay a fitting secret or take the setting out: one under 16 characters, or over 1,024
+  as JSON writes them, was ignored before with no live upstream and now makes no relay.
+
 ## 0.0.63 (2026-11-26)
 
 - An option said by its very words is chosen without asking the navigator's model, whatever case and punctuation

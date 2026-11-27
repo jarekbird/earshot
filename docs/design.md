@@ -349,7 +349,8 @@ use it, compaction. Earshot ships all three for OpenRouter, paid by the develope
 - **A request ends with its turn.** The shell hands the transcriber and the model the lifetime of the command; the
   OpenRouter transports abort with it, and an error carries the status of its own request.
 - **It forwards little.** Only the three calls, only the models the developer lists, only the fields Earshot sends,
-  and nothing over a size limit. A stranger who finds the address gets those three calls, not a general key.
+  and nothing over a size limit. A stranger who finds the address of a relay with no secret gets those three calls,
+  not a general key; of a relay with a secret, nothing (below).
 - **It does not know one user from another.** The developer sets a spending limit on the key at OpenRouter; that
   is the most a stranger can cost, and when it is reached voice is off for everyone until it resets. A limit for
   each user is the next step, when an app needs it.
@@ -581,6 +582,17 @@ The line, as states:
   builds its options by hand cannot skip the check. The secret is the user's to type on the phone, never the
   build's, and never part of an address. The relay does not count minutes yet: that comes with the first app that
   needs it.
+- **One secret, for every call.** A relay that has a secret asks its three calls for it too (Jarek, 2026-11-24): a
+  secret that only guarded the live line left the calls open to anyone with the address. The caller says it in the
+  body, as the greeting of a live line does, because a header takes no sign outside Latin-1 and a body takes any
+  secret a greeting can; the relay forwards only the fields it lists, so the secret stays there. It is looked at
+  before the model, so a stranger learns nothing of which models the relay allows. Which of the three calls it
+  forwards a stranger can tell: a call that is not forwarded (v0.0.51, the calls a developer names) is answered
+  404 before anything of it is read, the secret included, and one that is forwarded is answered 401. And `openRouter` refuses to carry a
+  secret to a relay not named with `https` (plain only on this device), calls the address that was checked, follows
+  it nowhere else, and gives its failures no `cause`, since whatever failed may hold the body that was sent.
+  `fluxLive` and `openRouter` check a relay's address with one function (`src/relayAddress.ts`). A relay with no
+  secret answers as before.
 - **No key travels in the clear.** An upstream is named with `https`, or `wss` for live speech, unless it is on the
   same machine. The relay follows an upstream to no other address, for the three calls as for live speech, so a
   redirect gets no key and no recording.
@@ -641,7 +653,7 @@ The line, as states:
   - Workers AI takes every setting of a speech model as text, a number or a boolean being refused.
 - The app lists the relay twice in its whitelist: `https://` for a hold and `wss://` for live speech. The store
   check cannot see a missing `wss://` entry, because the address is made from the host as the app runs.
-- The example takes the relay's secret from a field on its phone page only. What the glasses show is written to the
+- The example takes the relay's secret from a field on its phone page only, and says it with its three calls as with live speech. It reads the field at each call and makes a new caller only when the secret differs, so what a caller knows of a refusal (the thirty seconds it holds back) outlasts an edit that changed nothing. What the glasses show is written to the
   console only in the build the simulator tests make, never in the packed one: with live speech a frame holds what
   was said.
 - Not tried yet: a deployed Worker, and live speech from inside the Even app.

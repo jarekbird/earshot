@@ -24,6 +24,7 @@ export interface RelayOptions {
   key?: string
   upstream?: string
   models?: string[]
+  secret?: string
   calls?: Call[]
   live?: LiveOptions
   maxBytes?: number
@@ -87,7 +88,11 @@ export function relayOptions({ key, upstream, models, liveUpstream, liveKey, liv
     ...(key !== undefined || upstream !== undefined ? { key, upstream } : {}),
     ...listed(models),
     ...(named ? { calls: known(named) } : {}),
-    ...(liveUpstream ? { live: { upstream: liveUpstream, key: liveKey ?? '', secret: secret ?? '', ...listed(liveModels) } } : {}),
+    ...(liveUpstream
+      ? { live: { upstream: liveUpstream, key: liveKey ?? '', secret: secret ?? '', ...listed(liveModels) } }
+      : secret === undefined || secret === ''
+        ? {}
+        : { secret }),
   }
 }
 
@@ -170,10 +175,19 @@ function sealed(address: string | undefined, scheme: 'https' | 'wss', what: stri
   return (address ?? '').replace(/\/+$/, '')
 }
 
+const fits = (secret: unknown) =>
+  typeof secret === 'string' && secret.length >= MIN_SECRET && JSON.stringify(secret).length - 2 <= MAX_SECRET
+
+function secretOf({ secret, live }: RelayOptions): string | undefined {
+  if (live && !fits(live.secret)) throw new Error(`Live speech needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters.`)
+  if (secret === undefined) return live?.secret
+  if (live && live.secret !== secret) throw new Error('A relay has one secret: its calls and live speech ask for the same one.')
+  if (!fits(secret)) throw new Error(`A relay needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters, or none.`)
+  return secret
+}
+
 function checked(live: LiveOptions): LiveOptions {
   if (!live.key) throw new Error('Live speech needs the key of its upstream.')
-  if (typeof live.secret !== 'string' || live.secret.length < MIN_SECRET || JSON.stringify(live.secret).length - 2 > MAX_SECRET)
-    throw new Error(`Live speech needs a secret of ${MIN_SECRET} to ${MAX_SECRET} characters.`)
   if (/[?#]/.test(sealed(live.upstream, 'wss', 'Live speech'))) throw new Error('Live speech names its upstream with no query.')
   return { ...live, upstream: new URL(live.upstream).href.replace(/\/+$/, '') }
 }
@@ -185,7 +199,7 @@ function sizeOf(data: unknown): number {
   return typeof size === 'number' ? size : 0
 }
 
-function live(line: Line, sockets: Sockets, { upstream, key, secret, models }: LiveOptions): void {
+function live(line: Line, sockets: Sockets, { upstream, key, models }: LiveOptions, secret: string): void {
   const allowed = new Set(models ?? DEFAULT_LIVE_MODELS)
   const reaching = new AbortController()
   let up: Line | undefined
@@ -252,6 +266,7 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
   if (forwards && options.key === undefined && !options.fetch) throw new Error("The relay's calls need the key of their upstream.")
   const upstream = forwards ? sealed(options.upstream, 'https', "The relay's calls") : ''
   const speech = options.live && checked(options.live)
+  const secret = secretOf(options)
   const models = new Set(options.models ?? DEFAULT_MODELS)
   const forwarded = new Set(options.calls ? known(options.calls).map(call => PATHS[call]) : Object.values(PATHS))
   const limit = options.maxBytes ?? MAX_BYTES
@@ -259,11 +274,11 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
   return async request => {
     const { pathname } = new URL(request.url)
     if (request.method === 'OPTIONS') return firstCheck()
-    if (pathname === LIVE_PATH && speech) {
+    if (pathname === LIVE_PATH && speech && secret !== undefined) {
       const asksForOne = request.method === 'GET' && request.headers.get('upgrade')?.toLowerCase() === 'websocket'
       if (!asksForOne || !sockets) return refuse(426, 'Only a WebSocket.')
       const { line, response } = await sockets.accept(request)
-      live(line, sockets, speech)
+      live(line, sockets, speech, secret)
       return response
     }
     const fields = forwards && forwarded.has(pathname) ? FIELDS.get(pathname) : undefined
@@ -272,6 +287,8 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
     const text = await read(request, limit)
     if (text === null) return refuse(413, 'Too large.')
     const body = parse(text)
+    if (secret !== undefined && !(typeof body?.secret === 'string' && same(body.secret, secret)))
+      return refuse(401, 'Not an app this relay knows.')
     if (!body) return refuse(400, 'Not a JSON object.')
     if (typeof body.model !== 'string' || !models.has(body.model)) return refuse(400, 'Not a model this relay allows.')
     const kept = Object.fromEntries(fields.filter(field => field in body).map(field => [field, body[field]]))

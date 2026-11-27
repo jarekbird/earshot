@@ -2,6 +2,7 @@ import { SAMPLE_RATE, type Speaker } from '../audio.js'
 import { Lifetime, type Timer } from '../lifetime.js'
 import { most, type LiveSpeech, type LiveState, type Turn } from '../live.js'
 import { serve } from '../serve.js'
+import { relayAddress } from '../relayAddress.js'
 
 export interface FluxSocket {
   binaryType: string
@@ -42,9 +43,6 @@ export const CONNECT_MS = 10_000
 const RETRY_FIRST_MS = 500
 const RETRY_MAX_MS = 8_000
 const FOR_GOOD = new Set<number>(Object.values(REFUSALS))
-// Fact: a URL writes an IPv4 address inside IPv6 in hex, so 127.0.0.1 there reads [::ffff:7f00:1].
-const LOOPBACK = /^(?:127(?:\.\d{1,3}){3}|\[::ffff:7f[\da-f]{2}:[\da-f]{1,4}\])$/
-const onThisDevice = (hostname: string) => hostname === 'localhost' || hostname === '[::1]' || LOOPBACK.test(hostname)
 const HEARD = 'live speech'
 const OPEN = 1
 
@@ -75,15 +73,10 @@ function parse(data: unknown): Record<string, unknown> | null {
 const NOT_ALONE = 'The relay of live speech is named by its address alone: no query, no fragment, no name or password.'
 
 function lineTo(host: string): string {
-  let relay: URL
-  try {
-    relay = new URL(host)
-  } catch {
-    throw new Error(NOT_ALONE)
-  }
-  if (relay.protocol !== 'https:' && !(relay.protocol === 'http:' && onThisDevice(relay.hostname)))
-    throw new Error('Live speech carries a secret and sound, so its relay is named with https.')
-  if (/[?#]/.test(host) || relay.username || relay.password) throw new Error(NOT_ALONE)
+  const relay = relayAddress(host, {
+    alone: NOT_ALONE,
+    sealed: 'Live speech carries a secret and sound, so its relay is named with https.',
+  })
   relay.protocol = relay.protocol === 'https:' ? 'wss:' : 'ws:'
   relay.pathname = `${relay.pathname.replace(/\/+$/, '')}${LIVE_PATH}`
   return relay.href

@@ -3,6 +3,7 @@ import type { Compact } from '../context.js'
 import type { NavigatorModel, Option } from '../navigator.js'
 import { LifetimeEnded, type Lifetime } from '../lifetime.js'
 import { RelayError, SayError } from '../say.js'
+import { relayAddress } from '../relayAddress.js'
 
 export interface OpenRouterModels {
   speech: string
@@ -12,6 +13,7 @@ export interface OpenRouterModels {
 
 export interface OpenRouterOptions {
   host: string
+  secret?: string
   models?: Partial<OpenRouterModels>
   language?: string
   fetch?: typeof fetch
@@ -60,8 +62,16 @@ function base64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
+const NOT_ALONE = 'A relay that is told a secret is named by its address alone, with https: no query, no fragment, no name or password.'
+
+function sealed(host: string): string {
+  const relay = relayAddress(host, { alone: NOT_ALONE, sealed: 'The calls carry a secret, so their relay is named with https.' })
+  return `${relay.origin}${relay.pathname.replace(/\/+$/, '')}`
+}
+
 export function openRouter(options: OpenRouterOptions): OpenRouter {
-  const host = options.host.replace(/\/+$/, '')
+  const { secret } = options
+  const host = secret === undefined ? options.host.replace(/\/+$/, '') : sealed(options.host)
   const models = { ...MODELS, ...options.models }
   const now = options.now ?? Date.now
   let heldBack: { until: number; say: string } | undefined
@@ -84,25 +94,51 @@ export function openRouter(options: OpenRouterOptions): OpenRouter {
     }
   }
 
-  async function call(path: string, body: unknown, ms: number, life?: Lifetime): Promise<Record<string, unknown>> {
+  async function call(path: string, body: Record<string, unknown>, ms: number, life?: Lifetime): Promise<Record<string, unknown>> {
     if (heldBack && now() < heldBack.until) throw new SayError(heldBack.say)
     const { signal, done } = within(ms, life)
     let response: Response | undefined
+    let moved: { status?: number } | undefined
     try {
-      response = await (options.fetch ?? fetch)(`${host}${path}`, {
+      const answered = await (options.fetch ?? fetch)(`${host}${path}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(secret === undefined ? body : { ...body, secret }),
+        // Fact: Cloudflare's runtime refuses redirect: 'error'. With 'manual' every runtime hands back the redirect itself.
+        ...(secret === undefined ? {} : { redirect: 'manual' as const }),
         signal,
       })
-      if (response.ok) return (await response.json()) as Record<string, unknown>
-    } catch (cause) {
+      const elsewhere = answered.status >= 300 && answered.status < 400
+      const redirected = secret !== undefined && (answered.type === 'opaqueredirect' || elsewhere)
+      if (redirected || life?.ended) void answered.body?.cancel().catch(() => {})
+      if (life?.ended) throw new LifetimeEnded()
+      if (redirected) moved = elsewhere ? { status: answered.status } : {}
+      else response = answered
+      if (response?.ok) {
+        let stopped = () => {}
+        const over = new Promise<never>((_, stop) => {
+          stopped = () => stop(signal.reason)
+          if (signal.aborted) stopped()
+          else signal.addEventListener('abort', stopped, { once: true })
+        })
+        const read = (await Promise.race([response.json(), over]).finally(() => signal.removeEventListener('abort', stopped))) as Record<
+          string,
+          unknown
+        >
+        if (life?.ended) throw new LifetimeEnded()
+        return read
+      }
+    } catch (failure) {
+      const cause = secret === undefined ? failure : undefined
       if (life?.ended) throw new LifetimeEnded()
       if (response) throw new RelayError(`The answer of the relay to ${path} could not be read.`, response.status, cause)
-      throw new SayError(NO_CONNECTION, { cause })
+      throw new SayError(NO_CONNECTION, cause === undefined ? {} : { cause })
     } finally {
       done()
     }
+    if (!response) throw new SayError(NO_CONNECTION, moved)
+    void response.body?.cancel().catch(() => {})
+    if (life?.ended) throw new LifetimeEnded()
     const { status } = response
     const say = REFUSALS[status] ?? (status >= 500 ? BUSY : undefined)
     if (!say) throw new RelayError(`The relay answered ${status} to ${path}.`, status)
