@@ -1,4 +1,4 @@
-import type { Action, TargetInfo } from './action.js'
+import type { Action, Risk, TargetInfo } from './action.js'
 import type { Audio } from './audio.js'
 import type { Lifetime } from './lifetime.js'
 import type { RollingItem } from './rolling.js'
@@ -63,6 +63,9 @@ interface Stood {
   target: string
   say: string
 }
+export interface Meant extends Stood {
+  risk: Risk
+}
 type Standing = Action & { [SAME]?: () => Stood | undefined }
 interface Source {
   action: Action
@@ -74,7 +77,9 @@ const NONE = 'none'
 
 type Meaning = Pick | typeof PASS | typeof NONE
 
-export function questionFor(heard: Heard): { question: Question; meanings: Map<string, Meaning> } {
+const rowSay = (action: string, row: string) => `${action}: ${row}`
+
+export function questionFor(heard: Heard): { question: Question; meanings: Map<string, Meaning>; stood: Map<string, Meant> } {
   const meanings = new Map<string, Meaning>()
   const options: Option[] = []
   let length = heard.words.length + (heard.screen?.length ?? 0)
@@ -90,9 +95,7 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
     length += option.say.length + (option.context?.length ?? 0)
   }
   const offered = new Set<string>()
-  const reached = new Set<string>()
   const offerAction = (action: Action) => {
-    reached.add(action.id)
     const hint = action.hint === undefined ? {} : { context: action.hint }
     const targets = action.targets() ?? []
     const named = targets.filter(target => !target.private)
@@ -100,7 +103,7 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
     if (targets.length !== 1 || named.length !== 1) offer({ action: action.id, say: action.say }, { say: alone, ...hint })
     for (const target of named) {
       if (options.length >= MAX_OPTIONS) return
-      const say = `${action.say}: ${target.say}`
+      const say = rowSay(action.say, target.say)
       const rolled = heard.rolling.find(item => item.action.id === action.id && item.target === target.id)
       offered.add(`${action.id}\n${target.id}`)
       offer(
@@ -128,21 +131,25 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
     )
   }
   const offering = (action: string, target?: string) => options.find(option => option.action === action && option.target === target)
+  const stood = new Map<string, Meant>()
   for (const action of heard.actions as readonly Standing[]) {
     const stands = action[SAME]?.()
-    const [from, to] = stands ? [offering(action.id), offering(stands.action, stands.target)] : []
-    const source = to && sources.get(to)
-    if (stands && from && source && oneChoice(source, stands, reached)) from.same = to.id
+    const from = stands && offering(action.id)
+    if (!stands || !from) continue
+    const { listed } = stands
+    const to = offering(stands.action, stands.target)
+    const named = to && sources.get(to)
+    const shown = named?.row && named.action === listed ? named.row : listed.targets()?.find(row => row.id === stands.target)
+    stood.set(from.id, { ...stands, risk: shown?.risk ?? listed.risk })
+    if (to && named && oneChoice(to, named, stands, shown)) from.same = to.id
   }
-  return { question: { words: heard.words, ...(heard.screen ? { screen: heard.screen } : {}), options }, meanings }
+  return { question: { words: heard.words, ...(heard.screen ? { screen: heard.screen } : {}), options }, meanings, stood }
 }
 
-function oneChoice(named: Source, { listed, action, target, say }: Stood, reached: ReadonlySet<string>): boolean {
-  if (!named.row) return named.action === listed && !reached.has(action)
-  const shown = named.action === listed ? named.row : listed.targets()?.find(row => row.id === target)
-  if (!shown || shown.private) return false
-  if (named.action.say !== listed.say || named.action.hint !== listed.hint || named.row.say !== say) return false
-  if (named.action.blocked() !== listed.blocked()) return false
+function oneChoice(to: Option, named: Source, { listed, say }: Stood, shown: TargetInfo | undefined): boolean {
+  if (named.action === listed) return true
+  if (!named.row || !shown || shown.private) return false
+  if (to.say !== rowSay(listed.say, say) || to.context !== listed.hint) return false
   return (named.row.risk ?? named.action.risk) === (shown.risk ?? listed.risk)
 }
 
@@ -156,16 +163,16 @@ export function navigator(model: NavigatorModel): Agent {
   return navigatorNoting(model, () => {})
 }
 
-export function navigatorNoting(model: NavigatorModel, stoodFor: () => void): Agent {
+export function navigatorNoting(model: NavigatorModel, meant: (stood: Meant) => void): Agent {
   return async heard => {
-    const { question, meanings } = questionFor(heard)
+    const { question, meanings, stood } = questionFor(heard)
     const same = question.options.flatMap(option => (option.same === undefined ? [] : [[option.id, option.same]]))
     const chances = { ...(await model.choose(question, heard.life)) }
-    const led = new Set<string>()
+    const needed = new Map<string, string>()
     for (const [from, to] of same) {
       if (!Object.hasOwn(chances, from)) continue
       const named = Object.hasOwn(chances, to) ? chances[to] : 0
-      if (chances[from] > named) led.add(to)
+      if (named < SURE_AT) needed.set(to, from)
       chances[to] = named + chances[from]
       delete chances[from]
     }
@@ -177,7 +184,8 @@ export function navigatorNoting(model: NavigatorModel, stoodFor: () => void): Ag
       .sort((a, b) => b.chance - a.chance)
     if (ranked.length === 0) return { kind: 'none' }
     if (ranked[0].chance >= SURE_AT) {
-      if (led.has(ranked[0].id)) stoodFor()
+      const chosen = stood.get(needed.get(ranked[0].id) ?? ranked[0].id)
+      if (chosen) meant(chosen)
       return verdictOf(ranked[0].meaning)
     }
     const candidates = ranked
