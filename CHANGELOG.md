@@ -6,7 +6,7 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.59 (2026-11-26)
+## 0.0.60 (2026-11-26)
 
 - Live speech from Flux numbers the turns it tells itself, one by one and on across lines. Before, an id was made
   from the speech service's own number, and one number gone wild hid every turn after it, for the rest of the
@@ -14,6 +14,12 @@ each version's commits say: they name what a version added, and may miss a chang
 - A turn the service numbers more than 2^32 ahead of the newest of its line is not told: no line has that many.
 - `Turn.id` still counts up and stays the same while a turn grows. Where the service's numbers skip, the ids no
   longer do.
+
+## 0.0.59 (2026-11-26)
+
+- A relay that is not set up makes the glasses say "Voice is off for now". They said "The service is busy",
+  as for an upstream that is busy, since `notSetUp` answered with the same status.
+- **An app must** expect 501, not 503, from `notSetUp`, if it looks at the status itself.
 
 ## 0.0.58 (2026-11-26)
 
