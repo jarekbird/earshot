@@ -1925,6 +1925,46 @@ describe('a hold', () => {
       expect([made.fake.overlay().split(' ')[0], made.fake.mic, made.shell.busy]).toEqual(['Listening', 'glasses', true])
     })
 
+    it('E20: goes on when the glasses took "Listening" and refuse another box of the same page: it is on show', async () => {
+      const made = world({ voice: { transcribe: async () => 'refresh' } })
+      await settle()
+      const update = made.fake.bridge.textContainerUpgrade.bind(made.fake.bridge)
+      made.fake.bridge.textContainerUpgrade = async text => (text.containerName === 'input' ? update(text) : false)
+      made.fake.hold()
+      await settle(50)
+      made.fake.sound(tone(400))
+      await settle(3_100)
+      expect([made.fake.overlay().split(' ')[0], made.fake.mic, made.shell.busy]).toEqual(['Listening', 'glasses', true])
+    })
+
+    it('E20: ends when all the glasses took since the press is a notice from before it, whatever its words', async () => {
+      const asked: number[] = []
+      const made = world({ voice: { transcribe: async audio => (asked.push(audio.seconds), 'refresh') } })
+      await settle()
+      const update = made.fake.bridge.textContainerUpgrade.bind(made.fake.bridge)
+      let land = () => {}
+      let first = true
+      made.fake.bridge.textContainerUpgrade = async text => {
+        if (text.containerName === 'input' && text.content?.includes('▁')) return false
+        if (first) {
+          first = false
+          await new Promise<void>(landed => (land = landed))
+        }
+        return update(text)
+      }
+      made.shell.notice('Listening history cleared')
+      await settle(0)
+      made.fake.hold()
+      await settle(50)
+      land()
+      made.fake.sound(tone(800))
+      await settle(3_100)
+      expect([made.fake.overlay(), made.fake.mic, made.shell.busy]).toEqual(['Listening history cleared', null, false])
+      made.fake.release()
+      await settle(400)
+      expect(asked).toEqual([])
+    })
+
     it('E20: goes on when the glasses answer each "Listening" only as the next is asked for', async () => {
       const made = world({ voice: { transcribe: async () => 'refresh' } })
       await settle()

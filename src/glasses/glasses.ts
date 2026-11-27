@@ -111,7 +111,7 @@ interface Page {
 
 export const OVERLAY = Symbol('the overlay the glasses are known to show')
 export const WHOLE = Symbol('whether the glasses show one whole frame, none partly sent since')
-export const LANDED = Symbol('how many pages the glasses have answered in full, and the overlay of the last')
+export const LANDED = Symbol('how often the glasses have taken the box that holds the overlay, and the overlay they took last')
 
 const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
@@ -213,7 +213,7 @@ export class Glasses {
   #shown = 0
   #whole = true
   #over: string | null | undefined = null
-  #landed: { pages: number; over: string | null } = { pages: 0, over: null }
+  #landed: { times: number; over: string | null } = { times: 0, over: null }
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
@@ -238,7 +238,7 @@ export class Glasses {
     return this.#over
   }
 
-  get [LANDED](): { pages: number; over: string | null } {
+  get [LANDED](): { times: number; over: string | null } {
     return this.#landed
   }
 
@@ -406,7 +406,6 @@ export class Glasses {
         this.#shown = frame
         this.#whole = true
         this.#over = page.over
-        this.#landed = { pages: this.#landed.pages + 1, over: page.over }
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
         this.#report(page)
@@ -462,6 +461,7 @@ export class Glasses {
       return false
     }
     this.#created = true
+    this.#landed = { times: this.#landed.times + 1, over }
     this.#shape = shape
     this.#layout = layoutOf({ boxes, pictures })
     this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
@@ -483,8 +483,10 @@ export class Glasses {
       if (over !== this.#over) this.#over = undefined
       const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name)
       if (this.#life.ended) return false
-      if (accepted) this.#sent.set(box.id, stateOf(box))
-      else {
+      if (accepted) {
+        this.#sent.set(box.id, stateOf(box))
+        if (box.id === INPUT) this.#landed = { times: this.#landed.times + 1, over }
+      } else {
         this.#sent.delete(box.id)
         drawn = false
       }
