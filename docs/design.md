@@ -227,8 +227,9 @@ words (`instead`, a few words for the glasses: "Keep as a note") and has an agen
 The navigator is first in the stack. Apps add their own agents after it, for example one that sends the words as a
 message. A stronger agent gets three tools: read the screen's text, list the actions, run one.
 
-An offline navigator that matches words stands in for the model in tests and demos only (E4). In an app nothing
-matches words in front of the model.
+An offline navigator that matches words stands in for the model in tests and demos only (E4). In an app one thing
+is matched in front of the model: words that are exactly one option's text are that option (below). Everything
+else is the model's to decide.
 
 ## Jev navigator (slice 4, built)
 
@@ -246,8 +247,8 @@ and eleven seconds of recorded speech turned into the right words in 1.7 seconds
 
 The design it follows:
 
-Jev answers typed questions with a typed answer and a probability, in well under a second. Jev decides every hold, in one
-question that offers everything the user could mean: a system set and a rolling set. Navigation needs no generated
+Jev answers typed questions with a typed answer and a probability, in well under a second. Jev decides every hold whose words are
+not exactly one option's text, in one question that offers everything the user could mean: a system set and a rolling set. Navigation needs no generated
 text, so Jev is enough.
 
 - **The system set** is always offered: Earshot's standard options, then the actions of the screen and the app, in
