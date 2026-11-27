@@ -227,8 +227,9 @@ words (`instead`, a few words for the glasses: "Keep as a note") and has an agen
 The navigator is first in the stack. Apps add their own agents after it, for example one that sends the words as a
 message. A stronger agent gets three tools: read the screen's text, list the actions, run one.
 
-An offline navigator that matches words stands in for the model in tests and demos only (E4). In an app nothing
-matches words in front of the model.
+An offline navigator that matches words stands in for the model in tests and demos only (E4). In an app one thing
+is matched in front of the model: words that are exactly one option's text are that option (below). Everything
+else is the model's to decide.
 
 ## Jev navigator (slice 4, built)
 
@@ -246,8 +247,8 @@ and eleven seconds of recorded speech turned into the right words in 1.7 seconds
 
 The design it follows:
 
-Jev answers typed questions with a typed answer and a probability, in well under a second. Jev decides every hold, in one
-question that offers everything the user could mean: a system set and a rolling set. Navigation needs no generated
+Jev answers typed questions with a typed answer and a probability, in well under a second. Jev decides every hold whose words are
+not exactly one option's text, in one question that offers everything the user could mean: a system set and a rolling set. Navigation needs no generated
 text, so Jev is enough.
 
 - **The system set** is always offered: Earshot's standard options, then the actions of the screen and the app, in
@@ -271,6 +272,11 @@ text, so Jev is enough.
   what was decided, then tells options apart by id and draws the line where the navigator does, with neither the
   options' words nor the number repeated in the app. An option that counts toward another names it (`same`), so
   that a wrapper can add the two up before the navigator does and comes to the verdict the navigator will.
+- An option said by its very words is chosen without asking the model. Speech-to-text writes a sentence ("Go
+  back!"), and with the capital and the mark the model is at times no longer sure of what was plainly said. Case and
+  punctuation apart, the words must be the whole text of one option, or of an action alone without the words that
+  say it shows a list, and of one option only: words that fit two go to the model. An option that counts toward
+  another runs that other. The navigator's own two answers are never taken this way.
 - Two options that would do the same thing are one choice. The shell's "choose this one" stands for the row under
   the cursor, which the question also offers by name. Both are put to the model, since each is how a person may
   say it, and the chance of the first is added to the second before anything is compared. The row by name is
