@@ -1171,23 +1171,106 @@ describe('a hold', () => {
     expect(fake.lines()[0]).toMatch(/^Ana\b/)
   })
 
-  it('keeps the two apart on a list the shell made itself: there "choose this one" also closes the list, as a tap does', async () => {
-    const filed: string[] = []
-    const file = action({
-      id: 'file',
-      say: 'File under',
-      targets: () => ['Work', 'Home'].map(name => ({ id: name.toLowerCase(), say: name, value: name })),
-      run: name => void filed.push(name),
+  describe('a list the shell made itself', () => {
+    const filing = () => {
+      const filed: string[] = []
+      const file = action({
+        id: 'file',
+        say: 'File under',
+        targets: () => ['Work', 'Home'].map(name => ({ id: name.toLowerCase(), say: name, value: name })),
+        run: name => void filed.push(name),
+      })
+      return { filed, file }
+    }
+
+    it('closes when a row of it is said by name, as it does at a tap on that row: a list of the targets of an action', async () => {
+      const { filed, file } = filing()
+      const { fake } = world({ voice: hearing('file under work').voice, appActions: () => [file] })
+      await settle()
+      fake.pick('File under')
+      await settle()
+      expect(fake.lines()).toEqual(['File under', '> Work', 'Home'])
+      await say(fake)
+      await settle()
+      expect(filed).toEqual(['Work'])
+      expect(fake.lines()[0]).toBe('People')
     })
-    const { fake } = world({ voice: hearing('choose this one').voice, appActions: () => [file] })
-    await settle()
-    fake.pick('File under')
-    await settle()
-    expect(fake.lines()).toEqual(['File under', '> Work', 'Home'])
-    await say(fake)
-    await settle()
-    expect(filed).toEqual(['Work'])
-    expect(fake.lines()[0]).toBe('People')
+
+    it('closes when a row of it is said by name: the list of candidates', async () => {
+      const { fake, ran } = world({ voice: hearing('ana ben', 'open ben').voice })
+      await settle()
+      await say(fake)
+      expect(fake.lines()).toEqual(['Which one?', '> Open: Ana', 'Open: Ben'])
+      await say(fake)
+      await settle()
+      expect(ran).toEqual(['open Ben'])
+      fake.double()
+      await settle()
+      expect(fake.lines()[0]).toBe('People')
+    })
+
+    it('closes when a row of it is said by name: the list behind More', async () => {
+      const done: string[] = []
+      const many = Array.from({ length: 12 }, (_, n) => action({ id: `a${n}`, say: `Action ${n}`, run: () => void done.push(`a${n}`) }))
+      const { fake } = world({ voice: hearing('action 11').voice, appActions: () => many })
+      await settle()
+      fake.pick('More…')
+      await settle()
+      expect(fake.lines()[0]).toBe('More…')
+      await say(fake)
+      await settle()
+      expect(done).toEqual(['a11'])
+      expect(fake.lines()[0]).toBe('People')
+    })
+
+    it('closes once and goes no further when "go back" is said on it, though Go back is one of its rows', async () => {
+      const many = Array.from({ length: 12 }, (_, n) => action({ id: `a${n}`, say: `Action ${n}`, run: () => {} }))
+      const { fake, router } = world({ voice: hearing('go back').voice, appActions: () => many })
+      await settle()
+      router.open({ id: 'folder', view: () => text({ title: 'Folder', body: 'x' }) })
+      await settle()
+      fake.pick('More…')
+      await settle()
+      expect(fake.lines()).toContain('Go back')
+      await say(fake)
+      await settle()
+      expect(fake.lines()[0]).toBe('Folder')
+    })
+
+    it('stays open when what is said is no row of it', async () => {
+      const { file } = filing()
+      const pinged: string[] = []
+      const ping = action({ id: 'ping', say: 'Ping', run: () => void pinged.push('ping') })
+      const { fake } = world({ voice: hearing('ping').voice, appActions: () => [file, ping] })
+      await settle()
+      fake.pick('File under')
+      await settle()
+      await say(fake)
+      await settle()
+      expect(pinged).toEqual(['ping'])
+      expect(fake.lines()[0]).toBe('File under')
+    })
+
+    it('counts "choose this one" with the row by name on a list of the targets of an action too: both now run it and close the list', async () => {
+      const { filed, file } = filing()
+      const voice: VoiceOptions = {
+        ...hearing('work').voice,
+        model: {
+          choose: async question => {
+            const id = (say: string) => question.options.find(option => option.say === say)!.id
+            return { [id('Choose this one')]: 0.5, [id('File under: Work')]: 0.5 }
+          },
+        },
+      }
+      const { fake } = world({ voice, appActions: () => [file] })
+      await settle()
+      fake.pick('File under')
+      await settle()
+      await say(fake)
+      await settle()
+      expect(filed).toEqual(['Work'])
+      expect(fake.lines()[0]).toBe('People')
+    })
   })
 
   it('tells the model which row the cursor is on, unless that row is private', async () => {

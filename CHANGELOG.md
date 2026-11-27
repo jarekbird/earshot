@@ -6,7 +6,7 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.60 (2026-11-26)
+## 0.0.61 (2026-11-27)
 
 - Live speech from Flux numbers the turns it tells itself, one by one and on across lines. Before, an id was made
   from the speech service's own number, and one number gone wild hid every turn after it, for the rest of the
@@ -14,6 +14,13 @@ each version's commits say: they name what a version added, and may miss a chang
 - A turn the service numbers more than 2^32 ahead of the newest of its line is not told: no line has that many.
 - `Turn.id` still counts up and stays the same while a turn grows. Where the service's numbers skip, the ids no
   longer do.
+
+## 0.0.60 (2026-11-26)
+
+- A list the shell made itself (the candidates, an action's targets, "More…") closes when a row of it is said by
+  name, as it does at a tap. The row ran and the list stayed open over the screen.
+- On the shell's list of an action's targets, "choose this one" and the row by name are one choice, as on a list
+  of the app's screen.
 
 ## 0.0.59 (2026-11-26)
 

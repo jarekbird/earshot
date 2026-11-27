@@ -93,6 +93,7 @@ const UP = 'earshot.up'
 const DOWN = 'earshot.down'
 const CHOOSE = 'earshot.choose'
 const INSTEAD = 'instead'
+const BACK = 'back'
 
 const boundTo = (bound: Bound): { action: Action; target?: string } => ('action' in bound ? bound : { action: bound })
 
@@ -102,6 +103,7 @@ interface Place {
 }
 
 type Gesture = 'tap' | 'up' | 'down'
+type Rows = (action: string, target?: string) => boolean
 type Aims = Partial<Record<Gesture, string>>
 
 interface Drawn {
@@ -130,7 +132,7 @@ export class Shell {
   readonly #noticeMs: number
   readonly #voice: VoiceOptions | undefined
   readonly #places = new WeakMap<Screen, Place>()
-  readonly #own = new WeakSet<Screen>()
+  readonly #own = new WeakMap<Screen, Rows>()
   readonly #items = new Map<string, number>()
   #drawn: Drawn | null = null
   #asking: { yes: () => void; no?: () => void } | null = null
@@ -287,7 +289,7 @@ export class Shell {
                 Object.assign(action({ id: CHOOSE, say: this.#words.choose, run: () => this.#choose(drawn, place, this.#said) }), {
                   [SAME]: () => {
                     const under = drawn.targets[place.cursor]
-                    return under && !this.#own.has(drawn.screen) ? { action: view.action.id, target: under.id } : undefined
+                    return under ? { action: view.action.id, target: under.id } : undefined
                   },
                 }),
               ]
@@ -347,8 +349,8 @@ export class Shell {
     })
   }
 
-  #openOwn(screen: Screen): void {
-    this.#own.add(screen)
+  #openOwn(screen: Screen, rows: Rows): void {
+    this.#own.set(screen, rows)
     this.#router.open(screen)
   }
 
@@ -588,13 +590,16 @@ export class Shell {
       run: candidate => (candidate ? this.#do(candidate.action, candidate.target, this.#said) : pass?.()),
     })
     this.#clear()
-    this.#openOwn({ id: 'earshot.which', view: () => list({ title: this.#words.which, action: which }) })
+    this.#openOwn({ id: 'earshot.which', view: () => list({ title: this.#words.which, action: which }) }, (id, target) =>
+      verdict.candidates.some(candidate => candidate.action === id && candidate.target === target),
+    )
   }
 
   #do(id: string, targetId: string | undefined, said: boolean, pass?: () => void): void {
     const rolled = this.#voice?.rolling?.items().find(item => item.action.id === id && item.target === targetId)?.action
     const found = this.#reachable().find(a => a.id === id) ?? rolled
     if (!found) return this.notice(this.#words.unavailable)
+    if (id !== BACK && this.#own.get(this.#router.current)?.(id, targetId)) this.#router.back()
     void this.#start(found, targetId, said, pass)
   }
 
@@ -610,7 +615,10 @@ export class Shell {
     const id = [...this.#items].find(([, number]) => number === item)?.[0]
     const folded = this.#drawn?.folded ?? []
     if (id === MORE && folded.length) {
-      return this.#openOwn({ id: MORE, view: () => list({ title: this.#words.more, action: this.#chooser(folded) }) })
+      return this.#openOwn(
+        { id: MORE, view: () => list({ title: this.#words.more, action: this.#chooser(folded) }) },
+        (id, target) => target === undefined && folded.some(a => a.id === id),
+      )
     }
     const found = this.#router.actions().find(a => a.id === id)
     if (!found) return this.notice(this.#words.unavailable)
@@ -623,7 +631,10 @@ export class Shell {
     const targets = chosen.targets()
     if (targets !== null && targetId === undefined) {
       if (chosen.choose) return chosen.choose()
-      return this.#openOwn({ id: 'earshot.pick', view: () => list({ title: chosen.say, action: chosen }) })
+      return this.#openOwn(
+        { id: 'earshot.pick', view: () => list({ title: chosen.say, action: chosen }) },
+        (id, target) => id === chosen.id && target !== undefined,
+      )
     }
     const target = targets?.find(candidate => candidate.id === targetId)
     const risk = target?.risk ?? chosen.risk
