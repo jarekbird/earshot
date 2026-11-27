@@ -199,6 +199,92 @@ describe('the navigator', () => {
     expect(await answering(q => ({ [idOf(q, 'Go back')]: 0.9 }))(heard('x'))).toEqual({ kind: 'sure', action: 'back' })
   })
 
+  describe('an option said by its very words', () => {
+    const never = navigator({
+      choose: async () => {
+        throw new Error('the model was asked')
+      },
+    })
+
+    it('is chosen without asking the model, whatever case and punctuation the words came with', async () => {
+      expect(await never(heard('Go back!'))).toEqual({ kind: 'sure', action: 'back' })
+      expect(await never(heard('refresh.'))).toEqual({ kind: 'sure', action: 'refresh' })
+      expect(await never(heard('"Open note: Voice"'))).toEqual({ kind: 'sure', action: 'open', target: 'voice' })
+    })
+
+    it('is the action alone when only the action was named, so its list is shown', async () => {
+      expect(await never(heard('Open note.'))).toEqual({ kind: 'sure', action: 'open' })
+    })
+
+    it('is that same option when its whole text was said, the words that say it shows a list too', async () => {
+      expect(await never(heard('Open note (show the list)'))).toEqual({ kind: 'sure', action: 'open' })
+      expect(await never(heard('open note, show the list.'))).toEqual({ kind: 'sure', action: 'open' })
+    })
+
+    it('takes nothing away from a name the app gave: a target whose name ends like the list hint needs its whole name', async () => {
+      const asked: string[] = []
+      const asks = navigator({
+        choose: async question => {
+          asked.push(question.words)
+          return {}
+        },
+      })
+      const pick = action({
+        id: 'pick',
+        say: 'Pick',
+        targets: () => [
+          { id: 'a', say: 'Alpha (show the list)', value: 1 },
+          { id: 'b', say: 'Beta', value: 2 },
+        ],
+        run: () => {},
+      })
+      const hears = (words: string) => heard(words, { actions: [pick, back, home], rolling: [] })
+      await asks(hears('Pick Alpha'))
+      expect(asked).toEqual(['Pick Alpha'])
+      expect(await never(hears('Pick: Alpha (show the list)'))).toEqual({ kind: 'sure', action: 'pick', target: 'a' })
+      expect(await never(hears('Pick'))).toEqual({ kind: 'sure', action: 'pick' })
+    })
+
+    it('still goes to the model when the words only hold a name, or name two options', async () => {
+      const asked: string[] = []
+      const asks = navigator({
+        choose: async question => {
+          asked.push(question.words)
+          return {}
+        },
+      })
+      await asks(heard('please go back now'))
+      const twin = action({ id: 'again', say: 'Refresh', run: () => {} })
+      await asks(heard('Refresh', { actions: [refresh, twin, back, home] }))
+      await asks(heard('!'))
+      expect(asked).toEqual(['please go back now', 'Refresh', '!'])
+    })
+
+    it('never takes the words for one of its own two answers', async () => {
+      const asked: string[] = []
+      const asks = navigator({
+        choose: async question => {
+          asked.push(question.words)
+          return {}
+        },
+      })
+      await asks(heard('None of these'))
+      await asks(heard('Not a navigation command'))
+      expect(asked).toHaveLength(2)
+    })
+
+    it('runs what the option stands for, when it counts as another', async () => {
+      const choose = Object.assign(action({ id: 'choose', say: 'Choose this one', run: () => {} }), {
+        [SAME]: () => ({ action: 'open', target: 'welcome' }),
+      })
+      expect(await never(heard('Choose this one.', { actions: [open, choose, back, home], rolling: [] }))).toEqual({
+        kind: 'sure',
+        action: 'open',
+        target: 'welcome',
+      })
+    })
+  })
+
   it('passes the words on, or stops, when the model says so', async () => {
     expect(await answering(q => ({ [idOf(q, 'Not a navigation command')]: 0.9 }))(heard('x'))).toEqual({ kind: 'notMine' })
     expect(await answering(q => ({ [idOf(q, 'None of these')]: 0.9 }))(heard('x'))).toEqual({ kind: 'none' })

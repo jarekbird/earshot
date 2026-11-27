@@ -6,7 +6,7 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.63 (2026-11-27)
+## 0.0.64 (2026-11-27)
 
 - Live speech from Flux numbers the turns it tells itself, one by one and on across lines. Before, an id was made
   from the speech service's own number, and one number gone wild hid every turn after it, for the rest of the
@@ -14,6 +14,14 @@ each version's commits say: they name what a version added, and may miss a chang
 - A turn the service numbers more than 2^32 ahead of the newest of its line is not told: no line has that many.
 - `Turn.id` still counts up and stays the same while a turn grows. Where the service's numbers skip, the ids no
   longer do.
+
+## 0.0.63 (2026-11-26)
+
+- An option said by its very words is chosen without asking the navigator's model, whatever case and punctuation
+  the words came with. Speech-to-text writes "Go back!" and "Refresh." as sentences, and with the mark the model
+  was at times no longer sure of the command, so the words went on to the app's agents or to "Which one?".
+- **An app must** not count on its model being asked about words that are exactly one option's label: a wrapper of
+  the model no longer sees those.
 
 ## 0.0.62 (2026-11-26)
 

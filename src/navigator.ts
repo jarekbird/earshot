@@ -119,9 +119,24 @@ const verdictOf = (meaning: Meaning): Verdict => {
   return { kind: 'sure', action: meaning.action, ...(meaning.target === undefined ? {} : { target: meaning.target }) }
 }
 
+const tokens = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
+const nameOf = (option: Option) => tokens(option.say.endsWith(LIST) ? option.say.slice(0, -LIST.length) : option.say)
+
+function saidByName({ words, options }: Question, actions: readonly Action[]): string | undefined {
+  const said = tokens(words).join(' ')
+  if (!said) return undefined
+  const alone = (option: Option) => (option.target === undefined ? actions.find(action => action.id === option.action)?.say : undefined)
+  const fits = (text: string | undefined) => text !== undefined && tokens(text).join(' ') === said
+  const named = options.filter(option => option.role === undefined && (fits(option.say) || fits(alone(option))))
+  const meant = new Set(named.map(option => option.same ?? option.id))
+  return meant.size === 1 ? [...meant][0] : undefined
+}
+
 export function navigator(model: NavigatorModel): Agent {
   return async heard => {
     const { question, meanings } = questionFor(heard)
+    const named = meanings.get(saidByName(question, heard.actions) ?? '')
+    if (named !== undefined) return verdictOf(named)
     const same = question.options.flatMap(option => (option.same === undefined ? [] : [[option.id, option.same]]))
     const chances = { ...(await model.choose(question, heard.life)) }
     for (const [from, to] of same) {
@@ -146,15 +161,13 @@ export function navigator(model: NavigatorModel): Agent {
   }
 }
 
-const tokens = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
-
 export const matchWords: NavigatorModel = {
   async choose({ words, options }) {
     const said = new Set(tokens(words))
     const scored = options
       .filter(option => option.role === undefined)
       .map(option => {
-        const wanted = tokens(option.say.endsWith(LIST) ? option.say.slice(0, -LIST.length) : option.say)
+        const wanted = nameOf(option)
         const matched = wanted.filter(token => said.has(token)).length
         return { id: option.id, matched, share: wanted.length ? matched / wanted.length : 0 }
       })
