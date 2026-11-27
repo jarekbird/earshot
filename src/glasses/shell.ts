@@ -138,6 +138,7 @@ export class Shell {
   #asking: { yes: () => void; no?: () => void } | null = null
   #overlaid = false
   #ofTurn = false
+  #spent = false
   #over: string | null = null
   #fading: Timer | undefined
   #recording: { chunks: Uint8Array[]; screen: Screen; source: HoldSource; hear: (sound: Sound) => void; end: () => void } | null = null
@@ -162,8 +163,13 @@ export class Shell {
       if (this.#overlaid) this.#glasses.overlay(null)
     })
     this.#life.own(
-      router.onChange(() => {
+      router.onChange(current => {
         if (this.#asking) this.#clear()
+        if (this.#recording && this.#recording.screen !== current) {
+          this.#recording.end()
+          this.#spent = true
+          this.#clearOfTurn()
+        }
         this.redraw()
       }),
     )
@@ -412,6 +418,7 @@ export class Shell {
     this.#down.clear()
     this.#held?.letGo()
     this.#held = null
+    this.#spent = false
   }
 
   #lift(source: HoldSource): void {
@@ -442,11 +449,11 @@ export class Shell {
       if (!this.#recording) this.#callOff()
       return this.notice(this.#words.noVoice)
     }
-    if (this.#recording) return
+    if (this.#recording || this.#spent) return
     this.#callOff()
     const chunks: Uint8Array[] = []
     const bars = Array<string>(METER_BARS).fill(QUIET)
-    const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`)
+    const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`, undefined, true)
     let meter: Timer | undefined
     const limit = this.#life.timeout(() => this.#finish(), longest)
     const recording = {
@@ -486,7 +493,6 @@ export class Shell {
     if (!recording || !voice) return
     recording.end()
     const pcm = joinPcm(recording.chunks)
-    if (this.#router.current !== recording.screen) return this.#clear()
     if (problemWith(pcm)) return this.notice(this.#words.missed)
     void this.#decide(voice, { pcm, seconds: secondsOf(pcm) })
   }
