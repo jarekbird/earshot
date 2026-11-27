@@ -26,7 +26,13 @@ const tone = (ms: number, loudness = 8_000) => {
 }
 
 function world(
-  more: { home?: (parts: Parts) => Screen; appActions?: () => Action[]; voice?: VoiceOptions; watch?: (event: Drawing) => void } = {},
+  more: {
+    home?: (parts: Parts) => Screen
+    appActions?: () => Action[]
+    voice?: VoiceOptions
+    watch?: (event: Drawing) => void
+    words?: { choose: string }
+  } = {},
 ) {
   const ran: string[] = []
   const life = new Lifetime()
@@ -49,7 +55,7 @@ function world(
   const home = more.home?.(parts) ?? { id: 'people', actions: () => [open, refresh], view: () => list({ title: 'People', action: open }) }
   const router: Router = new Router({ home, actions: more.appActions })
   if (more.voice) more.voice.rolling ??= rolling
-  const shell = new Shell(life, glasses, router, { voice: more.voice })
+  const shell = new Shell(life, glasses, router, { voice: more.voice, ...(more.words ? { words: more.words } : {}) })
   const menu = () => fake.menuItems().map(item => item.name)
   const front = () => fake.overlay()
   const cursor = () =>
@@ -7254,7 +7260,7 @@ describe('a hold', () => {
     expect(did).toEqual(['quick old'])
   })
 
-  it('does not count "choose this one" with the row by name when the row on show asks first by now, though it did not when the list was drawn and nothing of what it shows has changed: a vote split between the two runs neither', async () => {
+  it('asks first before the row on show when the vote was split between "choose this one" and the row by name, and the row on show asks first by now, though it did not when the list was drawn and nothing of what it shows has changed', async () => {
     const did: string[] = []
     let risk: 'confirm' | undefined
     const shown = action({
@@ -7280,7 +7286,7 @@ describe('a hold', () => {
         },
       },
     }
-    const { fake } = world({
+    const { fake, front } = world({
       voice,
       home: () => ({ id: 'notes', actions: () => [named], view: () => list({ title: 'Notes', action: shown }) }),
     })
@@ -7288,14 +7294,18 @@ describe('a hold', () => {
     risk = 'confirm'
     await say(fake)
     await settle(100)
-    expect([did, asked.filter(option => option.say === 'Choose this one').map(option => option.same)]).toEqual([[], [undefined]])
+    expect([did, front(), asked.filter(option => option.say === 'Choose this one').map(option => option.same === undefined)]).toEqual([
+      [],
+      'Clear: Old notes?\nTap to confirm',
+      [false],
+    ])
   })
 
   it.each([
     ['keeps the row on show to itself', 'kept'],
     ['has the row on show no more', 'gone'],
   ] as const)(
-    'does not count "choose this one" with the row by name when the action of the list %s by now, though it showed it when the list was drawn: a vote split between the two runs neither',
+    'asks first before the row on show when the vote was split between "choose this one" and the row by name, and the action of the list %s by now, though it showed it when the list was drawn',
     async (_what, how) => {
       const did: string[] = []
       let now: 'there' | 'kept' | 'gone' = 'there'
@@ -7322,7 +7332,7 @@ describe('a hold', () => {
           },
         },
       }
-      const { fake } = world({
+      const { fake, front } = world({
         voice,
         home: () => ({ id: 'notes', actions: () => [named], view: () => list({ title: 'Notes', action: shown }) }),
       })
@@ -7330,7 +7340,11 @@ describe('a hold', () => {
       now = how
       await say(fake)
       await settle(100)
-      expect([did, asked.filter(option => option.say === 'Choose this one').map(option => option.same)]).toEqual([[], [undefined]])
+      expect([did, front(), asked.filter(option => option.say === 'Choose this one').map(option => option.same === undefined)]).toEqual([
+        [],
+        how === 'kept' ? 'Clear: Old notes?\nTap to confirm' : 'Clear?\nTap to confirm',
+        [false],
+      ])
     },
   )
 
@@ -8034,6 +8048,174 @@ describe('a hold', () => {
       expect([asked, did]).toEqual([0, [ran]])
     },
   )
+
+  it('asks first when "choose this one" is said and the app has put an action in the place of the action of the list whose row of that name says something else, as the turn ended and with no new draw: what runs is asked of the row as it is, not as it was drawn', async () => {
+    const did: string[] = []
+    const attic = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'item', say: 'Attic', value: 'attic' }],
+      run: to => void did.push(to),
+    })
+    const barn = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'item', say: 'Barn', value: 'barn' }],
+      run: to => void did.push(to),
+    })
+    const view = list({ title: 'Sheds', action: attic })
+    const voice: VoiceOptions = {
+      transcribe: async (_audio, life) => {
+        life?.own(() => void Object.assign(view, { action: barn }))
+        return 'Choose this one'
+      },
+    }
+    const { fake, front } = world({ voice, home: () => ({ id: 'sheds', actions: () => [attic], view: () => view }) })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([did, front()]).toEqual([[], 'Open: Barn?\nTap to confirm'])
+  })
+
+  it('asks first when "choose this one" is said and the action of the list, asked whether it is blocked, gave the row another label and drew again: the row is held to what the model was told after the app was last asked', async () => {
+    const made: { shell?: Shell } = {}
+    const did: string[] = []
+    let label = '5 minutes'
+    let armed = false
+    const start = action({
+      id: 'start',
+      say: 'Start',
+      targets: () => [{ id: 'preset', say: label, value: 'preset' }],
+      blocked: () => {
+        if (armed) {
+          armed = false
+          label = '20 minutes'
+          made.shell?.redraw()
+        }
+        return null
+      },
+      run: () => void did.push(label),
+    })
+    const voice: VoiceOptions = {
+      transcribe: async () => 'that one',
+      model: {
+        choose: async question => {
+          armed = true
+          return { [question.options.find(option => option.say === 'Choose this one')!.id]: 1 }
+        },
+      },
+    }
+    const { fake, front, shell } = world({ voice, home: () => ({ id: 'timer', view: () => list({ title: 'Timer', action: start }) }) })
+    made.shell = shell
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([armed, did, front()]).toEqual([false, [], 'Start: 20 minutes?\nTap to confirm'])
+  })
+
+  it('does not count "choose this one" with the row by name when the one action of both says something else of the row by now than the list shows: the model was told two things, so a vote split between them runs neither', async () => {
+    const did: string[] = []
+    let label = 'Soup'
+    const open = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'dish', say: label, value: 'dish' }],
+      run: () => void did.push(label),
+    })
+    let asked: Array<{ say: string; same?: string }> = []
+    const voice: VoiceOptions = {
+      transcribe: async () => 'the dish',
+      model: {
+        choose: async question => {
+          asked = question.options
+          const id = (say: string) => question.options.find(option => option.say === say)!.id
+          return { [id('Choose this one')]: 0.4, [id('Open: Stew')]: 0.4 }
+        },
+      },
+    }
+    const { fake } = world({
+      voice,
+      home: () => ({ id: 'menu', actions: () => [open], view: () => list({ title: 'Menu', action: open }) }),
+    })
+    await settle()
+    label = 'Stew'
+    await say(fake)
+    await settle(100)
+    expect([did, asked.filter(option => option.say === 'Choose this one').map(option => option.same)]).toEqual([[], [undefined]])
+  })
+
+  it('goes back when "Go back!" is said on a list of an action no screen offers, though that action can no longer say what its rows are: nothing of the row on show is asked of the app to tell the options', async () => {
+    let down = false
+    const file = action({
+      id: 'file',
+      say: 'File',
+      targets: () => {
+        if (down) throw new Error('the folders are away')
+        return [{ id: 'work', say: 'Work', value: 'work' }]
+      },
+      run: () => {},
+    })
+    const { fake, front, router } = world({ voice: { transcribe: async () => 'Go back!' } })
+    router.open({ id: 'folders', view: () => list({ title: 'Folders', action: file }) })
+    await settle()
+    down = true
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    await say(fake)
+    await settle(100)
+    expect([router.current.id, front().includes('Voice')]).toEqual(['people', false])
+  })
+
+  it('runs what can be reached by name when the words said are the very name of the row and the app has given "choose this one" those same words: a name said outright is not "choose this one"', async () => {
+    const did: string[] = []
+    let asked = 0
+    const rows = () => [{ id: 'soup', say: 'Soup', value: 'soup' }]
+    const shown = action({ id: 'open', say: 'Open', targets: rows, run: to => void did.push(`shown ${to}`) })
+    const reached = action({ id: 'open', say: 'Open', targets: rows, run: to => void did.push(`reached ${to}`) })
+    const voice: VoiceOptions = { transcribe: async () => 'Open Soup.', model: { choose: async () => (asked++, {}) } }
+    const { fake } = world({
+      voice,
+      words: { choose: 'Open Soup' },
+      home: () => ({ id: 'recipes', actions: () => [reached], view: () => list({ title: 'Recipes', action: shown }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([asked, did]).toEqual([0, ['reached soup']])
+  })
+
+  it('runs the row at a tap without reading what the row says: an app whose row opens a screen when it is asked for its label loses no tap to that', async () => {
+    const made: { router?: Router } = {}
+    const did: string[] = []
+    let armed = false
+    const open = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'soup', say: 'Soup', value: 'soup' }],
+      run: to => void did.push(to),
+    })
+    Object.defineProperty(open, 'targets', {
+      value: () => [
+        {
+          id: 'soup',
+          private: false,
+          get say() {
+            if (armed) {
+              armed = false
+              made.router?.open({ id: 'elsewhere', view: () => text({ body: 'Elsewhere' }) })
+            }
+            return 'Soup'
+          },
+        },
+      ],
+    })
+    const { fake, router } = world({ home: () => ({ id: 'recipes', view: () => list({ title: 'Recipes', action: open }) }) })
+    made.router = router
+    await settle()
+    armed = true
+    fake.tap()
+    await settle()
+    expect(did).toHaveLength(1)
+  })
 
   it('does not ask an action whether it is blocked to tell the model the options: an action whose answer to that opens another screen is asked only when it is the one chosen', async () => {
     const made: { router?: Router } = {}
@@ -9450,6 +9632,41 @@ describe('a hold', () => {
       made.router.back()
       await settle()
       expect([made.front(), made.fake.mic]).toEqual(['Timer changed', null])
+      await settle(10_000)
+      made.router.open({ id: 'card', view: () => text({ body: 'Card' }) })
+      await settle()
+      expect(made.front()).toBe('')
+    })
+
+    it('does not carry the notice over when the screen is replaced by one that cannot be entered, so that no screen is left: a card the app showed as its screen ended stays', async () => {
+      const mine: { glasses?: Glasses } = {}
+      const made = world({
+        voice: { transcribe: async () => 'refresh' },
+        home: () => ({
+          id: 'timers',
+          enter: life => void life.own(() => mine.glasses?.overlay('Timer stopped')),
+          view: () => text({ body: 'Timers' }),
+        }),
+      })
+      mine.glasses = made.glasses
+      await settle()
+      made.fake.hold()
+      await settle(50)
+      made.fake.sound(tone(400))
+      await settle(400)
+      made.shell.notice('Timer changed')
+      await settle()
+      expect(() =>
+        made.router.replace({
+          id: 'broken',
+          enter: () => {
+            throw new Error('no such timer')
+          },
+          view: () => text({ body: 'Broken' }),
+        }),
+      ).toThrow('no such timer')
+      await settle()
+      expect(made.front()).toBe('Timer stopped')
     })
 
     it('does not carry the notice over when the router is closed: a card the app showed as its screen ended stays', async () => {

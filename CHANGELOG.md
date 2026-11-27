@@ -20,14 +20,15 @@ each version's commits say: they name what a version added, and may miss a chang
   no longer hides the turns after it. A turn numbered more than 2^32 ahead of the newest of its line is not told.
 - The router tells every listener of a change of screen, also when one of them throws.
 - "Choose this one" and the row by name are one choice only when the model is told the same of both and both
-  ask as much before they run: the list's very action, or another with the same labels, hint and risk; never a
-  rolling item of another action. They were one choice whenever the names matched, so a vote split between the
+  ask as much before they run: the row by name reads as the row on show does, and is of the list's very action
+  or of another with the same hint and risk; never a rolling item of another action. They were one choice whenever the names matched, so a vote split between the
   two could run an action of the same name that asks nothing, where the row on show asks first.
 - A vote that needed both, and "choose this one" by itself, run the row on show, as a tap on it would. When
   something else is on show by the time the model answers (another row, another label or hint, another risk),
   the shell asks before it runs the row that was meant. A lone "choose this one" ran whatever row had come under
   the cursor. A candidate that "choose this one" gave its vote to is that row too, when it is tapped.
-- A notice shown during a hold is not carried over when the router is closed.
+- A notice shown during a hold is carried over when the next screen is on show, not as the old one is left: so
+  not when the router is closed, or when the screen that was to take its place cannot be entered.
 
 ## 0.0.63 (2026-11-26)
 

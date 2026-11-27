@@ -141,6 +141,7 @@ const tied = (bound: Bound): { action: Action; target?: string } => {
 const aimOf = (kind: View['kind'], action: string, target?: string): string => JSON.stringify([kind, action, target ?? null])
 
 type Meanings = (action: string, target?: string) => Meant | undefined
+type AsIs = (risk: Risk, target: TargetInfo | undefined) => boolean
 
 interface Answer {
   kind: Verdict['kind']
@@ -225,6 +226,7 @@ export class Shell {
   #deciding: Lifetime | null = null
   #decidingOn: object | null = null
   #shutting: (() => void) | undefined
+  #owed: { text: string; ms: number } | undefined
   #asks = 0
   #handed = false
   readonly #frames: Frames
@@ -260,7 +262,7 @@ export class Shell {
         const spoken = this.#recording?.showing ?? (this.#handed ? undefined : this.#decidingOn)
         const closed = lost || (current !== undefined && !onPath(current))
         try {
-          if (closed || (spoken !== undefined && spoken !== null && !onPath(spoken))) this.#callOff(true, !closed)
+          if (closed || (spoken !== undefined && spoken !== null && !onPath(spoken))) this.#callOff(true, false)
           else if (this.#deciding) this.#takeDown()
         } finally {
           if (closed) progressOf(this.#glasses).drop(this.#pending)
@@ -288,6 +290,9 @@ export class Shell {
         } finally {
           if (this.#asking) this.#clear()
           else if (this.#deciding) this.#takeDown()
+          const owed = this.#owed
+          this.#owed = undefined
+          this.#carry(owed)
         }
       }),
     )
@@ -464,7 +469,15 @@ export class Shell {
                       if (!under || under.private) return undefined
                       const listed = view.action
                       const name = listed.id
-                      return { listed, action: name, target: under.id, say: under.say, label: listed.say, hint: listed.hint }
+                      return {
+                        listed,
+                        action: name,
+                        target: under.id,
+                        say: under.say,
+                        label: listed.say,
+                        hint: listed.hint,
+                        risk: under.risk ?? listed.risk,
+                      }
                     },
                   },
                 ),
@@ -473,21 +486,15 @@ export class Shell {
     return [...actions, ...own.filter(a => !taken.has(a.id) && (taken.add(a.id), true))]
   }
 
-  #row(drawn: Drawn, place: Place, still = () => true): { action: Action; target: string; say: string } | undefined {
+  #row(drawn: Drawn, place: Place, still = () => true): { action: Action; target: string } | undefined {
     const under = drawn.targets[place.cursor]
     const { view } = drawn
     if (!under || view.kind !== 'list' || !still()) return undefined
     const action = view.action
-    return still() ? { action, target: under.id, say: under.say } : undefined
+    return still() ? { action, target: under.id } : undefined
   }
 
-  #choose(
-    drawn: Drawn,
-    row: { action: Action; target: string } | undefined,
-    said = false,
-    pass?: () => void,
-    asIs?: (risk: Risk) => boolean,
-  ): void {
+  #choose(drawn: Drawn, row: { action: Action; target: string } | undefined, said = false, pass?: () => void, asIs?: AsIs): void {
     if (!row) return
     if (this.#own.has(drawn.screen) && !this.#shut()) return
     void this.#start(row.action, row.target, said, pass, asIs)
@@ -630,13 +637,18 @@ export class Shell {
     this.#decidingOn = null
     this.#handed = false
     serve(() => deciding?.end(), TURN_END)
-    const noted = carry ? this.#recording?.noted() : undefined
+    const noted = moved ? this.#recording?.noted() : undefined
     try {
       this.#recording?.end()
     } finally {
       if (moved ? this.#ofTurn || this.#asking : this.#overlaid) this.#clear(!moved || progressOf(this.#glasses).card() === this.#over)
-      if (noted && noted.ms > 0) this.#show(noted.text, noted.ms)
+      if (carry) this.#carry(noted)
+      else this.#owed = noted
     }
+  }
+
+  #carry(noted: { text: string; ms: number } | undefined): void {
+    if (noted && noted.ms > 0) this.#show(noted.text, noted.ms)
   }
 
   #letGo(): void {
@@ -932,10 +944,13 @@ export class Shell {
       if (!still()) return
       const name = row?.action.id
       if (!still()) return
-      if (drawn && row && drawn === this.#drawn && name === meant.action && row.target === meant.target && row.say === meant.say) {
+      const says = row && place ? drawn?.targets[place.cursor]?.say : undefined
+      if (drawn && row && drawn === this.#drawn && name === meant.action && row.target === meant.target && says === meant.say) {
         const same = row.action.say === meant.label && row.action.hint === meant.hint
         if (!still()) return
-        if (same && drawn === this.#drawn) return this.#choose(drawn, row, said, pass, risk => risk === meant.risk)
+        if (same && drawn === this.#drawn) {
+          return this.#choose(drawn, row, said, pass, (risk, now) => risk === meant.risk && !now?.private && now?.say === meant.say)
+        }
       }
       return this.#begin(meant.listed, meant.action, meant.target, said, pass, still, () => false)
     }
@@ -953,7 +968,7 @@ export class Shell {
     said: boolean,
     pass: (() => void) | undefined,
     still: () => boolean,
-    asIs?: (risk: Risk) => boolean,
+    asIs?: AsIs,
   ): void {
     const row = id !== BACK && this.#own.get(this.#router.current)?.(id, targetId)
     if (!still()) return
@@ -986,13 +1001,7 @@ export class Shell {
     void this.#start(found)
   }
 
-  async #start(
-    chosen: Action,
-    targetId?: string,
-    said = false,
-    pass?: () => void,
-    asIs: (risk: Risk) => boolean = () => true,
-  ): Promise<void> {
+  async #start(chosen: Action, targetId?: string, said = false, pass?: () => void, asIs: AsIs = () => true): Promise<void> {
     const moves = this.#moves
     const showings = showingsOf(this.#router)
     const showing = showings.current
@@ -1010,7 +1019,7 @@ export class Shell {
     const target = targets?.find(candidate => candidate.id === targetId)
     const risk = target?.risk ?? chosen.risk
     if (moves !== this.#moves) return
-    if (asIs(risk) && (risk === 'safe' || (risk === 'voice' && !said))) return this.#run(chosen, targetId, said)
+    if (asIs(risk, target) && (risk === 'safe' || (risk === 'voice' && !said))) return this.#run(chosen, targetId, said)
     const still = () => showings.current === showing && showings.onPath(showing)
     const instead = pass && this.#voice?.instead
     if (moves !== this.#moves || !still()) return

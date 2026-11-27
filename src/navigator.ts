@@ -57,18 +57,16 @@ const UNSURE_FROM = 0.15
 const UNSURE_AT_MOST = 3
 const STANDARD = ['back', 'home']
 export const SAME = Symbol('what an action stands for: a row of a list, as it is shown')
-interface Stood {
+export interface Meant {
   listed: Action
   action: string
   target: string
   say: string
   label: string
   hint: string | undefined
-}
-export interface Meant extends Stood {
   risk: Risk
 }
-type Standing = Action & { [SAME]?: () => Stood | undefined }
+type Standing = Action & { [SAME]?: () => Meant | undefined }
 interface Source {
   action: Action
   row?: TargetInfo
@@ -138,21 +136,18 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
     const stands = action[SAME]?.()
     const from = stands && offering(action.id)
     if (!stands || !from) continue
-    const { listed } = stands
     const to = offering(stands.action, stands.target)
     const named = to && sources.get(to)
-    const shown = named?.row && named.action === listed ? named.row : listed.targets()?.find(row => row.id === stands.target)
-    stood.set(from.id, { ...stands, risk: shown?.risk ?? listed.risk })
-    if (to && named && oneChoice(to, named, stands, shown)) from.same = to.id
+    stood.set(from.id, stands)
+    if (to && named && oneChoice(to, named, stands)) from.same = to.id
   }
   return { question: { words: heard.words, ...(heard.screen ? { screen: heard.screen } : {}), options }, meanings, stood }
 }
 
-function oneChoice(to: Option, named: Source, { listed, say, label, hint }: Stood, shown: TargetInfo | undefined): boolean {
+function oneChoice(to: Option, named: Source, { listed, say, label, hint, risk }: Meant): boolean {
+  if (to.say !== rowSay(label, say)) return false
   if (named.action === listed) return true
-  if (!named.row || !shown || shown.private) return false
-  if (to.say !== rowSay(label, say) || to.context !== hint) return false
-  return (named.row.risk ?? named.action.risk) === (shown.risk ?? listed.risk)
+  return named.row !== undefined && to.context === hint && (named.row.risk ?? named.action.risk) === risk
 }
 
 const verdictOf = (meaning: Meaning): Verdict => {
@@ -188,7 +183,7 @@ export function navigatorNoting(model: NavigatorModel, meant: (stood: Meant, as:
     const said = saidByName(question, heard.actions)
     const named = said && meanings.get(said.id)
     if (said && named !== undefined) {
-      if (named !== PASS && named !== NONE) for (const by of said.by) tell(by, named)
+      if (named !== PASS && named !== NONE && said.by.every(by => stood.has(by))) for (const by of said.by) tell(by, named)
       return verdictOf(named)
     }
     const same = question.options.flatMap(option => (option.same === undefined ? [] : [[option.id, option.same]]))
