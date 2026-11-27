@@ -6,7 +6,7 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.62 (2026-11-27)
+## 0.0.63 (2026-11-27)
 
 - A swipe on a text counts from what the wearer has read. A swipe made before the glasses have drawn the last one
   goes on from where that one reached, and text that came in the meantime is laid out after them.
@@ -19,6 +19,11 @@ each version's commits say: they name what a version added, and may miss a chang
 - Live speech from Flux numbers the turns it tells itself, one by one and on across lines, so one number gone wild
   no longer hides the turns after it. A turn numbered more than 2^32 ahead of the newest of its line is not told.
 - The router tells every listener of a change of screen, also when one of them throws.
+
+## 0.0.62 (2026-11-26)
+
+- A notice shown while the touchpad is held goes under "Listening" and no longer over it. It wrote over it, until
+  the next sound drew the meter again.
 
 ## 0.0.61 (2026-11-26)
 

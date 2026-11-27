@@ -109,6 +109,16 @@ interface Place {
 
 type Rows = (action: string, target?: string) => boolean
 
+interface Recording {
+  chunks: Uint8Array[]
+  showing: object | undefined
+  source: HoldSource
+  hear: (sound: Sound) => void
+  noted: () => { text: string; ms: number } | undefined
+  note: (text: string) => void
+  end: () => void
+}
+
 interface Drawn {
   frame: number
   screen: Screen
@@ -209,13 +219,7 @@ export class Shell {
   #over: string | null = null
   #slow: Timer | undefined
   #fading: Timer | undefined
-  #recording: {
-    chunks: Uint8Array[]
-    showing: object | undefined
-    source: HoldSource
-    hear: (sound: Sound) => void
-    end: () => void
-  } | null = null
+  #recording: Recording | null = null
   readonly #down = new Map<HoldSource, Timer>()
   readonly #spent = new Set<HoldSource>()
   #held: Held | null = null
@@ -493,6 +497,7 @@ export class Shell {
   }
 
   notice(text: string): void {
+    if (this.#recording) return this.#recording.note(text)
     this.#show(text, this.#noticeMs)
   }
 
@@ -628,10 +633,12 @@ export class Shell {
     this.#decidingOn = null
     this.#handed = false
     serve(() => deciding?.end(), TURN_END)
+    const noted = moved ? this.#recording?.noted() : undefined
     try {
       this.#recording?.end()
     } finally {
       if (moved ? this.#ofTurn || this.#asking : this.#overlaid) this.#clear(!moved || progressOf(this.#glasses).card() === this.#over)
+      if (noted && noted.ms > 0) this.#show(noted.text, noted.ms)
     }
   }
 
@@ -688,13 +695,28 @@ export class Shell {
     if (moves !== this.#moves) return void this.#spent.add(source)
     const chunks: Uint8Array[] = []
     const bars = Array<string>(METER_BARS).fill(QUIET)
-    const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`, undefined, true)
+    let noted: string | undefined
+    let gone = 0
+    let fading: Timer | undefined
+    const listening = () =>
+      this.#show(`${this.#words.listening} ${bars.join('')}${noted === undefined ? '' : `\n${noted}`}`, undefined, true)
     let meter: Timer | undefined
     const limit = this.#life.timeout(() => this.#finish(), longest)
     const recording = {
       chunks,
       showing,
       source,
+      noted: () => (noted === undefined ? undefined : { text: noted, ms: gone - Date.now() }),
+      note: (text: string) => {
+        fading?.cancel()
+        noted = text
+        gone = Date.now() + this.#noticeMs
+        fading = this.#life.timeout(() => {
+          noted = undefined
+          listening()
+        }, this.#noticeMs)
+        listening()
+      },
       hear: ({ pcm }: Sound) => {
         chunks.push(pcm)
         bars.push(levelOf(pcm))
@@ -707,6 +729,7 @@ export class Shell {
       end: () => {
         limit.cancel()
         meter?.cancel()
+        fading?.cancel()
         if (this.#recording !== recording) return
         this.#recording = null
         this.#held?.want(false)
