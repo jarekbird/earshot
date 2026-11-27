@@ -2,7 +2,7 @@ import { action, unless, type Action, type TargetInfo } from '../action.js'
 import { joinPcm, levelOf, problemWith, QUIET, secondsOf, type Audio, type Sound } from '../audio.js'
 import { Lifetime, LifetimeEnded, type Timer } from '../lifetime.js'
 import { ITEM_LIMIT } from '../context.js'
-import { matchWords, navigator, SAME, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
+import { matchWords, navigator, SAME, stoodFor, type Agent, type NavigatorModel, type Pick, type Verdict } from '../navigator.js'
 import type { Rolling } from '../rolling.js'
 import { showingsOf, type Router, type Screen } from '../router.js'
 import { SayError } from '../say.js'
@@ -109,11 +109,6 @@ interface Place {
 
 type Rows = (action: string, target?: string) => boolean
 
-interface Offered {
-  id: string
-  target: string
-}
-
 interface Drawn {
   frame: number
   screen: Screen
@@ -134,7 +129,7 @@ const tied = (bound: Bound): { action: Action; target?: string } => {
 }
 
 function saysTheSame(reached: Action, listed: Action, under: TargetInfo): boolean {
-  if (reached.say !== listed.say) return false
+  if (reached.say !== listed.say || reached.hint !== listed.hint) return false
   return reached.targets()?.find(target => target.id === under.id)?.say === under.say
 }
 
@@ -142,12 +137,13 @@ const aimOf = (kind: View['kind'], action: string, target?: string): string => J
 
 interface Answer {
   kind: Verdict['kind']
+  stoodFor: boolean
   says: () => string | undefined
   now: () => Verdict['kind']
   holds: (kind: Verdict['kind']) => Verdict
 }
 
-const NONE: Answer = { kind: 'none', says: () => undefined, now: () => 'none', holds: () => ({ kind: 'none' }) }
+const NONE: Answer = { kind: 'none', stoodFor: false, says: () => undefined, now: () => 'none', holds: () => ({ kind: 'none' }) }
 
 const replyOf = (given: Verdict): { kind: 'handled'; say?: string } => {
   const { say } = given as { say?: string }
@@ -160,6 +156,7 @@ function once(given: Verdict, mine: () => boolean): Answer {
   let said: { kind: 'handled'; say?: string } | undefined
   const answer: Answer = {
     kind,
+    stoodFor: stoodFor(given),
     says: () => {
       answer.kind = given.kind
       if (!mine()) return undefined
@@ -227,7 +224,6 @@ export class Shell {
   #deciding: Lifetime | null = null
   #decidingOn: object | null = null
   #shutting: (() => void) | undefined
-  #offered: Offered | null = null
   #asks = 0
   #handed = false
   readonly #frames: Frames
@@ -473,7 +469,6 @@ export class Shell {
                       const target = under.id
                       const would = reached ?? rolledAs(name, target)
                       if (would !== listed && !(would && saysTheSame(would, listed, under))) return undefined
-                      this.#offered = { id: name, target }
                       return { action: name, target }
                     },
                   },
@@ -741,7 +736,6 @@ export class Shell {
 
   async #decide(voice: VoiceOptions, audio: Audio, passed?: string): Promise<void> {
     const turn = ++this.#turn
-    this.#offered = null
     const moves = this.#moves
     const showing = showingsOf(this.#router).current
     const life = new Lifetime()
@@ -815,7 +809,7 @@ export class Shell {
         const verdict = answer.holds(now)
         if (!mine()) return
         if (moved()) return gone()
-        this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
+        this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined, answer.stoodFor)
       }, elsewhere)
     } catch (error) {
       finish(() => {
@@ -864,7 +858,6 @@ export class Shell {
       }
       if (gone()) throw new LifetimeEnded()
       if (!(navigate && index === 0)) this.#handed = true
-      if (!(navigate && index === 0)) this.#offered = null
       const given = await agent(heard)
       if (!mine()) throw new LifetimeEnded()
       const answer = once(given, mine)
@@ -873,13 +866,13 @@ export class Shell {
     return { answer: NONE, more: false }
   }
 
-  #act(verdict: Verdict, pass?: () => void): void {
+  #act(verdict: Verdict, pass?: () => void, shown = false): void {
     if (verdict.kind === 'none' || verdict.kind === 'notMine') return this.notice(this.#words.noMatch)
     if (verdict.kind === 'handled') {
       if (verdict.say !== undefined) this.notice(verdict.say)
       return this.redraw()
     }
-    if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target, true, pass, this.#offered)
+    if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target, true, pass, shown)
     const moves = this.#moves
     const showings = showingsOf(this.#router)
     const showing = showings.current
@@ -901,22 +894,26 @@ export class Shell {
     )
   }
 
-  #do(id: string, targetId: string | undefined, said: boolean, pass?: () => void, offered?: Offered | null): void {
+  #do(id: string, targetId: string | undefined, said: boolean, pass?: () => void, shown = false): void {
     const moves = this.#moves
-    if (offered && offered.id === id && offered.target === targetId) {
+    const turn = this.#turn
+    const still = () => moves === this.#moves && turn === this.#turn
+    if (shown) {
       const drawn = this.#drawn
       const showing = showingsOf(this.#router).current
       const place = showing && this.#places.get(showing)
-      const row = drawn && drawn.showing === showing && place ? this.#row(drawn, place) : undefined
-      if (moves !== this.#moves) return
-      if (drawn && row) return this.#choose(drawn, row, said, pass)
+      const row = drawn && drawn.showing === showing && place ? this.#row(drawn, place, still) : undefined
+      if (!still()) return
+      const name = row?.action.id
+      if (!still()) return
+      if (drawn && row && name === id && row.target === targetId) return this.#choose(drawn, row, said, pass)
     }
     const rolled = this.#voice?.rolling?.items().find(item => item.action.id === id && item.target === targetId)?.action
     const found = this.#reachable().find(a => a.id === id) ?? rolled
-    if (moves !== this.#moves) return
+    if (!still()) return
     if (!found) return this.notice(this.#words.unavailable)
     const row = id !== BACK && this.#own.get(this.#router.current)?.(id, targetId)
-    if (moves !== this.#moves) return
+    if (!still()) return
     if (row && !this.#shut()) return
     void this.#start(found, targetId, said, pass)
   }

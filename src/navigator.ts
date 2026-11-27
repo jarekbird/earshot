@@ -119,24 +119,35 @@ const verdictOf = (meaning: Meaning): Verdict => {
   return { kind: 'sure', action: meaning.action, ...(meaning.target === undefined ? {} : { target: meaning.target }) }
 }
 
+const STOOD_FOR = new WeakSet<Verdict>()
+
+export const stoodFor = (verdict: Verdict): boolean => STOOD_FOR.has(verdict)
+
 export function navigator(model: NavigatorModel): Agent {
   return async heard => {
     const { question, meanings } = questionFor(heard)
     const same = question.options.flatMap(option => (option.same === undefined ? [] : [[option.id, option.same]]))
     const chances = { ...(await model.choose(question, heard.life)) }
+    const led = new Set<string>()
     for (const [from, to] of same) {
       if (!Object.hasOwn(chances, from)) continue
-      chances[to] = (Object.hasOwn(chances, to) ? chances[to] : 0) + chances[from]
+      const named = Object.hasOwn(chances, to) ? chances[to] : 0
+      if (chances[from] > named) led.add(to)
+      chances[to] = named + chances[from]
       delete chances[from]
     }
     const ranked = Object.entries(chances)
       .flatMap(([id, chance]) => {
         const meaning = meanings.get(id)
-        return meaning === undefined ? [] : [{ meaning, chance }]
+        return meaning === undefined ? [] : [{ id, meaning, chance }]
       })
       .sort((a, b) => b.chance - a.chance)
     if (ranked.length === 0) return { kind: 'none' }
-    if (ranked[0].chance >= SURE_AT) return verdictOf(ranked[0].meaning)
+    if (ranked[0].chance >= SURE_AT) {
+      const verdict = verdictOf(ranked[0].meaning)
+      if (led.has(ranked[0].id)) STOOD_FOR.add(verdict)
+      return verdict
+    }
     const candidates = ranked
       .filter(({ chance }) => chance >= UNSURE_FROM)
       .flatMap(({ meaning }) => (meaning === PASS || meaning === NONE ? [] : [meaning]))
