@@ -271,6 +271,11 @@ text, so Jev is enough.
   what was decided, then tells options apart by id and draws the line where the navigator does, with neither the
   options' words nor the number repeated in the app. An option that counts toward another names it (`same`), so
   that a wrapper can add the two up before the navigator does and comes to the verdict the navigator will.
+- An option said by its very words is chosen without asking the model. Speech-to-text writes a sentence ("Go
+  back!"), and with the capital and the mark the model is at times no longer sure of what was plainly said. Case and
+  punctuation apart, the words must be the whole text of one option, or of an action alone without the words that
+  say it shows a list, and of one option only: words that fit two go to the model. An option that counts toward
+  another runs that other. The navigator's own two answers are never taken this way.
 - Two options that would do the same thing are one choice. The shell's "choose this one" stands for the row under
   the cursor, which the question also offers by name. Both are put to the model, since each is how a person may
   say it, and the chance of the first is added to the second before anything is compared. The row by name is
