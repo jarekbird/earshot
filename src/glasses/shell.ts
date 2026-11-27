@@ -107,7 +107,13 @@ interface Place {
   away?: boolean
 }
 
-type Rows = (action: string, target?: string) => Action | boolean
+type Rows = (action: string, target?: string) => boolean
+
+interface Offered {
+  id: string
+  target: string
+  action: Action
+}
 
 interface Drawn {
   frame: number
@@ -126,6 +132,12 @@ const GESTURES: readonly Gesture[] = ['tap', 'up', 'down']
 const tied = (bound: Bound): { action: Action; target?: string } => {
   const { action, target } = boundTo(bound)
   return target === undefined ? { action } : { action, target }
+}
+
+function oneChoice(reached: Action, listed: Action, under: TargetInfo): boolean {
+  if (reached.say !== listed.say) return false
+  const row = reached.targets()?.find(target => target.id === under.id)
+  return row !== undefined && row.say === under.say && (row.risk ?? reached.risk) === (under.risk ?? listed.risk)
 }
 
 const aimOf = (kind: View['kind'], action: string, target?: string): string => JSON.stringify([kind, action, target ?? null])
@@ -217,6 +229,7 @@ export class Shell {
   #deciding: Lifetime | null = null
   #decidingOn: object | null = null
   #shutting: (() => void) | undefined
+  #offered: Offered | null = null
   #asks = 0
   #handed = false
   readonly #frames: Frames
@@ -417,6 +430,8 @@ export class Shell {
     const actions = [...this.#router.actions()]
     if (!drawn || drawn.showing !== showing || !place) return actions
     const { view } = drawn
+    const rolledAs = (id: string, target: string) =>
+      this.#voice?.rolling?.items().find(item => item.action.id === id && item.target === target)?.action
     const move = (id: string, say: string, by: number, field: 'cursor' | 'top') =>
       action({
         id,
@@ -453,7 +468,15 @@ export class Shell {
                   {
                     [SAME]: () => {
                       const under = drawn.targets[place.cursor]
-                      return under && !under.private ? { action: view.action.id, target: under.id } : undefined
+                      if (!under || under.private) return undefined
+                      const listed = view.action
+                      const name = listed.id
+                      const reached = actions.find(other => other === listed || other.id === name)
+                      const target = under.id
+                      const would = reached ?? rolledAs(name, target)
+                      if (would !== listed && !(would && oneChoice(would, listed, under))) return undefined
+                      if (would === listed) this.#offered = { id: name, target, action: listed }
+                      return { action: name, target }
                     },
                   },
                 ),
@@ -720,6 +743,7 @@ export class Shell {
 
   async #decide(voice: VoiceOptions, audio: Audio, passed?: string): Promise<void> {
     const turn = ++this.#turn
+    this.#offered = null
     const moves = this.#moves
     const showing = showingsOf(this.#router).current
     const life = new Lifetime()
@@ -856,7 +880,7 @@ export class Shell {
       if (verdict.say !== undefined) this.notice(verdict.say)
       return this.redraw()
     }
-    if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target, true, pass)
+    if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target, true, pass, this.#offered)
     const moves = this.#moves
     const showings = showingsOf(this.#router)
     const showing = showings.current
@@ -878,16 +902,17 @@ export class Shell {
     )
   }
 
-  #do(id: string, targetId: string | undefined, said: boolean, pass?: () => void): void {
+  #do(id: string, targetId: string | undefined, said: boolean, pass?: () => void, offered?: Offered | null): void {
     const moves = this.#moves
     const rolled = this.#voice?.rolling?.items().find(item => item.action.id === id && item.target === targetId)?.action
     const found = this.#reachable().find(a => a.id === id) ?? rolled
     if (moves !== this.#moves) return
-    if (!found) return this.notice(this.#words.unavailable)
     const row = id !== BACK && this.#own.get(this.#router.current)?.(id, targetId)
     if (moves !== this.#moves) return
+    const run = offered && offered.id === id && offered.target === targetId ? offered.action : found
+    if (!run) return this.notice(this.#words.unavailable)
     if (row && !this.#shut()) return
-    void this.#start(typeof row === 'object' ? row : found, targetId, said, pass)
+    void this.#start(run, targetId, said, pass)
   }
 
   #jumps(chosen: Action, targetId?: string): boolean {
@@ -927,7 +952,7 @@ export class Shell {
       if (chosen.choose) return chosen.choose()
       return this.#openOwn(
         { id: 'earshot.pick', view: () => list({ title: chosen.say, action: chosen }) },
-        (id, target) => id === chosen.id && target !== undefined && chosen,
+        (id, target) => id === chosen.id && target !== undefined,
       )
     }
     const target = targets?.find(candidate => candidate.id === targetId)

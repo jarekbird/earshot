@@ -6431,6 +6431,126 @@ describe('a hold', () => {
     expect(went).toEqual(['soup'])
   })
 
+  it('asks first as the row on show says when "choose this one" is said, though the screen offers another action of the same name that asks nothing: the two are not one choice', async () => {
+    const did: string[] = []
+    const rows = (risk?: 'confirm') => () => [{ id: 'old', say: 'Old notes', value: 'old', ...(risk ? { risk } : {}) }]
+    const careful = action({ id: 'clear', say: 'Clear', targets: rows('confirm'), run: to => void did.push(`careful ${to}`) })
+    const quick = action({ id: 'clear', say: 'Clear', targets: rows(), run: to => void did.push(`quick ${to}`) })
+    const voice: VoiceOptions = {
+      transcribe: async () => 'that one',
+      model: {
+        choose: async question => {
+          const chosen = question.options.find(option => option.say === 'Choose this one')
+          return chosen ? { [chosen.id]: 1 } : {}
+        },
+      },
+    }
+    const { fake, front } = world({
+      voice,
+      home: () => ({ id: 'notes', actions: () => [quick], view: () => list({ title: 'Notes', action: careful }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([did, front().includes('Tap to confirm')]).toEqual([[], true])
+  })
+
+  it('runs the row on show when "choose this one" is said, though the screen offers another action of the same name whose row of that id says something else: the two are not one choice', async () => {
+    const did: string[] = []
+    const shown = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'a', say: 'Soup', value: 'soup' }],
+      run: to => void did.push(`shown ${to}`),
+    })
+    const other = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'a', say: 'Salad', value: 'salad' }],
+      run: to => void did.push(`other ${to}`),
+    })
+    const voice: VoiceOptions = {
+      transcribe: async () => 'that one',
+      model: {
+        choose: async question => {
+          const chosen = question.options.find(option => option.say === 'Choose this one')
+          return chosen ? { [chosen.id]: 1 } : {}
+        },
+      },
+    }
+    const { fake } = world({
+      voice,
+      home: () => ({ id: 'menu', actions: () => [other], view: () => list({ title: 'Menu', action: shown }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect(did).toEqual(['shown soup'])
+  })
+
+  it('counts "choose this one" with a rolling item of the row under the cursor, when the list is of an action the screen does not offer by itself', async () => {
+    const voice: VoiceOptions = {
+      ...hearing('ana').voice,
+      model: {
+        choose: async question => {
+          const choose = question.options.find(option => option.say === 'Choose this one')
+          const rolled = question.options.find(option => option.action === 'open' && option.target === 'ana')
+          return choose && rolled ? { [choose.id]: 0.5, [rolled.id]: 0.5 } : {}
+        },
+      },
+    }
+    const { fake, ran } = world({ voice, home: ({ open }) => ({ id: 'people', view: () => list({ title: 'People', action: open }) }) })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect(ran).toEqual(['open Ana'])
+  })
+
+  it('runs the action that can be reached when a candidate is tapped on the list of candidates, though "choose this one" was told as that row on the screen before and the app has put another action in its place since', async () => {
+    const did: string[] = []
+    const rows = () => ['Ana', 'Ben'].map(name => ({ id: name.toLowerCase(), say: name, value: name }))
+    const first = action({ id: 'open', say: 'Open', targets: rows, run: name => void did.push(`first ${name}`) })
+    const second = action({ id: 'open', say: 'Open', targets: rows, run: name => void did.push(`second ${name}`) })
+    let offered = first
+    const { fake } = world({
+      voice: hearing('ana ben').voice,
+      appActions: () => [offered],
+      home: () => ({ id: 'people', view: () => list({ title: 'People', action: first }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    const which = fake.lines()[0]
+    offered = second
+    fake.tap()
+    await settle(100)
+    expect([which, did]).toEqual(['Which one?', ['second Ana']])
+  })
+
+  it('runs the action that was said by name on the row under the cursor, not the action of the list, when the two share only the row', async () => {
+    const called: string[] = []
+    const { fake, ran } = world({
+      voice: hearing('call ana').voice,
+      home: ({ open }) => ({
+        id: 'people',
+        actions: () => [
+          open,
+          action({
+            id: 'call',
+            say: 'Call',
+            targets: () => names.map(name => ({ id: name.toLowerCase(), say: name, value: name })),
+            run: name => void called.push(name),
+          }),
+        ],
+        view: () => list({ title: 'People', action: open }),
+      }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([called, ran]).toEqual([['Ana'], []])
+  })
+
   describe('a list the shell made itself', () => {
     const filing = () => {
       const filed: string[] = []
@@ -6664,6 +6784,164 @@ describe('a hold', () => {
       await say(fake)
       await settle(100)
       expect([armed, filed]).toEqual([false, []])
+    })
+
+    it('runs the row under the cursor when "choose this one" is said, though the app stopped offering the action while the model was at work: the list still shows it, and a tap would run it', async () => {
+      const { filed, file } = filing()
+      let answer: (votes: Record<string, number>) => void = () => {}
+      let choose = ''
+      let offered = [file]
+      const voice: VoiceOptions = {
+        transcribe: async () => 'that one',
+        model: {
+          choose: question =>
+            new Promise(done => {
+              choose = question.options.find(option => option.say === 'Choose this one')?.id ?? ''
+              answer = done
+            }),
+        },
+      }
+      const { fake } = world({ voice, appActions: () => offered })
+      await settle()
+      fake.pick('File under')
+      await settle()
+      await say(fake)
+      await settle()
+      offered = []
+      answer({ [choose]: 1 })
+      await settle(100)
+      expect([filed, fake.lines()[0]]).toEqual([['Work'], 'People'])
+    })
+
+    it.each([
+      ['a target the list has too', 'work', ['anywhere Work']],
+      ['a target the list does not have', 'archive', ['anywhere Archive']],
+    ])(
+      'runs the action the model chose by name, another one of the same name as the one the list is of: %s',
+      async (_which, target, ran) => {
+        const did: string[] = []
+        const here = action({
+          id: 'file',
+          say: 'File here',
+          targets: () => [{ id: 'work', say: 'Work', value: 'Work' }],
+          run: name => void did.push(`here ${name}`),
+        })
+        const anywhere = action({
+          id: 'file',
+          say: 'File anywhere',
+          targets: () => [
+            { id: 'work', say: 'Work', value: 'Work' },
+            { id: 'archive', say: 'Archive', value: 'Archive' },
+          ],
+          run: name => void did.push(`anywhere ${name}`),
+        })
+        const voice: VoiceOptions = {
+          transcribe: async () => 'file it',
+          model: {
+            choose: async question => {
+              const named = question.options.find(option => option.action === 'file' && option.target === target)
+              return named ? { [named.id]: 1 } : {}
+            },
+          },
+        }
+        const { fake } = world({
+          voice,
+          appActions: () => [anywhere],
+          home: () => ({ id: 'desk', actions: () => [here], view: () => text({ body: 'Desk' }) }),
+        })
+        await settle()
+        fake.pick('File here')
+        await settle()
+        const picker = fake.lines()[0]
+        await say(fake)
+        await settle(100)
+        expect([picker, did]).toEqual(['File here', ran])
+      },
+    )
+
+    it('runs the action the model chose by name on a later hold, when the app has put another action of the same name in the place of the one the list was made for', async () => {
+      const did: string[] = []
+      const first = action({
+        id: 'file',
+        say: 'File under',
+        targets: () => [{ id: 'work', say: 'Work', value: 'Work' }],
+        run: name => void did.push(`first ${name}`),
+      })
+      const second = action({
+        id: 'file',
+        say: 'File under',
+        targets: () => [{ id: 'work', say: 'Work', value: 'Work' }],
+        run: name => void did.push(`second ${name}`),
+      })
+      let offered = first
+      const voice: VoiceOptions = {
+        transcribe: async () => 'file it',
+        model: {
+          choose: async question => {
+            const named = question.options.find(option => option.say === 'File under: Work')
+            return named && offered === second ? { [named.id]: 1 } : {}
+          },
+        },
+      }
+      const { fake } = world({ voice, appActions: () => [offered] })
+      await settle()
+      fake.pick('File under')
+      await settle()
+      await say(fake)
+      await settle(100)
+      const before = [...did]
+      offered = second
+      await say(fake)
+      await settle(100)
+      expect([before, did]).toEqual([[], ['second Work']])
+    })
+
+    it('runs the action that can be reached, not the one "choose this one" was told as, when the model chose another row of the list by name and the app had put another action in its place meanwhile', async () => {
+      const did: string[] = []
+      let answer: (votes: Record<string, number>) => void = () => {}
+      let home = ''
+      const rows = () => ['Work', 'Home'].map(name => ({ id: name.toLowerCase(), say: name, value: name }))
+      const first = action({ id: 'file', say: 'File under', targets: rows, run: name => void did.push(`first ${name}`) })
+      const second = action({ id: 'file', say: 'File under', targets: rows, run: name => void did.push(`second ${name}`) })
+      let offered = first
+      const voice: VoiceOptions = {
+        transcribe: async () => 'file it',
+        model: {
+          choose: question =>
+            new Promise(done => {
+              home = question.options.find(option => option.say === 'File under: Home')?.id ?? ''
+              answer = done
+            }),
+        },
+      }
+      const { fake } = world({ voice, appActions: () => [offered] })
+      await settle()
+      fake.pick('File under')
+      await settle()
+      await say(fake)
+      await settle()
+      offered = second
+      answer({ [home]: 1 })
+      await settle(100)
+      expect(did).toEqual(['second Home'])
+    })
+
+    it('runs the row on show when "choose this one" is said on a list of the targets of an action, though another action of the same name and another label can be reached and asks no more than it: the two are not one choice', async () => {
+      const did: string[] = []
+      const rows = () => [{ id: 'work', say: 'Work', value: 'Work' }]
+      const here = action({ id: 'file', say: 'File here', targets: rows, run: name => void did.push(`here ${name}`) })
+      const anywhere = action({ id: 'file', say: 'File anywhere', targets: rows, run: name => void did.push(`anywhere ${name}`) })
+      const { fake } = world({
+        voice: hearing('choose this one').voice,
+        appActions: () => [anywhere],
+        home: () => ({ id: 'desk', actions: () => [here], view: () => text({ body: 'Desk' }) }),
+      })
+      await settle()
+      fake.pick('File here')
+      await settle()
+      await say(fake)
+      await settle(100)
+      expect(did).toEqual(['here Work'])
     })
 
     it('closes when a row of it is said by name: the list of candidates', async () => {
