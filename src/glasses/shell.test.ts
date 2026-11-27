@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { action, type Action } from '../action.js'
 import { Lifetime } from '../lifetime.js'
-import { matchWords, type Verdict } from '../navigator.js'
+import { matchWords, navigator, type Verdict } from '../navigator.js'
 import { Rolling } from '../rolling.js'
 import { Router, type Screen } from '../router.js'
 import { boxes, list, text } from '../view.js'
@@ -6119,7 +6119,7 @@ describe('a hold', () => {
     expect([kinds, did]).toEqual([3, []])
   })
 
-  it('tells the navigator what "choose this one" stands for by reading the action the list has, then its name, then the row under the cursor, as `main` reads them', async () => {
+  it('tells the navigator what "choose this one" stands for by reading the action the list has, then its name, then the row under the cursor, as `main` reads them, and only then the rows that action has now', async () => {
     const read: string[] = []
     let asked: string[] = []
     const open = action({ id: 'open', say: 'Open', targets: () => [{ id: 'north', say: 'North', value: 'north' }], run: () => {} })
@@ -6140,14 +6140,14 @@ describe('a hold', () => {
     const { fake } = world({
       voice: {
         transcribe: async () => 'which one',
-        model: { choose: async () => ((asked = read.slice(-3)), {}) },
+        model: { choose: async () => ((asked = read.slice(read.lastIndexOf('action'))), {}) },
       },
       home: () => ({ id: 'trail', actions: () => [open], view: () => view }),
     })
     await settle()
     await say(fake)
     await settle(100)
-    expect(asked).toEqual(['action', 'name', 'row'])
+    expect(asked).toEqual(['action', 'name', 'row', 'row'])
   })
 
   it('says what an agent that handled the words has to say as it stands once what it left behind has run, when that put other words in their place', async () => {
@@ -6927,6 +6927,325 @@ describe('a hold', () => {
     await say(fake)
     await settle(100)
     expect([did.length, did.includes('made 1')]).toEqual([1, false])
+  })
+
+  it.each([
+    ['the row on show asks first', { shownRow: 'confirm' }],
+    ['the action of the list asks first', { shown: 'confirm' }],
+    ['the row by name asks first', { namedRow: 'confirm' }],
+    ['the action that can be reached asks first', { named: 'confirm' }],
+  ] as const)(
+    'does not count "choose this one" with the row by name when %s and the other does not: a vote split between the two is not sure of either, so nothing runs',
+    async (_which, risks: { shownRow?: 'confirm'; shown?: 'confirm'; namedRow?: 'confirm'; named?: 'confirm' }) => {
+      const did: string[] = []
+      const rows = (risk?: 'confirm') => () => [{ id: 'old', say: 'Old notes', value: 'old', ...(risk ? { risk } : {}) }]
+      const shown = action({
+        id: 'clear',
+        say: 'Clear',
+        targets: rows(risks.shownRow),
+        ...(risks.shown ? { risk: risks.shown } : {}),
+        run: to => void did.push(`shown ${to}`),
+      })
+      const named = action({
+        id: 'clear',
+        say: 'Clear',
+        targets: rows(risks.namedRow),
+        ...(risks.named ? { risk: risks.named } : {}),
+        run: to => void did.push(`named ${to}`),
+      })
+      let asked: Array<{ say: string; same?: string }> = []
+      const voice: VoiceOptions = {
+        transcribe: async () => 'clear that',
+        model: {
+          choose: async question => {
+            asked = question.options
+            const id = (say: string) => question.options.find(option => option.say === say)!.id
+            return { [id('Choose this one')]: 0.5, [id('Clear: Old notes')]: 0.5 }
+          },
+        },
+      }
+      const { fake, front } = world({
+        voice,
+        home: () => ({ id: 'notes', actions: () => [named], view: () => list({ title: 'Notes', action: shown }) }),
+      })
+      await settle()
+      await say(fake)
+      await settle(100)
+      expect([
+        did,
+        front().includes('Tap to confirm'),
+        asked.filter(option => option.say === 'Choose this one').map(option => option.same),
+      ]).toEqual([[], false, [undefined]])
+    },
+  )
+
+  it('does not count "choose this one" with the row by name when that row says something else than the row on show, though it has its id: a vote split between the two runs neither', async () => {
+    const did: string[] = []
+    const shown = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'a', say: 'Soup', value: 'soup' }],
+      run: to => void did.push(`shown ${to}`),
+    })
+    const other = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'a', say: 'Salad', value: 'salad' }],
+      run: to => void did.push(`other ${to}`),
+    })
+    let asked: Array<{ say: string; same?: string }> = []
+    const voice: VoiceOptions = {
+      transcribe: async () => 'that one',
+      model: {
+        choose: async question => {
+          asked = question.options
+          const id = (say: string) => question.options.find(option => option.say === say)!.id
+          return { [id('Choose this one')]: 0.5, [id('Open: Salad')]: 0.5 }
+        },
+      },
+    }
+    const { fake } = world({
+      voice,
+      home: () => ({ id: 'menu', actions: () => [other], view: () => list({ title: 'Menu', action: shown }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([did, asked.filter(option => option.say === 'Choose this one').map(option => option.same)]).toEqual([[], [undefined]])
+  })
+
+  it('does not count "choose this one" with the row by name when the action that can be reached has another label than the action of the list, though it has its name: a vote split between the two runs neither', async () => {
+    const did: string[] = []
+    const rows = () => [{ id: 'soup', say: 'Soup', value: 'soup' }]
+    const shown = action({ id: 'open', say: 'Open', targets: rows, run: to => void did.push(`shown ${to}`) })
+    const other = action({ id: 'open', say: 'Share', targets: rows, run: to => void did.push(`other ${to}`) })
+    let asked: Array<{ say: string; same?: string }> = []
+    const voice: VoiceOptions = {
+      transcribe: async () => 'that one',
+      model: {
+        choose: async question => {
+          asked = question.options
+          const id = (say: string) => question.options.find(option => option.say === say)!.id
+          return { [id('Choose this one')]: 0.5, [id('Share: Soup')]: 0.5 }
+        },
+      },
+    }
+    const { fake } = world({
+      voice,
+      home: () => ({ id: 'menu', actions: () => [other], view: () => list({ title: 'Menu', action: shown }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([did, asked.filter(option => option.say === 'Choose this one').map(option => option.same)]).toEqual([[], [undefined]])
+  })
+
+  it('does not count "choose this one" with a rolling item of another action, though it has the names of the row on show: the model is told the item in its own words, so a vote split between the two runs neither', async () => {
+    const did: string[] = []
+    const rows = () => [{ id: 'report', say: 'Report', value: 'report' }]
+    const draft = action({ id: 'open', say: 'Open', targets: rows, run: () => void did.push('draft') })
+    const published = action({ id: 'open', say: 'Open', targets: rows, run: () => void did.push('published') })
+    let asked: Array<{ say: string; same?: string }> = []
+    const voice: VoiceOptions = {
+      transcribe: async () => 'the report',
+      model: {
+        choose: async question => {
+          asked = question.options
+          const choose = question.options.find(option => option.say === 'Choose this one')!
+          const rolled = question.options.find(option => option.context === 'Published copy')!
+          return { [rolled.id]: 0.4, [choose.id]: 0.35 }
+        },
+      },
+    }
+    const { fake, rolling } = world({ voice, home: () => ({ id: 'reports', view: () => list({ title: 'Reports', action: draft }) }) })
+    rolling.add(published, 'report', 'Published copy')
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([did, asked.filter(option => option.say === 'Choose this one').map(option => option.same)]).toEqual([[], [undefined]])
+  })
+
+  it('does not count "choose this one" with a rolling item, when the action that can be reached by the name of the row keeps that row to itself: the model is told the item, not that row, so a vote split between the two runs neither', async () => {
+    const did: string[] = []
+    const rows = (kept: boolean) => () => [{ id: 'report', say: 'Report', value: 'report', ...(kept ? { private: true } : {}) }]
+    const draft = action({ id: 'open', say: 'Open', targets: rows(false), run: () => void did.push('draft') })
+    const keeping = action({ id: 'open', say: 'Open', targets: rows(true), run: () => void did.push('keeping') })
+    const published = action({ id: 'open', say: 'Open', targets: rows(false), run: () => void did.push('published') })
+    let asked: Array<{ say: string; same?: string }> = []
+    const voice: VoiceOptions = {
+      transcribe: async () => 'the report',
+      model: {
+        choose: async question => {
+          asked = question.options
+          const choose = question.options.find(option => option.say === 'Choose this one')!
+          const rolled = question.options.find(option => option.context === 'Published copy')!
+          return { [rolled.id]: 0.4, [choose.id]: 0.35 }
+        },
+      },
+    }
+    const { fake, rolling } = world({
+      voice,
+      home: () => ({ id: 'reports', actions: () => [keeping], view: () => list({ title: 'Reports', action: draft }) }),
+    })
+    rolling.add(published, 'report', 'Published copy')
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([did, asked.filter(option => option.say === 'Choose this one').map(option => option.same)]).toEqual([[], [undefined]])
+  })
+
+  it.each([
+    ['kept the row on show to itself', 'kept'],
+    ['dropped the row on show', 'gone'],
+  ] as const)(
+    'does not count "choose this one" with a rolling item of another action, when the action of the list has %s since it was drawn: the model is told the item, not that row',
+    async (_what, how) => {
+      const did: string[] = []
+      let now: 'there' | 'kept' | 'gone' = 'there'
+      const rows = () => (now === 'gone' ? [] : [{ id: 'report', say: 'Report', value: 'report', private: now === 'kept' }])
+      const draft = action({ id: 'open', say: 'Open', targets: rows, run: () => void did.push('draft') })
+      const published = action({
+        id: 'open',
+        say: 'Open',
+        targets: () => [{ id: 'report', say: 'Report', value: 'report' }],
+        run: () => void did.push('published'),
+      })
+      let asked: Array<{ say: string; same?: string }> = []
+      const voice: VoiceOptions = {
+        transcribe: async () => 'the report',
+        model: {
+          choose: async question => {
+            asked = question.options
+            const choose = question.options.find(option => option.say === 'Choose this one')!
+            const rolled = question.options.find(option => option.context === 'Published copy')!
+            return { [rolled.id]: 0.4, [choose.id]: 0.35 }
+          },
+        },
+      }
+      const { fake, rolling } = world({
+        voice,
+        home: () => ({ id: 'reports', actions: () => [draft], view: () => list({ title: 'Reports', action: draft }) }),
+      })
+      rolling.add(published, 'report', 'Published copy')
+      await settle()
+      now = how
+      await say(fake)
+      await settle(100)
+      expect([did, asked.filter(option => option.say === 'Choose this one').map(option => option.same)]).toEqual([[], [undefined]])
+    },
+  )
+
+  it('runs what can be reached by name when an agent of the app is itself a navigator and its model chose "choose this one": only the shell\'s own asking runs the row on show', async () => {
+    const did: string[] = []
+    const rows = () => [{ id: 'stock', say: 'Stock', value: 'stock' }]
+    const shown = action({ id: 'open', say: 'Open', targets: rows, run: to => void did.push(`shown ${to}`) })
+    const reached = action({ id: 'open', say: 'Open', targets: rows, run: to => void did.push(`reached ${to}`) })
+    const voting = (role: 'pass' | undefined, say?: string) => ({
+      choose: async (question: { options: Array<{ id: string; say: string; role?: string }> }) => {
+        const chosen = question.options.find(option => (role ? option.role === role : option.say === say))
+        return chosen ? { [chosen.id]: 1 } : {}
+      },
+    })
+    const voice: VoiceOptions = {
+      transcribe: async () => 'that one',
+      model: voting('pass'),
+      agents: [navigator(voting(undefined, 'Choose this one'))],
+    }
+    const { fake } = world({
+      voice,
+      home: () => ({ id: 'pantry', actions: () => [reached], view: () => list({ title: 'Pantry', action: shown }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect(did).toEqual(['reached stock'])
+  })
+
+  it('runs what can be reached by name when "choose this one" was chosen and reading the name of the action of the list, to see that it is still the row the model was asked about, had the app put its rows in another order and draw again', async () => {
+    const made: { shell?: Shell } = {}
+    const did: string[] = []
+    let armed = false
+    let answer: (votes: Record<string, number>) => void = () => {}
+    let choose = ''
+    let rows = [
+      { id: 'soup', say: 'Soup', value: 'soup' },
+      { id: 'stock', say: 'Stock', value: 'stock' },
+    ]
+    const shown = action({ id: 'open', say: 'Open', targets: () => rows, run: to => void did.push(`shown ${to}`) })
+    const reached = action({ id: 'open', say: 'Open', targets: () => rows, run: to => void did.push(`reached ${to}`) })
+    Object.defineProperty(shown, 'id', {
+      get: () => {
+        if (armed) {
+          armed = false
+          rows = [rows[1], rows[0]]
+          made.shell?.redraw()
+        }
+        return 'open'
+      },
+    })
+    const voice: VoiceOptions = {
+      transcribe: async () => 'that one',
+      model: {
+        choose: question =>
+          new Promise(done => {
+            choose = question.options.find(option => option.say === 'Choose this one')?.id ?? ''
+            answer = done
+          }),
+      },
+    }
+    const { fake, shell } = world({
+      voice,
+      home: () => ({ id: 'recipes', actions: () => [reached], view: () => list({ title: 'Recipes', action: shown }) }),
+    })
+    made.shell = shell
+    await settle()
+    await say(fake)
+    await settle()
+    armed = true
+    answer({ [choose]: 1 })
+    await settle(100)
+    expect([armed, did]).toEqual([false, ['reached soup']])
+  })
+
+  it('asks first, as what can be reached by name says, when "choose this one" was chosen and reading the action of the list, to run the row on show, had the app put an action that asks first in its place and draw again', async () => {
+    const made: { shell?: Shell } = {}
+    const did: string[] = []
+    let armed = false
+    let answer: (votes: Record<string, number>) => void = () => {}
+    let choose = ''
+    const rows = (risk?: 'confirm') => () => [{ id: 'old', say: 'Old notes', value: 'old', ...(risk ? { risk } : {}) }]
+    const quick = action({ id: 'clear', say: 'Clear', targets: rows(), run: to => void did.push(`quick ${to}`) })
+    const careful = action({ id: 'clear', say: 'Clear', targets: rows('confirm'), run: to => void did.push(`careful ${to}`) })
+    let now = quick
+    const view = list({ title: 'Notes', action: quick })
+    Object.defineProperty(view, 'action', {
+      get: () => {
+        if (!armed) return now
+        armed = false
+        now = careful
+        made.shell?.redraw()
+        return quick
+      },
+    })
+    const voice: VoiceOptions = {
+      transcribe: async () => 'that one',
+      model: {
+        choose: question =>
+          new Promise(done => {
+            choose = question.options.find(option => option.say === 'Choose this one')?.id ?? ''
+            answer = done
+          }),
+      },
+    }
+    const { fake, front, shell } = world({ voice, home: () => ({ id: 'notes', actions: () => [now], view: () => view }) })
+    made.shell = shell
+    await settle()
+    await say(fake)
+    await settle()
+    armed = true
+    answer({ [choose]: 1 })
+    await settle(100)
+    expect([armed, did, front().includes('Tap to confirm')]).toEqual([false, [], true])
   })
 
   it('runs what the model was asked about, by its name, when "choose this one" was chosen and the list has another action by the time the answer comes', async () => {

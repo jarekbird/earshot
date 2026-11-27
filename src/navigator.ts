@@ -119,11 +119,11 @@ const verdictOf = (meaning: Meaning): Verdict => {
   return { kind: 'sure', action: meaning.action, ...(meaning.target === undefined ? {} : { target: meaning.target }) }
 }
 
-const STOOD_FOR = new WeakSet<Verdict>()
-
-export const stoodFor = (verdict: Verdict): boolean => STOOD_FOR.has(verdict)
-
 export function navigator(model: NavigatorModel): Agent {
+  return navigatorNoting(model, () => {})
+}
+
+export function navigatorNoting(model: NavigatorModel, stoodFor: () => void): Agent {
   return async heard => {
     const { question, meanings } = questionFor(heard)
     const same = question.options.flatMap(option => (option.same === undefined ? [] : [[option.id, option.same]]))
@@ -144,9 +144,8 @@ export function navigator(model: NavigatorModel): Agent {
       .sort((a, b) => b.chance - a.chance)
     if (ranked.length === 0) return { kind: 'none' }
     if (ranked[0].chance >= SURE_AT) {
-      const verdict = verdictOf(ranked[0].meaning)
-      if (led.has(ranked[0].id)) STOOD_FOR.add(verdict)
-      return verdict
+      if (led.has(ranked[0].id)) stoodFor()
+      return verdictOf(ranked[0].meaning)
     }
     const candidates = ranked
       .filter(({ chance }) => chance >= UNSURE_FROM)
