@@ -6551,6 +6551,199 @@ describe('a hold', () => {
     expect([called, ran]).toEqual([['Ana'], []])
   })
 
+  it('runs what an agent of the app names, as it can be reached then, when the model passed the words on: what "choose this one" was told as was for the model alone', async () => {
+    const did: string[] = []
+    let pass: (votes: Record<string, number>) => void = () => {}
+    let passing = ''
+    const rows = () => [{ id: 'soup', say: 'Soup', value: 'soup' }]
+    const first = action({ id: 'open', say: 'Open', targets: rows, run: to => void did.push(`first ${to}`) })
+    const second = action({ id: 'open', say: 'Open', targets: rows, run: to => void did.push(`second ${to}`) })
+    let offered = first
+    const voice: VoiceOptions = {
+      transcribe: async () => 'the soup please',
+      model: {
+        choose: question =>
+          new Promise(done => {
+            passing = question.options.find(option => option.role === 'pass')?.id ?? ''
+            pass = done
+          }),
+      },
+      agents: [() => ({ kind: 'sure', action: 'open', target: 'soup' })],
+    }
+    const { fake } = world({
+      voice,
+      home: () => ({ id: 'recipes', actions: () => [offered], view: () => list({ title: 'Recipes', action: first }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle()
+    offered = second
+    pass({ [passing]: 1 })
+    await settle(100)
+    expect(did).toEqual(['second soup'])
+  })
+
+  it('says why the row on show cannot run when "choose this one" is said, though the screen offers another action that says the same and is not blocked: a tap on the row would say so too', async () => {
+    const did: string[] = []
+    const rows = () => [{ id: 'soup', say: 'Soup', value: 'soup' }]
+    const shut = action({ id: 'open', say: 'Open', targets: rows, blocked: () => 'Kitchen closed', run: to => void did.push(`shut ${to}`) })
+    const free = action({ id: 'open', say: 'Open', targets: rows, run: to => void did.push(`free ${to}`) })
+    const voice: VoiceOptions = {
+      transcribe: async () => 'that one',
+      model: {
+        choose: async question => {
+          const chosen = question.options.find(option => option.say === 'Choose this one')
+          return chosen ? { [chosen.id]: 1 } : {}
+        },
+      },
+    }
+    const { fake, front } = world({
+      voice,
+      home: () => ({ id: 'recipes', actions: () => [free], view: () => list({ title: 'Recipes', action: shut }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([did, front()]).toEqual([[], 'Kitchen closed'])
+  })
+
+  it('runs the row on show when "choose this one" is said, as a tap would, though the app makes its action anew and has made another since the model was asked', async () => {
+    const did: string[] = []
+    let answer: (votes: Record<string, number>) => void = () => {}
+    let choose = ''
+    let made = 0
+    const makeOpen = () => {
+      const mine = ++made
+      return action({
+        id: 'open',
+        say: 'Open',
+        targets: () => [{ id: 'soup', say: 'Soup', value: 'soup' }],
+        run: () => void did.push(`made ${mine}`),
+      })
+    }
+    const shown = makeOpen()
+    const voice: VoiceOptions = {
+      transcribe: async () => 'that one',
+      model: {
+        choose: question =>
+          new Promise(done => {
+            choose = question.options.find(option => option.say === 'Choose this one')?.id ?? ''
+            answer = done
+          }),
+      },
+    }
+    const { fake } = world({
+      voice,
+      home: () => ({ id: 'recipes', actions: () => [makeOpen()], view: () => list({ title: 'Recipes', action: shown }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle()
+    answer({ [choose]: 1 })
+    await settle(100)
+    expect(did).toEqual(['made 1'])
+  })
+
+  it('runs the other action when the model chose its row by name, though it shares its name and that row with the action of the list: the two rows say different things, so they are not one choice', async () => {
+    const did: string[] = []
+    const shown = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'a', say: 'Soup', value: 'soup' }],
+      run: to => void did.push(`shown ${to}`),
+    })
+    const other = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'a', say: 'Salad', value: 'salad' }],
+      run: to => void did.push(`other ${to}`),
+    })
+    const voice: VoiceOptions = {
+      transcribe: async () => 'the salad',
+      model: {
+        choose: async question => {
+          const named = question.options.find(option => option.say === 'Open: Salad')
+          return named ? { [named.id]: 1 } : {}
+        },
+      },
+    }
+    const { fake } = world({
+      voice,
+      home: () => ({ id: 'menu', actions: () => [other], view: () => list({ title: 'Menu', action: shown }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect(did).toEqual(['other salad'])
+  })
+
+  it('lets the wearer turn the choice down at the question the row on show asks, when "choose this one" was said and the words can be handed on', async () => {
+    const did: string[] = []
+    const allow = action({
+      id: 'allow',
+      say: 'Allow',
+      risk: 'voice',
+      targets: () => [{ id: 'r1', say: 'Run the migration', value: 'r1' }],
+      run: id => void did.push(`allow ${id}`),
+    })
+    const voice: VoiceOptions = {
+      ...hearing('choose this one').voice,
+      instead: 'Keep as a note',
+      agents: [() => ({ kind: 'handled', say: 'Saved' })],
+    }
+    const { fake, front } = world({
+      voice,
+      home: () => ({ id: 'home', actions: () => [allow], view: () => list({ title: 'Allow', action: allow }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([did, front()]).toEqual([[], 'Allow: Run the migration?\nTap to confirm\nSwipe: Keep as a note'])
+  })
+
+  it('runs no row when "choose this one" was said and reading the action of the list, to run the row on show, had the app open another screen', async () => {
+    const made: { router?: Router } = {}
+    const did: string[] = []
+    let armed = false
+    let answer: (votes: Record<string, number>) => void = () => {}
+    let choose = ''
+    const open = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'soup', say: 'Soup', value: 'soup' }],
+      run: to => void did.push(to),
+    })
+    const view = list({ title: 'Recipes', action: open })
+    Object.defineProperty(view, 'action', {
+      get: () => {
+        if (armed) {
+          armed = false
+          made.router?.open({ id: 'elsewhere', view: () => text({ body: 'Elsewhere' }) })
+        }
+        return open
+      },
+    })
+    const voice: VoiceOptions = {
+      transcribe: async () => 'that one',
+      model: {
+        choose: question =>
+          new Promise(done => {
+            choose = question.options.find(option => option.say === 'Choose this one')?.id ?? ''
+            answer = done
+          }),
+      },
+    }
+    const { fake, router } = world({ voice, home: () => ({ id: 'recipes', actions: () => [open], view: () => view }) })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle()
+    armed = true
+    answer({ [choose]: 1 })
+    await settle(100)
+    expect([armed, did, fake.lines()[0]]).toEqual([false, [], 'Elsewhere'])
+  })
+
   describe('a list the shell made itself', () => {
     const filing = () => {
       const filed: string[] = []
@@ -6869,7 +7062,7 @@ describe('a hold', () => {
       })
       const second = action({
         id: 'file',
-        say: 'File under',
+        say: 'Send to',
         targets: () => [{ id: 'work', say: 'Work', value: 'Work' }],
         run: name => void did.push(`second ${name}`),
       })
@@ -6878,8 +7071,8 @@ describe('a hold', () => {
         transcribe: async () => 'file it',
         model: {
           choose: async question => {
-            const named = question.options.find(option => option.say === 'File under: Work')
-            return named && offered === second ? { [named.id]: 1 } : {}
+            const named = question.options.find(option => option.say === 'Send to: Work')
+            return named ? { [named.id]: 1 } : {}
           },
         },
       }

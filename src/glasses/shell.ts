@@ -112,7 +112,6 @@ type Rows = (action: string, target?: string) => boolean
 interface Offered {
   id: string
   target: string
-  action: Action
 }
 
 interface Drawn {
@@ -134,10 +133,9 @@ const tied = (bound: Bound): { action: Action; target?: string } => {
   return target === undefined ? { action } : { action, target }
 }
 
-function oneChoice(reached: Action, listed: Action, under: TargetInfo): boolean {
+function saysTheSame(reached: Action, listed: Action, under: TargetInfo): boolean {
   if (reached.say !== listed.say) return false
-  const row = reached.targets()?.find(target => target.id === under.id)
-  return row !== undefined && row.say === under.say && (row.risk ?? reached.risk) === (under.risk ?? listed.risk)
+  return reached.targets()?.find(target => target.id === under.id)?.say === under.say
 }
 
 const aimOf = (kind: View['kind'], action: string, target?: string): string => JSON.stringify([kind, action, target ?? null])
@@ -474,8 +472,8 @@ export class Shell {
                       const reached = actions.find(other => other === listed || other.id === name)
                       const target = under.id
                       const would = reached ?? rolledAs(name, target)
-                      if (would !== listed && !(would && oneChoice(would, listed, under))) return undefined
-                      if (would === listed) this.#offered = { id: name, target, action: listed }
+                      if (would !== listed && !(would && saysTheSame(would, listed, under))) return undefined
+                      this.#offered = { id: name, target }
                       return { action: name, target }
                     },
                   },
@@ -493,10 +491,10 @@ export class Shell {
     return still() ? { action, target: under.id } : undefined
   }
 
-  #choose(drawn: Drawn, row: { action: Action; target: string } | undefined, said = false): void {
+  #choose(drawn: Drawn, row: { action: Action; target: string } | undefined, said = false, pass?: () => void): void {
     if (!row) return
     if (this.#own.has(drawn.screen) && !this.#shut()) return
-    void this.#start(row.action, row.target, said)
+    void this.#start(row.action, row.target, said, pass)
   }
 
   notice(text: string): void {
@@ -866,6 +864,7 @@ export class Shell {
       }
       if (gone()) throw new LifetimeEnded()
       if (!(navigate && index === 0)) this.#handed = true
+      if (!(navigate && index === 0)) this.#offered = null
       const given = await agent(heard)
       if (!mine()) throw new LifetimeEnded()
       const answer = once(given, mine)
@@ -904,15 +903,22 @@ export class Shell {
 
   #do(id: string, targetId: string | undefined, said: boolean, pass?: () => void, offered?: Offered | null): void {
     const moves = this.#moves
+    if (offered && offered.id === id && offered.target === targetId) {
+      const drawn = this.#drawn
+      const showing = showingsOf(this.#router).current
+      const place = showing && this.#places.get(showing)
+      const row = drawn && drawn.showing === showing && place ? this.#row(drawn, place) : undefined
+      if (moves !== this.#moves) return
+      if (drawn && row) return this.#choose(drawn, row, said, pass)
+    }
     const rolled = this.#voice?.rolling?.items().find(item => item.action.id === id && item.target === targetId)?.action
     const found = this.#reachable().find(a => a.id === id) ?? rolled
     if (moves !== this.#moves) return
+    if (!found) return this.notice(this.#words.unavailable)
     const row = id !== BACK && this.#own.get(this.#router.current)?.(id, targetId)
     if (moves !== this.#moves) return
-    const run = offered && offered.id === id && offered.target === targetId ? offered.action : found
-    if (!run) return this.notice(this.#words.unavailable)
     if (row && !this.#shut()) return
-    void this.#start(run, targetId, said, pass)
+    void this.#start(found, targetId, said, pass)
   }
 
   #jumps(chosen: Action, targetId?: string): boolean {
