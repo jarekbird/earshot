@@ -120,7 +120,7 @@ const firstCheck = () =>
   })
 
 export const notSetUp = (request: Request): Response =>
-  request.method === 'OPTIONS' ? firstCheck() : refuse(503, 'This relay is not set up.')
+  request.method === 'OPTIONS' ? firstCheck() : refuse(501, 'This relay is not set up.')
 
 async function read(request: Request, limit: number): Promise<string | null> {
   if (Number(request.headers.get('content-length')) > limit) return null
