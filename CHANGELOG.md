@@ -6,11 +6,18 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.60 (2026-11-26)
+## 0.0.61 (2026-11-27)
 
 - No relay is made for an upstream of the three calls that is named with a fragment (`#`): everything after it
   never reached the upstream, so the calls went somewhere other than the address said.
 - **An app must** name its relay's upstream without a fragment. One named with a query of its own is taken as before.
+
+## 0.0.60 (2026-11-26)
+
+- A list the shell made itself (the candidates, an action's targets, "More…") closes when a row of it is said by
+  name, as it does at a tap. The row ran and the list stayed open over the screen.
+- On the shell's list of an action's targets, "choose this one" and the row by name are one choice, as on a list
+  of the app's screen.
 
 ## 0.0.59 (2026-11-26)
 
