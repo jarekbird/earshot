@@ -135,6 +135,7 @@ export class Shell {
   #drawn: Drawn | null = null
   #asking: { yes: () => void; no?: () => void } | null = null
   #overlaid = false
+  #ofTurn = false
   #over: string | null = null
   #fading: Timer | undefined
   #recording: { chunks: Uint8Array[]; screen: Screen; source: HoldSource; hear: (sound: Sound) => void; end: () => void } | null = null
@@ -305,11 +306,12 @@ export class Shell {
     this.#show(text, this.#noticeMs)
   }
 
-  #show(text: string, ms?: number): void {
+  #show(text: string, ms?: number, ofTurn = false): void {
     this.#fading?.cancel()
     this.#fading = ms === undefined ? undefined : this.#life.timeout(() => this.#clear(), ms)
     this.#asking = null
     this.#overlaid = true
+    this.#ofTurn = ofTurn
     this.#over = text
     this.#glasses.overlay(text)
   }
@@ -319,8 +321,13 @@ export class Shell {
     this.#fading = undefined
     this.#asking = null
     this.#overlaid = false
+    this.#ofTurn = false
     this.#over = null
     this.#glasses.overlay(null)
+  }
+
+  #clearOfTurn(): void {
+    if (this.#ofTurn) this.#clear()
   }
 
   #item(id: string): number {
@@ -488,7 +495,7 @@ export class Shell {
     const life = this.#life.child()
     const mine = () => turn === this.#turn && !this.#life.ended
     const moved = () => this.#router.current !== screen
-    const finish = (then: () => void, elsewhere = () => this.#clear()) => {
+    const finish = (then: () => void, elsewhere = () => this.#clearOfTurn()) => {
       if (!mine()) return
       this.#deciding = null
       slow.cancel()
@@ -502,14 +509,14 @@ export class Shell {
       this.#turn++
     }, voice.timeoutMs ?? VOICE_TIMEOUT_MS)
     this.#deciding = life
-    if (passed === undefined) this.#show(this.#words.thinking)
+    if (passed === undefined) this.#show(this.#words.thinking, undefined, true)
     try {
       const transcript = passed ?? (await voice.transcribe(audio, life))
       const words = transcript?.trim() ?? ''
       if (!mine() || moved()) return finish(() => {})
       if (transcript !== null && !words) return finish(() => this.notice(this.#words.missed))
       const heard = words ? `"${words}"` : this.#words.thinking
-      this.#show(heard)
+      this.#show(heard, undefined, true)
       const still = () => mine() && !moved()
       const { verdict, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, still)
       const done = verdict.kind === 'handled' && verdict.say !== undefined ? verdict.say : undefined
@@ -520,7 +527,7 @@ export class Shell {
           else this.#clear()
           this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
         },
-        () => (done === undefined ? this.#clear() : this.notice(done)),
+        () => (done === undefined ? this.#clearOfTurn() : this.notice(done)),
       )
     } catch (error) {
       finish(() => {
