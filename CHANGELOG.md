@@ -10,6 +10,7 @@ each version's commits say: they name what a version added, and may miss a chang
 
 - A notice shown while the touchpad is held goes under "Listening", which stays on show for as long as the hold
   records. The notice wrote over it, until the next sound drew the meter again.
+- A hold whose "Listening" the glasses have not shown within three seconds ends and lets go of the microphone.
 
 ## 0.0.61 (2026-11-26)
 

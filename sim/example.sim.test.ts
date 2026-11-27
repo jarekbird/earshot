@@ -195,6 +195,19 @@ describe('the example app in the real Even Hub simulator', () => {
     await sim.shows('Earshot draws this list')
   })
 
+  it.runIf(process.platform === 'linux')(
+    'E20: keeps a hold of four seconds going: the simulator shows "Listening" well inside the three it is given',
+    async () => {
+      const sim = await start('&say=open%20voice', true)
+      await sim.input('press')
+      await sim.shows('Listening')
+      await new Promise(longer => setTimeout(longer, 4_000))
+      expect(sim.shown().some(line => line.includes('Listening'))).toBe(true)
+      await sim.input('release')
+      await sim.shows('Hold the touchpad and say')
+    },
+  )
+
   it.runIf(process.platform === 'linux')("turns the navigator's choice down at a swipe: the words go to the app's agent", async () => {
     const sim = await start('&say=remember%20to%20delete%20welcome', true)
     await sim.hold(1_200)
