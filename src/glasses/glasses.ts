@@ -111,6 +111,7 @@ interface Page {
 
 export const OVERLAY = Symbol('the overlay the glasses are known to show')
 export const WHOLE = Symbol('whether the glasses show one whole frame, none partly sent since')
+export const LANDED = Symbol('how many pages the glasses have answered in full, and the overlay of the last')
 
 const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
@@ -212,6 +213,7 @@ export class Glasses {
   #shown = 0
   #whole = true
   #over: string | null | undefined = null
+  #landed: { pages: number; over: string | null } = { pages: 0, over: null }
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
@@ -234,6 +236,10 @@ export class Glasses {
 
   get [OVERLAY](): string | null | undefined {
     return this.#over
+  }
+
+  get [LANDED](): { pages: number; over: string | null } {
+    return this.#landed
   }
 
   get [WHOLE](): boolean {
@@ -400,6 +406,7 @@ export class Glasses {
         this.#shown = frame
         this.#whole = true
         this.#over = page.over
+        this.#landed = { pages: this.#landed.pages + 1, over: page.over }
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
         this.#report(page)

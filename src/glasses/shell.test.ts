@@ -1913,6 +1913,35 @@ describe('a hold', () => {
       expect([asked, made.ran, made.fake.mic]).toEqual([[], [], null])
     })
 
+    it('E20: goes on when "Listening" was shown and a later write is refused: the glasses still show it', async () => {
+      const made = world({ voice: { transcribe: async () => 'refresh' } })
+      await settle()
+      made.fake.hold()
+      await settle(50)
+      expect(made.fake.overlay().split(' ')[0]).toBe('Listening')
+      made.fake.refuse('update', 1_000)
+      made.shell.notice('A new message')
+      await settle(3_100)
+      expect([made.fake.overlay().split(' ')[0], made.fake.mic, made.shell.busy]).toEqual(['Listening', 'glasses', true])
+    })
+
+    it('E20: goes on when the glasses answer each "Listening" only as the next is asked for', async () => {
+      const made = world({ voice: { transcribe: async () => 'refresh' } })
+      await settle()
+      const update = made.fake.bridge.textContainerUpgrade.bind(made.fake.bridge)
+      made.fake.bridge.textContainerUpgrade = async text => {
+        await new Promise(slow => setTimeout(slow, 350))
+        return update(text)
+      }
+      made.fake.hold()
+      await settle(50)
+      for (let at = 0; at < 12; at++) {
+        made.fake.sound(tone(300))
+        await settle(300)
+      }
+      expect([made.fake.mic, made.shell.busy]).toEqual(['glasses', true])
+    })
+
     it('E20: goes on when "Listening" reached the glasses, however long it is held', async () => {
       const made = world({ voice: { transcribe: async () => 'refresh' } })
       await settle()

@@ -8,7 +8,7 @@ import type { Router, Screen } from '../router.js'
 import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
-import { OVERLAY, WHOLE, type Glasses } from './glasses.js'
+import { LANDED, OVERLAY, WHOLE, type Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { layoutList, layoutText, type Stride, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
@@ -474,13 +474,10 @@ export class Shell {
       this.#show(`${this.#words.listening} ${bars.join('')}${noted === undefined ? '' : `\n${noted}`}`, undefined, true)
     let meter: Timer | undefined
     const limit = this.#life.timeout(() => this.#finish(), longest)
-    let seen = false
-    const look = () => {
-      const onShow = this.#glasses[OVERLAY]
-      seen ||= typeof onShow === 'string' && onShow.startsWith(this.#words.listening)
-    }
+    const before = this.#glasses[LANDED].pages
     const unseen = this.#life.timeout(() => {
-      look()
+      const { pages, over } = this.#glasses[LANDED]
+      const seen = pages > before && over !== null && over.startsWith(this.#words.listening)
       if (seen || this.#recording !== recording) return
       recording.end()
       this.#spent = true
@@ -502,7 +499,6 @@ export class Shell {
         listening()
       },
       hear: ({ pcm }: Sound) => {
-        look()
         chunks.push(pcm)
         bars.push(levelOf(pcm))
         bars.shift()
