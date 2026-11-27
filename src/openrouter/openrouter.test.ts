@@ -133,6 +133,12 @@ describe('when it goes wrong', () => {
     expect(await said(router.transcribe({ pcm: tone(), seconds: 0.1 }))).toBe('No connection')
   })
 
+  it('says voice is off, not that the service is busy, when the relay answers that it is not set up: waiting will not help', async () => {
+    const { router } = ready(json({ error: 'This relay is not set up.' }, 501))
+    const failure = await router.transcribe({ pcm: tone(), seconds: 0.1 }).catch(error => error)
+    expect([(failure as SayError).say, (failure as SayError).status]).toEqual(['Voice is off for now', 501])
+  })
+
   it('gives a short reason when the relay cannot pay or is refused, for too many calls and for a busy service', async () => {
     for (const [status, reason] of [
       [401, 'Voice is off for now'],

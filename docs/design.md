@@ -318,10 +318,11 @@ use it, compaction. Earshot ships all three for OpenRouter, paid by the develope
   it does not know makes no relay (E14), and the error does not repeat what was typed.
 - **Settings that make no relay stop a host, each in its own way.** The Node server does not start, and prints
   why. A Worker has no start to refuse: it is asked for a relay on every request. So the example's Worker catches
-  what `relay` throws, writes it to its log, and answers with `notSetUp`: 503 to any page, and the first check a
+  what `relay` throws, writes it to its log, and answers with `notSetUp`: 501 to any page, and the first check a
   browser makes as a relay answers it. An uncaught throw would be the runtime's own error page, which a web view
   cannot read, so the app would take a relay that is not set up for a lost connection. The answer does not say
-  which setting is wrong.
+  which setting is wrong. It is 501 and not 503, so that it can be told from an upstream that is busy: waiting
+  does not help, and the app's transport says that voice is off.
 - **Its two hosts are one server (E13).** The Node server and the example's Worker only hand requests to `relay`, and
   read their settings through `relayOptions`, whose type names every setting a host must pass. One table of calls
   runs against both and their answers must match. Only where a host listens (`PORT`, `HOST`) is its own, and for
@@ -348,7 +349,7 @@ One typed list of failures, each with default glasses text an app can override. 
 | Situation                                      | User sees                    | Earshot does                             |
 | ---------------------------------------------- | ---------------------------- | ---------------------------------------- |
 | Offline, or no answer in time                  | A short reason               | Drops the hold                           |
-| Relay refused or out of credit                 | "Voice is off for now", once | Stops calling for a while; no retry loop |
+| Relay refused, out of credit or not set up     | "Voice is off for now", once | Stops calling for a while; no retry loop |
 | Rate limited, busy                             | A short reason, once         | Stops calling for a while; no retry loop |
 | Nothing heard, or too short                    | "Didn't catch that"          | Sends nothing                            |
 | The wake phrase, then no words                 | Nothing                      | Listens for the phrase again             |
