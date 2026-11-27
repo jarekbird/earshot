@@ -8,7 +8,7 @@ import type { Router, Screen } from '../router.js'
 import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
-import { OVERLAY, TAKEN, WHOLE, type Glasses } from './glasses.js'
+import { OVERLAY, WHOLE, type Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { layoutList, layoutText, type Stride, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
@@ -80,7 +80,6 @@ const WORDS: ShellWords = {
   swipe: 'Swipe',
 }
 const NOTICE_MS = 3_000
-const LISTENING_SEEN_MS = 3_000
 const HEARD_MS = 1_500
 const VOICE_TIMEOUT_MS = 45_000
 const MAX_HOLD_MS = 60_000
@@ -470,22 +469,11 @@ export class Shell {
     let noted: string | undefined
     let gone = 0
     let fading: Timer | undefined
-    const drawn = new Set<string>()
-    const listening = () => {
-      const text = `${this.#words.listening} ${bars.join('')}${noted === undefined ? '' : `\n${noted}`}`
-      drawn.add(text)
-      this.#show(text, undefined, true)
-    }
+    const listening = () =>
+      this.#show(`${this.#words.listening} ${bars.join('')}${noted === undefined ? '' : `\n${noted}`}`, undefined, true)
     let meter: Timer | undefined
     const limit = this.#life.timeout(() => this.#finish(), longest)
-    let seen = () => false
-    const unseen = this.#life.timeout(() => {
-      if (seen() || this.#recording !== recording) return
-      recording.end()
-      this.#spent = true
-      this.#clearOfTurn()
-    }, LISTENING_SEEN_MS)
-    const recording: Recording = {
+    const recording = {
       chunks,
       screen: this.#router.current,
       source,
@@ -513,7 +501,6 @@ export class Shell {
         limit.cancel()
         meter?.cancel()
         fading?.cancel()
-        unseen.cancel()
         if (this.#recording !== recording) return
         this.#recording = null
         this.#held?.want(false)
@@ -522,7 +509,6 @@ export class Shell {
     this.#recording = recording
     this.#held.want(true)
     listening()
-    seen = this.#glasses[TAKEN](drawn)
     voice.onListen?.()
   }
 

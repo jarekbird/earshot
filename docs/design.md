@@ -170,17 +170,14 @@ hold without a release ends after a minute, and an answer that takes over forty-
 a question is up calls the question off. A hold whose screen changes under it ends there, before the release: what it
 heard was for a screen that is gone, so it lets go of the microphone and takes "Listening" away at once, and nothing
 says the glasses listen while they do not, or hides that they do. The same press starts no other hold. For as long as
-a hold records, "Listening" is on show (E20): a notice in that time is written as a line under it, for the notice's own
-time, and is shown on for what is left of that time when the hold ends by a change of screen. The microphone opens at
-the press, before the glasses have drawn anything, so that the first word is not lost. `Glasses` knows what the box that
-holds the overlay holds: what the glasses last took there, and nothing certain once they refused a write of it. From the
-press it watches that box for the hold's own texts, as they are drawn: the hold has seen "Listening" if the box holds
-one of them when the hold asks, or once the glasses take one, and that is not taken back. A hold that has not seen it three
-seconds on ends, as one whose screen changed does. It is judged at the box, when the glasses answer, and by its own
-texts: not by what is certain at one moment (while the meter is drawn again faster than the glasses answer, no moment
-is certain), not by the whole page (another box or a picture of it may be refused while "Listening" is on show), not by
-a count of writes (the box may hold the text already, and then none is made), and not by the words (a notice may begin
-with the same word).
+a hold records, "Listening" is what the shell has the glasses show (E20): a notice in that time is written as a line
+under it, for the notice's own time, and is shown on for what is left of that time when the hold ends by a change of
+screen. The microphone opens at the press, before the glasses have drawn anything, so that the first word is not lost.
+The rule is of what the shell asks for, not of what the glasses have drawn: a write they refuse is asked again, and
+until it lands the hold records with "Listening" not yet on show. Ending such a hold after a few seconds was built and
+taken out again: whether the glasses have drawn a text cannot be told surely from here (a write may be slow, refused,
+left out as unchanged, or land though refused), and each way of judging it that was tried ended some hold wrongly or let
+one go on.
 
 Not built yet, and belonging to the next slice: Jev as the model, the rolling queue of items, context and its
 compaction, and the default transports.

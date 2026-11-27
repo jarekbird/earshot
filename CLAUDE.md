@@ -38,9 +38,8 @@ Checks cite these IDs. Changing one needs Jarek's OK.
   cannot parse, or stopped reading before the end of, is no input: never a default, never a guess.
 - **E15** A touch acts only on what the glasses are known to show: not on a row a notice still covers, and not as
   the answer to a question that is not on show yet.
-- **E20** While the shell records for a hold, the glasses say that they listen. Nothing is drawn over "Listening":
-  a notice goes under it. A hold that cannot go on, or whose "Listening" the glasses have not shown within three
-  seconds, ends and lets go of the microphone.
+- **E20** While the shell records for a hold, "Listening" is what it has the glasses show. Nothing is drawn over it:
+  a notice goes under it, and a hold that cannot go on ends and lets go of the microphone.
 
 ## Code rules
 

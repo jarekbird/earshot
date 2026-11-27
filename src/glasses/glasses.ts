@@ -111,7 +111,6 @@ interface Page {
 
 export const OVERLAY = Symbol('the overlay the glasses are known to show')
 export const WHOLE = Symbol('whether the glasses show one whole frame, none partly sent since')
-export const TAKEN = Symbol('whether the glasses hold, or have since taken, one of these overlays in the box that holds it')
 
 const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
@@ -213,8 +212,6 @@ export class Glasses {
   #shown = 0
   #whole = true
   #over: string | null | undefined = null
-  #inBox: string | null | undefined = null
-  #watched: { texts: ReadonlySet<string>; taken: boolean } | null = null
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
@@ -237,28 +234,6 @@ export class Glasses {
 
   get [OVERLAY](): string | null | undefined {
     return this.#over
-  }
-
-  [TAKEN](texts: ReadonlySet<string>): () => boolean {
-    const watched = { texts, taken: false }
-    this.#watched = watched
-    const look = () => {
-      this.#look(watched)
-      return watched.taken
-    }
-    look()
-    return look
-  }
-
-  #look(watched: { texts: ReadonlySet<string>; taken: boolean }): void {
-    if (watched.taken || typeof this.#inBox !== 'string') return
-    const drawn = overlayCard(this.#inBox).join('\n')
-    for (const text of watched.texts) if (overlayCard(text).join('\n') === drawn) watched.taken = true
-  }
-
-  #took(over: string | null | undefined): void {
-    this.#inBox = over
-    if (this.#watched) this.#look(this.#watched)
   }
 
   get [WHOLE](): boolean {
@@ -477,11 +452,9 @@ export class Glasses {
       this.#sent.clear()
       this.#shape = ''
       this.#layout = ''
-      this.#took(undefined)
       return false
     }
     this.#created = true
-    this.#took(over)
     this.#shape = shape
     this.#layout = layoutOf({ boxes, pictures })
     this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
@@ -508,7 +481,6 @@ export class Glasses {
         this.#sent.delete(box.id)
         drawn = false
       }
-      if (box.id === INPUT) this.#took(accepted ? over : undefined)
     }
     return drawn
   }
