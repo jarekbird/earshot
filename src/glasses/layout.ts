@@ -59,15 +59,24 @@ export function layoutList(
   }
 }
 
-export interface Stride {
+interface Stride {
   up: number
   down: number
 }
 
-export function layoutText(
-  view: { title?: string; body: string; end?: boolean },
-  state: TextState,
-): { boxes: Box[]; state: TextState; scrolls: boolean; at: number; atEnd: boolean; stride: (wanted: number) => Stride } {
+export const BODY = 'body'
+
+export interface LaidText {
+  boxes: Box[]
+  state: TextState
+  scrolls: boolean
+  at: number
+  last: number
+  atEnd: boolean
+  stride: (wanted: number) => Stride
+}
+
+export function layoutText(view: { title?: string; body: string; end?: boolean }): (state: TextState) => LaidText {
   const { rows, y, h, titleBox } = areas(view.title)
   const lines = wrapText(cleanText(view.body), SCREEN_WIDTH)
   const fits = (from: number, to: number) => BYTES.encode(lines.slice(from, to).join('\n')).length <= MAX_TEXT_BYTES
@@ -78,24 +87,27 @@ export function layoutText(
   }
   let last = Math.max(0, lines.length - rows)
   while (view.end && last < lines.length - 1 && !fits(last, lines.length)) last++
-  const following = view.end === true && !state.away
-  const top = clamp(following ? last + state.top : state.top, 0, last)
-  const end = endOf(top)
-  const more = `${top > 0 ? '▲' : ''}${end < lines.length ? '▼' : ''}`
-  return {
-    state: view.end ? (top >= last ? { top: 0, away: false } : { top, away: true }) : { top },
-    scrolls: last > 0,
-    at: top,
-    atEnd: top >= last,
-    stride: wanted => {
-      if (!view.end) return { up: wanted, down: wanted }
-      let up = Math.max(1, Math.min(wanted, top))
-      while (up > 1 && endOf(top - up) < top) up--
-      return { up, down: Math.max(1, Math.min(wanted, end - top)) }
-    },
-    boxes: [
-      ...titleBox(more ? `  ${more}` : ''),
-      { id: 'body', x: 0, y, w: SCREEN_WIDTH, h, text: lines.slice(top, end).join('\n'), brightness: MAX_BRIGHTNESS },
-    ],
+  return state => {
+    const following = view.end === true && !state.away
+    const top = clamp(following ? last + state.top : state.top, 0, last)
+    const end = endOf(top)
+    const more = `${top > 0 ? '▲' : ''}${end < lines.length ? '▼' : ''}`
+    return {
+      state: view.end ? (top >= last ? { top: 0, away: false } : { top, away: true }) : { top },
+      scrolls: last > 0,
+      at: top,
+      last,
+      atEnd: top >= last,
+      stride: wanted => {
+        if (!view.end) return { up: wanted, down: wanted }
+        let up = Math.max(1, Math.min(wanted, top))
+        while (up > 1 && endOf(top - up) < top) up--
+        return { up, down: Math.max(1, Math.min(wanted, end - top)) }
+      },
+      boxes: [
+        ...titleBox(more ? `  ${more}` : ''),
+        { id: BODY, x: 0, y, w: SCREEN_WIDTH, h, text: lines.slice(top, end).join('\n'), brightness: MAX_BRIGHTNESS },
+      ],
+    }
   }
 }

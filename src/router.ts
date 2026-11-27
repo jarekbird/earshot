@@ -25,8 +25,22 @@ interface Jump {
   moved: boolean
 }
 
+const SHOWINGS = new WeakMap<Router, Showings>()
+
+export const showingsOf = (router: Router): Showings => SHOWINGS.get(router) as Showings
+
+interface Showings {
+  readonly current: object | undefined
+  onPath(showing: unknown): boolean
+  onLeave(told: (lost: boolean) => void): () => void
+  onMove(told: () => void): () => void
+}
+
 export class Router {
   readonly #stack: Entry[]
+  readonly #left = new Set<(lost: boolean) => void>()
+  readonly #moved = new Set<() => void>()
+  readonly #gone = new WeakSet<object>()
   readonly #appActions: () => readonly Action[]
   readonly #listeners = new Set<(current: Screen) => void>()
   #jump: Jump | null = null
@@ -48,6 +62,7 @@ export class Router {
   constructor(options: RouterOptions) {
     this.#appActions = options.actions ?? (() => [])
     this.#stack = [this.#enter(options.home)]
+    SHOWINGS.set(this, this.#showings())
   }
 
   get current(): Screen {
@@ -56,6 +71,27 @@ export class Router {
 
   get depth(): number {
     return this.#stack.length
+  }
+
+  #showings(): Showings {
+    const stack = this.#stack
+    const left = this.#left
+    const moved = this.#moved
+    const gone = this.#gone
+    return {
+      get current() {
+        return stack.at(-1)?.life
+      },
+      onPath: showing => showing !== undefined && stack.some(entry => entry.life === showing && !gone.has(entry.life)),
+      onLeave: told => {
+        left.add(told)
+        return () => void left.delete(told)
+      },
+      onMove: told => {
+        moved.add(told)
+        return () => void moved.delete(told)
+      },
+    }
   }
 
   onChange(listener: (current: Screen) => void): () => void {
@@ -146,7 +182,16 @@ export class Router {
   }
 
   #onChange(current: Screen): void {
-    for (const listener of [...this.#listeners]) listener(current)
+    const errors: unknown[] = []
+    for (const told of [...this.#moved, ...[...this.#listeners].map(listener => () => listener(current))]) {
+      try {
+        told()
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    if (errors.length === 1) throw errors[0]
+    if (errors.length) throw new AggregateError(errors, 'Listeners failed when the screen changed.')
   }
 
   #enter(screen: Screen): Entry {
@@ -158,13 +203,31 @@ export class Router {
   #leave(entries: readonly Entry[], after: () => void): void {
     const errors: unknown[] = []
     for (const entry of [...entries].reverse()) {
+      this.#gone.add(entry.life)
       try {
         entry.life.end()
       } catch (error) {
         errors.push(error)
       }
     }
-    after()
+    for (const told of entries.length ? [...this.#left] : []) {
+      try {
+        told(false)
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    try {
+      after()
+    } finally {
+      for (const told of this.#stack.length ? [] : [...this.#left]) {
+        try {
+          told(true)
+        } catch (error) {
+          errors.push(error)
+        }
+      }
+    }
     if (errors.length === 1) throw errors[0]
     if (errors.length) throw new AggregateError(errors, 'Cleanups failed when screens left.')
   }

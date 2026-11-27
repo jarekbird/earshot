@@ -275,7 +275,7 @@ describe('the navigator', () => {
 
     it('runs what the option stands for, when it counts as another', async () => {
       const choose = Object.assign(action({ id: 'choose', say: 'Choose this one', run: () => {} }), {
-        [SAME]: () => ({ action: 'open', target: 'welcome' }),
+        [SAME]: () => ({ listed: open, action: 'open', target: 'welcome', say: 'Welcome', label: open.say, hint: open.hint }),
       })
       expect(await never(heard('Choose this one.', { actions: [open, choose, back, home], rolling: [] }))).toEqual({
         kind: 'sure',
@@ -311,7 +311,17 @@ describe('the navigator', () => {
   describe('two options that would do the same thing', () => {
     const standingFor = (target: string | undefined) =>
       Object.assign(action({ id: 'this', say: 'Choose this one', run: () => {} }), {
-        [SAME]: () => (target === undefined ? undefined : { action: 'open', target }),
+        [SAME]: () =>
+          target === undefined
+            ? undefined
+            : {
+                listed: open,
+                action: 'open',
+                target,
+                say: notes.find(note => note.id === target)?.say ?? '',
+                label: open.say,
+                hint: open.hint,
+              },
       })
     const withThis = (target: string | undefined) => heard('x', { actions: [open, remove, refresh, standingFor(target), back, home] })
 

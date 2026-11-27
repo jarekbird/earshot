@@ -40,6 +40,7 @@ export const STALLED_BYTES = 3 * HELD_BYTES
 export const QUIET_MS = 10_000
 export const CONNECT_MS = 10_000
 const RETRY_FIRST_MS = 500
+const ROOM = 2 ** 32
 const RETRY_MAX_MS = 8_000
 const FOR_GOOD = new Set<number>(Object.values(REFUSALS))
 // Fact: a URL writes an IPv4 address inside IPv6 in hex, so 127.0.0.1 there reads [::ffff:7f00:1].
@@ -106,7 +107,7 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
       let heldBytes = 0
       let runs: Run[] = []
       let sent = 0
-      let first = 0
+      let last = -1
       let next = 0
       let growing: Turn | null = null
       let failures = 0
@@ -165,7 +166,7 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
         socket.close(code)
         runs = []
         sent = 0
-        first = next
+        last = -1
         cutTurn()
       }
 
@@ -179,16 +180,18 @@ export function fluxOver(options: FluxOptions, { open, now }: FluxWiring): LiveS
       const turned = (message: Record<string, unknown>) => {
         const { turn_index: index, transcript, audio_window_start: from, audio_window_end: to } = message
         if (message.type !== 'TurnInfo' || typeof index !== 'number' || typeof transcript !== 'string') return
-        const id = first + index
-        if (!Number.isSafeInteger(index) || index < 0 || !Number.isSafeInteger(id)) return
+        if (!Number.isSafeInteger(index) || index < 0 || index - last > ROOM) return
         const words = transcript.trim()
-        if (!words || (id < next && growing?.id !== id)) return
-        if (growing && growing.id !== id) cutTurn()
+        const same = growing !== null && index === last
+        if (!words || (!same && index <= last)) return
+        const id = same && growing ? growing.id : next
+        if (!same) cutTurn()
         const final = message.event === 'EndOfTurn'
         const until = Number(to) || 0
         const turn: Turn = { id, words, final, cut: false, speaker: who(Number(from) || 0, until) }
         if (!final && growing?.words === words && growing.speaker === turn.speaker) return
         growing = final ? null : turn
+        last = index
         next = id + 1
         if (final) runs = runs.filter(run => run.end > until * BYTES_PER_S)
         say(turn)

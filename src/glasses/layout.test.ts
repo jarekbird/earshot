@@ -83,7 +83,7 @@ describe('layoutText', () => {
   const body = Array.from({ length: 30 }, (_, n) => `Line ${n}`).join('\n')
 
   it('draws a dim title and the body under it, split into lines that fit', () => {
-    const { boxes } = layoutText({ title: 'Ana', body: `${'word '.repeat(40)}\n\nlast` }, { top: 0 })
+    const { boxes } = layoutText({ title: 'Ana', body: `${'word '.repeat(40)}\n\nlast` })({ top: 0 })
     expect(boxes.map(box => box.id)).toEqual(['title', 'body'])
     expect(by(boxes, 'title')).toMatchObject({ x: 0, y: 0, w: 576, h: 27, text: 'Ana', brightness: LIST_DIM })
     const lines = by(boxes, 'body').text.split('\n')
@@ -94,48 +94,48 @@ describe('layoutText', () => {
   })
 
   it('shows as many lines as fit, from where it has been scrolled to', () => {
-    const { boxes } = layoutText({ title: 'Ana', body }, { top: 4 })
+    const { boxes } = layoutText({ title: 'Ana', body })({ top: 4 })
     expect(by(boxes, 'body').text.split('\n')).toEqual(Array.from({ length: 9 }, (_, n) => `Line ${n + 4}`))
-    expect(by(layoutText({ body }, { top: 0 }).boxes, 'body').text.split('\n').length).toBe(10)
+    expect(by(layoutText({ body })({ top: 0 }).boxes, 'body').text.split('\n').length).toBe(10)
   })
 
   it('follows the end only for end: true, so an app that already kept something of its own under that name is shown as before', () => {
     const body = Array.from({ length: 30 }, (_, n) => `Line ${n + 1}`).join('\n')
     const theirs = text({ title: 'Ana', body, end: new Date(0) as unknown as boolean })
     expect(theirs).toEqual(text({ title: 'Ana', body }))
-    const { boxes, state } = layoutText(theirs as { body: string }, { top: 0 })
+    const { boxes, state } = layoutText(theirs as { body: string })({ top: 0 })
     expect(by(boxes, 'body').text.split('\n')[0]).toBe('Line 1')
     expect(state).toEqual({ top: 0 })
   })
 
   it('asked to stay at its end, shows the last lines, and goes on showing the last as more come', () => {
-    const shown = (text: string) => by(layoutText({ title: 'Ana', body: text, end: true }, { top: 0 }).boxes, 'body').text.split('\n')
+    const shown = (text: string) => by(layoutText({ title: 'Ana', body: text, end: true })({ top: 0 }).boxes, 'body').text.split('\n')
     expect(shown(body).at(-1)).toBe('Line 29')
     expect(shown(body)).toHaveLength(9)
     expect(shown(`${body}\nLine 30`).at(-1)).toBe('Line 30')
-    expect(layoutText({ title: 'Ana', body, end: true }, { top: 0 }).state).toEqual({ top: 0, away: false })
+    expect(layoutText({ title: 'Ana', body, end: true })({ top: 0 }).state).toEqual({ top: 0, away: false })
   })
 
   it('asked to stay at its end, holds the place a swipe up took it to while more lines come, so the wearer can read back', () => {
-    const up = layoutText({ title: 'Ana', body, end: true }, { top: -2 })
+    const up = layoutText({ title: 'Ana', body, end: true })({ top: -2 })
     expect(by(up.boxes, 'body').text.split('\n').at(-1)).toBe('Line 27')
-    const grown = layoutText({ title: 'Ana', body: `${body}\nLine 30\nLine 31`, end: true }, up.state)
+    const grown = layoutText({ title: 'Ana', body: `${body}\nLine 30\nLine 31`, end: true })(up.state)
     expect(by(grown.boxes, 'body').text.split('\n').at(-1)).toBe('Line 27')
-    const further = layoutText({ title: 'Ana', body: `${body}\nLine 30\nLine 31`, end: true }, { ...grown.state, top: grown.state.top - 2 })
+    const further = layoutText({ title: 'Ana', body: `${body}\nLine 30\nLine 31`, end: true })({ ...grown.state, top: grown.state.top - 2 })
     expect(by(further.boxes, 'body').text.split('\n').at(-1)).toBe('Line 25')
   })
 
   it('asked to stay at its end, follows the end again once the wearer has swiped back down to it', () => {
-    const up = layoutText({ title: 'Ana', body, end: true }, { top: -2 })
-    const back = layoutText({ title: 'Ana', body, end: true }, { ...up.state, top: up.state.top + 2 })
+    const up = layoutText({ title: 'Ana', body, end: true })({ top: -2 })
+    const back = layoutText({ title: 'Ana', body, end: true })({ ...up.state, top: up.state.top + 2 })
     expect(back.state).toEqual({ top: 0, away: false })
-    const grown = layoutText({ title: 'Ana', body: `${body}\nLine 30`, end: true }, back.state)
+    const grown = layoutText({ title: 'Ana', body: `${body}\nLine 30`, end: true })(back.state)
     expect(by(grown.boxes, 'body').text.split('\n').at(-1)).toBe('Line 30')
   })
 
   it('asked to stay at its end, lets go of its oldest lines rather than its newest when they are too many bytes for the glasses', () => {
     const long = Array.from({ length: 12 }, () => 'i'.repeat(115)).join('\n')
-    const { boxes } = layoutText({ body: `${long}\nLATEST`, end: true }, { top: 0 })
+    const { boxes } = layoutText({ body: `${long}\nLATEST`, end: true })({ top: 0 })
     const text = by(boxes, 'body').text
     expect(text.split('\n').at(-1)).toBe('LATEST')
     expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(999)
@@ -143,17 +143,17 @@ describe('layoutText', () => {
 
   it('asked to stay at its end, lets the wearer swipe up to a first line that the byte limit kept off the last page', () => {
     const dense = ['a' + 'i'.repeat(111), ...Array.from({ length: 8 }, () => 'i'.repeat(115))].join('\n')
-    const atEnd = layoutText({ title: 'Transcript', body: dense, end: true }, { top: 0 })
+    const atEnd = layoutText({ title: 'Transcript', body: dense, end: true })({ top: 0 })
     expect(by(atEnd.boxes, 'body').text.split('\n')).toHaveLength(8)
     expect(by(atEnd.boxes, 'body').text.startsWith('a')).toBe(false)
     expect(atEnd.scrolls).toBe(true)
     expect(by(atEnd.boxes, 'title').text).toContain('▲')
-    const up = layoutText({ title: 'Transcript', body: dense, end: true }, { ...atEnd.state, top: atEnd.state.top - 2 })
+    const up = layoutText({ title: 'Transcript', body: dense, end: true })({ ...atEnd.state, top: atEnd.state.top - 2 })
     const shown = by(up.boxes, 'body').text
     expect(shown.startsWith('a')).toBe(true)
     expect(new TextEncoder().encode(shown).length).toBeLessThanOrEqual(999)
     expect(by(up.boxes, 'title').text).toContain('▼')
-    const down = layoutText({ title: 'Transcript', body: dense, end: true }, { ...up.state, top: up.state.top + 2 })
+    const down = layoutText({ title: 'Transcript', body: dense, end: true })({ ...up.state, top: up.state.top + 2 })
     expect(down.state).toEqual({ top: 0, away: false })
   })
 
@@ -165,21 +165,21 @@ describe('layoutText', () => {
     (_name, wanted) => {
       const dense = Array.from({ length: 20 }, (_, at) => `${String(at).padStart(2, '0')}${'í'.repeat(110)}`).join('\n')
       const view = { title: 'Log', body: dense, end: true }
-      const numbers = (boxes: ReturnType<typeof layoutText>['boxes']) =>
+      const numbers = (boxes: ReturnType<ReturnType<typeof layoutText>>['boxes']) =>
         by(boxes, 'body')
           .text.split('\n')
           .map(line => Number(line.slice(0, 2)))
-      let laid = layoutText(view, { top: 0 })
+      let laid = layoutText(view)({ top: 0 })
       const up = [numbers(laid.boxes)]
       for (let moves = 0; moves < 40 && up.at(-1)![0] > 0; moves++) {
-        laid = layoutText(view, { ...laid.state, top: laid.state.top - laid.stride(wanted).up })
+        laid = layoutText(view)({ ...laid.state, top: laid.state.top - laid.stride(wanted).up })
         up.push(numbers(laid.boxes))
       }
       expect(up.at(-1)![0]).toBe(0)
       for (let page = 1; page < up.length; page++) expect(up[page].at(-1)! + 1).toBeGreaterThanOrEqual(up[page - 1][0])
       const down = [numbers(laid.boxes)]
       for (let moves = 0; moves < 40 && down.at(-1)!.at(-1)! < 19; moves++) {
-        laid = layoutText(view, { ...laid.state, top: laid.state.top + laid.stride(wanted).down })
+        laid = layoutText(view)({ ...laid.state, top: laid.state.top + laid.stride(wanted).down })
         down.push(numbers(laid.boxes))
       }
       expect(down.at(-1)!.at(-1)).toBe(19)
@@ -189,29 +189,29 @@ describe('layoutText', () => {
   )
 
   it('moves an ordinary text by the swipe or the screenful it always did', () => {
-    expect(layoutText({ title: 'Ana', body }, { top: 4 }).stride(2)).toEqual({ up: 2, down: 2 })
-    expect(layoutText({ title: 'Ana', body }, { top: 4 }).stride(8)).toEqual({ up: 8, down: 8 })
+    expect(layoutText({ title: 'Ana', body })({ top: 4 }).stride(2)).toEqual({ up: 2, down: 2 })
+    expect(layoutText({ title: 'Ana', body })({ top: 4 }).stride(8)).toEqual({ up: 8, down: 8 })
   })
 
   it('asked to stay at its end, shows a short text from its first line', () => {
-    expect(by(layoutText({ body: 'one\ntwo', end: true }, { top: 0 }).boxes, 'body').text).toBe('one\ntwo')
+    expect(by(layoutText({ body: 'one\ntwo', end: true })({ top: 0 }).boxes, 'body').text).toBe('one\ntwo')
   })
 
   it('does not scroll past either end', () => {
-    expect(layoutText({ title: 'Ana', body }, { top: -3 }).state).toEqual({ top: 0 })
-    expect(layoutText({ title: 'Ana', body }, { top: 99 }).state).toEqual({ top: 21 })
-    expect(layoutText({ title: 'Ana', body: 'short' }, { top: 5 }).state).toEqual({ top: 0 })
+    expect(layoutText({ title: 'Ana', body })({ top: -3 }).state).toEqual({ top: 0 })
+    expect(layoutText({ title: 'Ana', body })({ top: 99 }).state).toEqual({ top: 21 })
+    expect(layoutText({ title: 'Ana', body: 'short' })({ top: 5 }).state).toEqual({ top: 0 })
   })
 
   it('marks in the title that there is more above or below', () => {
-    const title = (top: number) => by(layoutText({ title: 'Ana', body }, { top }).boxes, 'title').text
+    const title = (top: number) => by(layoutText({ title: 'Ana', body })({ top }).boxes, 'title').text
     expect(title(0)).toBe('Ana  ▼')
     expect(title(4)).toBe('Ana  ▲▼')
     expect(title(21)).toBe('Ana  ▲')
-    expect(by(layoutText({ title: 'Ana', body: 'short' }, { top: 0 }).boxes, 'title').text).toBe('Ana')
+    expect(by(layoutText({ title: 'Ana', body: 'short' })({ top: 0 }).boxes, 'title').text).toBe('Ana')
   })
 
   it('cleans what the font cannot draw', () => {
-    expect(by(layoutText({ body: 'use `npm`\tnow' }, { top: 0 }).boxes, 'body').text).toBe("use 'npm'  now")
+    expect(by(layoutText({ body: 'use `npm`\tnow' })({ top: 0 }).boxes, 'body').text).toBe("use 'npm'  now")
   })
 })

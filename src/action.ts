@@ -22,6 +22,15 @@ export type Outcome =
   | { done: false; why: 'gone' }
   | { done: false; why: 'unknown' }
 
+type Unless = (targetId: string | undefined, still: () => boolean) => Promise<Outcome>
+
+const UNLESS = new WeakMap<Action, { run: Action['run']; unless: Unless }>()
+
+export function unless(made: Action, run: Action['run']): Unless | undefined {
+  const kept = UNLESS.get(made)
+  return kept?.run === run ? kept.unless : undefined
+}
+
 export interface Action {
   readonly id: string
   readonly say: string
@@ -54,7 +63,7 @@ export interface TargetSpec<T> extends Common {
 
 export function action<T = never>(spec: PlainSpec | TargetSpec<T>): Action {
   const blocked = () => spec.blocked?.() ?? null
-  return {
+  const made: Action = {
     id: spec.id,
     say: spec.say,
     ...(spec.hint === undefined ? {} : { hint: spec.hint }),
@@ -67,18 +76,27 @@ export function action<T = never>(spec: PlainSpec | TargetSpec<T>): Action {
             .map(t => ({ id: t.id, say: t.say, private: t.private ?? false, ...(t.risk === undefined ? {} : { risk: t.risk }) }))
         : null,
     ...(spec.targets && spec.choose ? { choose: spec.choose } : {}),
-    run: async targetId => {
-      const why = blocked()
-      if (why !== null) return { done: false, why: 'blocked', say: why }
-      if (!spec.targets) {
-        await spec.run()
-        return { done: true }
-      }
-      if (targetId === undefined) return { done: false, why: 'target' }
-      const target = spec.targets().find(t => t.id === targetId)
-      if (!target) return { done: false, why: 'gone' }
-      await spec.run(target.value)
+    run: targetId => run(targetId, () => true),
+  }
+  UNLESS.set(made, { run: made.run, unless: run })
+  return made
+
+  async function run(targetId: string | undefined, still: () => boolean): Promise<Outcome> {
+    const why = blocked()
+    if (why !== null) return { done: false, why: 'blocked', say: why }
+    if (!spec.targets) {
+      const work = spec.run
+      if (!still()) return { done: false, why: 'gone' }
+      await Reflect.apply(work, spec, [])
       return { done: true }
-    },
+    }
+    if (targetId === undefined) return { done: false, why: 'target' }
+    const target = spec.targets().find(t => t.id === targetId)
+    if (!target) return { done: false, why: 'gone' }
+    const work = spec.run
+    const { value } = target
+    if (!still()) return { done: false, why: 'gone' }
+    await Reflect.apply(work, spec, [value])
+    return { done: true }
   }
 }

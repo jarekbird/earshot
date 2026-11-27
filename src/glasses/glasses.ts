@@ -16,6 +16,7 @@ import {
 import type { Sound, Speaker } from '../audio.js'
 import type { Lifetime, Timer } from '../lifetime.js'
 import { clipBytes, linesOf, type Box, type Brightness, type Frame, type MenuItem, type Picture } from './frame.js'
+import type { Sent } from './frames.js'
 import { decode, type GlassesEvent, type Input } from './input.js'
 import { serve } from '../serve.js'
 import { HOLD, Mic, MIC_SILENT_MS, retryDelay, type Held, type ListenOptions } from './mic.js'
@@ -103,6 +104,8 @@ interface Hung {
 
 interface Page {
   frame: number
+  from: Frame
+  left: boolean
   boxes: Placed[]
   pictures: Hung[]
   menu: MenuItem[]
@@ -158,6 +161,44 @@ function above(box: Box, top: number): string {
 
 const stateOf = ({ text, brightness }: Placed) => `${brightness}\n${text}`
 
+interface Kept {
+  under: Box
+  taken: Box
+  frame: number
+}
+
+const placeOf = ({ id, x, y, w, h, brightness }: Box): string => JSON.stringify([id, x, y, w, h, brightness ?? MAX_BRIGHTNESS])
+
+const TOPS = Array.from({ length: OVERLAY_LINES }, (_, lines) => (SCREEN_LINES - 3 - lines) * LINE_HEIGHT)
+
+const underNotices = (box: Box): string => JSON.stringify(TOPS.map(top => above(box, top)))
+
+function looksAlike(one: Box, other: Box): boolean {
+  if (placeOf(one) !== placeOf(other)) return false
+  if (one.text === other.text) return true
+  return clipBytes(one.text) === clipBytes(other.text) && underNotices(one) === underNotices(other)
+}
+
+const kept = ({ box, text, brightness }: Placed, frame: number): Kept => ({
+  under: box,
+  taken: { id: box.id, x: box.x, y: box.y, w: box.w, h: box.h, text, brightness },
+  frame,
+})
+
+export const plainFrame = (frame: Frame): Frame => ({
+  boxes: frame.boxes.map(({ id, x, y, w, h, text, brightness }) => ({
+    id,
+    x,
+    y,
+    w,
+    h,
+    text,
+    ...(brightness === undefined ? {} : { brightness }),
+  })),
+  ...(frame.pictures ? { pictures: frame.pictures.map(({ id, x, y, w, h, key, data }) => ({ id, x, y, w, h, key, data })) } : {}),
+  ...(frame.menu ? { menu: frame.menu.map(({ id, name }) => ({ id, name })) } : {}),
+})
+
 const pictureBox = ({ id, name, picture }: Hung, index: number) =>
   new ImageContainerProperty({
     xPosition: picture.x,
@@ -185,6 +226,10 @@ const textBox = ({ id, name, box, text, brightness }: Placed) =>
     zOrderIndex: id === INPUT ? INPUT_ORDER : BOX_ORDER + id,
   })
 
+const PROGRESS = new WeakMap<Glasses, Sent>()
+
+export const progressOf = (glasses: Glasses): Sent => PROGRESS.get(glasses) as Sent
+
 export class Glasses {
   readonly #life: Lifetime
   readonly #bridge: GlassesBridge
@@ -195,6 +240,17 @@ export class Glasses {
   readonly #listeners = new Set<{ hear: (input: Input) => void }>()
   readonly #mic: Mic
   #frame: Frame = { boxes: [] }
+  #number = 0
+  #whole = 0
+  readonly #have: { boxes: Kept[]; pictures: Picture[]; hung: Set<number>; menu: MenuItem[] } = {
+    boxes: [],
+    pictures: [],
+    hung: new Set(),
+    menu: [],
+  }
+  #left = false
+  #going: { number: number; frame: Frame; left: boolean } | null = null
+  readonly #dropped = new Set<number>()
   #overlay: string | null = null
   #wanted: Page | null = null
   #shape = ''
@@ -209,17 +265,29 @@ export class Glasses {
   #retry: Timer | undefined
   #retryAt = 0
   #traced = ''
-  #shown = 0
-  #whole = true
+  readonly #progress = { shown: 0, menu: 0, sending: 0 }
+  readonly #from = new Map<string, number>()
+  readonly #following = new Set<() => void>()
+  #intact = true
+  #calling = 0
   #over: string | null | undefined = null
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
+    PROGRESS.set(this, this.#telling())
     this.#bridge = bridge
     this.#now = options.now ?? Date.now
     this.#trace = options.trace === true ? line => console.info(line) : options.trace || undefined
     this.#watch = options.watch ?? (() => {})
     this.#life.own(bridge.onEvenHubEvent(event => this.#hear(event)))
+    this.#life.own(() => {
+      this.#progress.sending = 0
+      this.#going = null
+      this.#whole = 0
+      Object.assign(this.#have, { boxes: [], pictures: [], hung: new Set(), menu: [] })
+      this.#frame = { boxes: [] }
+      this.#wanted = null
+    })
     const open = () => {
       const opening = bridge.audioControl(true, AudioInputSource.Glasses)
       this.holdRebuilds(opening)
@@ -229,7 +297,40 @@ export class Glasses {
   }
 
   get shown(): number {
-    return this.#shown
+    return this.#progress.shown
+  }
+
+  #telling(): Sent {
+    const progress = this.#progress
+    return {
+      get shown() {
+        return progress.shown
+      },
+      get menu() {
+        return progress.menu
+      },
+      get sending() {
+        return progress.sending
+      },
+      card: () => this.#overlay,
+      has: box => this.#from.get(box) ?? 0,
+      onChange: told => {
+        this.#following.add(told)
+        return () => void this.#following.delete(told)
+      },
+      drop: frames => {
+        const sendable = (frame: number) => frame === this.#number || frame === this.#going?.number || frame === this.#wanted?.frame
+        for (const dropped of this.#dropped) if (!sendable(dropped)) this.#dropped.delete(dropped)
+        for (const frame of frames) if (frame > this.#whole && sendable(frame)) this.#dropped.add(frame)
+        if (!this.#dropped.has(this.#number)) return
+        const going = this.#going && !this.#dropped.has(this.#going.number) ? this.#going : null
+        this.#left = going ? going.left : !this.#intact || this.#have.boxes.some(box => box.frame > this.#whole)
+        this.#frame = going ? going.frame : this.#kept()
+        this.#number = going ? going.number : this.#whole
+        if (this.#created || this.#overlay !== null) this.#place()
+        else this.#wanted = null
+      },
+    }
   }
 
   get [OVERLAY](): string | null | undefined {
@@ -237,7 +338,7 @@ export class Glasses {
   }
 
   get [WHOLE](): boolean {
-    return this.#whole
+    return this.#intact && this.#calling === 0
   }
 
   get micOpen(): boolean {
@@ -289,15 +390,30 @@ export class Glasses {
     const pictures = (frame.pictures ?? []).filter(fits).length - MAX_IMAGE_BOXES
     if (pictures > 0)
       console.error(`Earshot: the glasses take ${MAX_IMAGE_BOXES} pictures. The last ${pictures} of this frame are left out.`)
-    this.#frame = frame
-    this.#frames++
-    this.#watch({ at: 'ask', frame: this.#frames, page: frame })
-    this.#place()
-    return this.#frames
+    const asked = plainFrame(frame)
+    const number = ++this.#frames
+    this.#frame = asked
+    this.#number = number
+    this.#left = false
+    this.#watch({ at: 'ask', frame: number, page: frame })
+    if (number === this.#number) this.#place()
+    return number
   }
 
   overlay(text: string | null): void {
+    if (text === this.#overlay) return
     this.#overlay = text
+    this.#place()
+  }
+
+  #kept(): Frame {
+    const { boxes, pictures, menu } = this.#have
+    return { boxes: boxes.map(({ under, taken, frame }) => (frame <= this.#whole ? under : taken)), pictures, menu }
+  }
+
+  #landed(): void {
+    if (!this.#left) return
+    this.#frame = this.#kept()
     this.#place()
   }
 
@@ -328,7 +444,7 @@ export class Glasses {
       .filter(fits)
       .slice(0, MAX_IMAGE_BOXES)
       .map((picture, index) => ({ id: FIRST_PICTURE + index, name: picture.id.slice(0, MAX_NAME_CHARS), picture }))
-    this.#wanted = { frame: this.#frames, boxes, pictures, menu, over: this.#overlay }
+    this.#wanted = { frame: this.#number, from: this.#frame, left: this.#left, boxes, pictures, menu, over: this.#overlay }
     void this.#run()
   }
 
@@ -377,19 +493,44 @@ export class Glasses {
         }
         const { frame } = page
         if (rebuild && this.#holds > 0) {
+          const inPlace = this.#created && layoutOf(page) === this.#layout
+          if (inPlace) {
+            this.#going = { number: frame, frame: page.from, left: page.left }
+            this.#progressed({ sending: frame })
+          }
           this.#watch({ at: 'wait', frame })
-          if (this.#created && layoutOf(page) === this.#layout) {
+          if (inPlace) {
             this.#watch({ at: 'begin', frame, rebuild: false })
             await this.#update(page)
-            if (this.#life.ended) return
+            this.#going = null
+            if (this.#life.ended) return this.#cut(frame)
+            this.#progressed({ sending: 0 })
             this.#watch({ at: 'end', frame, drawn: false })
           }
           if (this.#holds > 0 && this.#wanted === page) return
           continue
         }
+        this.#going = { number: frame, frame: page.from, left: page.left }
+        this.#progressed({ sending: frame })
         this.#watch({ at: 'begin', frame, rebuild })
-        const drawn = (rebuild ? await this.#build(page, shape) : await this.#update(page)) && (await this.#hang(page))
-        if (this.#life.ended) return
+        const written = rebuild ? await this.#build(page, shape) : await this.#update(page, true)
+        if (written && !rebuild && !page.left && !this.#life.ended && this.#progress.menu !== frame) this.#progressed({ menu: frame })
+        const drawn = written && !this.#takenBack(frame) && (await this.#hang(page)) && !this.#takenBack(frame)
+        if (this.#life.ended) return this.#cut(frame)
+        this.#going = null
+        if (drawn) {
+          this.#whole = frame
+          for (const dropped of this.#dropped) if (dropped <= frame) this.#dropped.delete(dropped)
+        }
+        if (!drawn && this.#takenBack(frame)) {
+          if (this.#wanted === page) this.#wanted = null
+          this.#progressed({ sending: 0 })
+          this.#watch({ at: 'end', frame, drawn })
+          continue
+        }
+        if (drawn) this.#over = page.over
+        if (drawn && !page.left) this.#intact = true
+        this.#progressed(drawn && !page.left ? { shown: frame, menu: frame, sending: 0 } : { sending: 0 })
         if (!drawn) {
           const inMs = retryDelay(++this.#failures)
           this.#watch({ at: 'retry', frame, failures: this.#failures, inMs })
@@ -397,9 +538,6 @@ export class Glasses {
           return this.#later(inMs)
         }
         this.#watch({ at: 'end', frame, drawn })
-        this.#shown = frame
-        this.#whole = true
-        this.#over = page.over
         this.#failures = 0
         if (this.#wanted === page) this.#wanted = null
         this.#report(page)
@@ -407,6 +545,20 @@ export class Glasses {
     } finally {
       this.#drawing = false
     }
+  }
+
+  #cut(frame: number): void {
+    this.#progress.sending = 0
+    this.#watch({ at: 'end', frame, drawn: false })
+  }
+
+  #progressed(now: Partial<{ shown: number; menu: number; sending: number }>): void {
+    Object.assign(this.#progress, now)
+    for (const told of [...this.#following]) if (this.#following.has(told)) serve(told)
+  }
+
+  #takenBack(frame: number): boolean {
+    return this.#dropped.has(frame)
   }
 
   #later(ms: number): void {
@@ -417,11 +569,29 @@ export class Glasses {
     }, ms)
   }
 
-  async #ask<T>(frame: number, op: DrawOp, boxes: number, call: () => Promise<T>, accepted: T, box?: string): Promise<boolean> {
+  async #ask<T>(
+    frame: number,
+    op: DrawOp,
+    boxes: number,
+    call: () => Promise<T>,
+    accepted: T,
+    box?: string,
+    taken?: () => void,
+  ): Promise<boolean> {
+    if (this.#life.ended || this.#takenBack(frame)) return false
     const named = box === undefined ? {} : { box }
     const started = this.#now()
-    this.#whole = false
-    this.#watch({ at: 'call', frame, op, ...named })
+    this.#calling++
+    try {
+      this.#watch({ at: 'call', frame, op, ...named })
+    } finally {
+      this.#calling--
+    }
+    if (this.#life.ended || this.#takenBack(frame)) {
+      this.#watch({ at: 'answer', frame, op, ...named, boxes, ms: 0, ok: false, got: undefined })
+      return false
+    }
+    this.#intact = false
     let got: unknown
     try {
       got = await call()
@@ -429,11 +599,12 @@ export class Glasses {
       got = error
     }
     const ok = got === accepted
+    if (ok && !this.#life.ended) taken?.()
     this.#watch({ at: 'answer', frame, op, ...named, boxes, ms: this.#now() - started, ok, got })
     return ok
   }
 
-  async #build({ frame, boxes, pictures, menu, over }: Page, shape: string): Promise<boolean> {
+  async #build({ frame, left, boxes, pictures, menu, over }: Page, shape: string): Promise<boolean> {
     const menuItems = menu.map(({ id, name }) => new MenuItemProperty({ itemID: id, itemName: name }))
     const page = {
       containerTotalNum: boxes.length + pictures.length,
@@ -444,59 +615,110 @@ export class Glasses {
     const create = () => this.#bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page))
     const rebuild = () => this.#bridge.rebuildPageContainer(new RebuildPageContainer(page))
     const shown = boxes.length - 1
-    if (over !== this.#over) this.#over = undefined
-    let drawn = !this.#created && (await this.#ask(frame, 'create', shown, create, StartUpPageCreateResult.success))
+    let made = false
+    const built = () => {
+      this.#created = true
+      this.#shape = shape
+      this.#layout = layoutOf({ boxes, pictures })
+      this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
+      this.#hung = new Map()
+      this.#rebuildAt = this.#now() + REBUILD_GAP_MS
+      if (left) return
+      Object.assign(this.#have, {
+        boxes: boxes.slice(1).map(box => kept(box, frame)),
+        pictures: pictures.map(({ picture }) => picture),
+        hung: new Set(),
+        menu,
+      })
+      this.#from.clear()
+      for (const box of boxes) this.#from.set(box.name, frame)
+      this.#progressed({ menu: frame })
+      this.#landed()
+    }
+    const asked =
+      <T>(call: () => Promise<T>) =>
+      () => {
+        made = true
+        if (over !== this.#over) this.#over = undefined
+        return call()
+      }
+    let drawn =
+      !this.#created && (await this.#ask(frame, 'create', shown, asked(create), StartUpPageCreateResult.success, undefined, built))
     // A reloaded web view already owns a page, so a create is refused and a rebuild takes it over.
-    if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, rebuild, true)
-    if (!drawn) {
+    if (!drawn && !this.#life.ended) drawn = await this.#ask(frame, 'rebuild', shown, asked(rebuild), true, undefined, built)
+    if (!drawn && made) {
       this.#sent.clear()
       this.#shape = ''
       this.#layout = ''
-      return false
     }
-    this.#created = true
-    this.#shape = shape
-    this.#layout = layoutOf({ boxes, pictures })
-    this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
-    this.#hung = new Map()
-    this.#rebuildAt = this.#now() + REBUILD_GAP_MS
-    return true
+    return drawn && !this.#life.ended
   }
 
-  async #update({ frame, boxes, over }: Page): Promise<boolean> {
+  async #update({ frame, left, boxes, over }: Page, whole = false): Promise<boolean> {
     let drawn = true
-    for (const box of boxes) {
-      if (this.#sent.get(box.id) === stateOf(box)) continue
+    for (const [index, box] of boxes.entries()) {
+      const noted = () => {
+        this.#from.set(box.name, frame)
+        if (index === 0) return
+        const had = this.#have.boxes[index - 1]
+        const now = kept(box, frame)
+        this.#have.boxes[index - 1] = had && looksAlike(had.under, now.under) ? { ...now, frame: had.frame } : now
+      }
+      if (this.#sent.get(box.id) === stateOf(box)) {
+        if (!left && !this.#takenBack(frame)) noted()
+        continue
+      }
       const upgrade = new TextContainerUpgrade({
         containerID: box.id,
         containerName: box.name,
         content: box.text,
         textColor: box.brightness,
       })
-      if (over !== this.#over) this.#over = undefined
-      const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name)
+      const taken = () => {
+        this.#sent.set(box.id, stateOf(box))
+        if (left) return
+        noted()
+        this.#progressed(whole && boxes.every(other => this.#sent.get(other.id) === stateOf(other)) ? { menu: frame } : {})
+        this.#landed()
+      }
+      let made = false
+      const write = () => {
+        made = true
+        if (over !== this.#over) this.#over = undefined
+        return this.#bridge.textContainerUpgrade(upgrade)
+      }
+      const accepted = await this.#ask(frame, 'update', 1, write, true, box.name, taken)
       if (this.#life.ended) return false
-      if (accepted) this.#sent.set(box.id, stateOf(box))
-      else {
-        this.#sent.delete(box.id)
+      if (!accepted) {
+        if (made) this.#sent.delete(box.id)
         drawn = false
       }
     }
     return drawn
   }
 
-  async #hang({ frame, pictures }: Page): Promise<boolean> {
+  async #hang({ frame, left, pictures }: Page): Promise<boolean> {
     let drawn = true
-    for (const { id, name, picture } of pictures) {
-      if (this.#hung.get(id) === picture.key) continue
+    for (const [index, { id, name, picture }] of pictures.entries()) {
+      if (this.#hung.get(id) === picture.key || (left && !this.#have.hung.has(id))) continue
       const update = new ImageRawDataUpdate({ containerID: id, containerName: name, imageData: picture.data })
-      const send = () => this.#bridge.updateImageRawData(update)
+      let made = false
+      const send = () => {
+        made = true
+        return this.#bridge.updateImageRawData(update)
+      }
       const accepted = await this.#ask(frame, 'picture', 1, send, ImageRawDataUpdateResult.success, name)
       if (this.#life.ended) return false
-      if (accepted) this.#hung.set(id, picture.key)
-      else {
-        this.#hung.delete(id)
+      if (!accepted) {
+        if (made) this.#hung.delete(id)
         drawn = false
+      } else {
+        this.#hung.set(id, picture.key)
+        if (!left) {
+          this.#have.pictures[index] = picture
+          this.#have.hung.add(id)
+          this.#landed()
+        }
       }
     }
     return drawn

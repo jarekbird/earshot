@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.63
+npm install github:jarekbird/earshot#v0.0.64
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.63 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.64 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -159,9 +159,9 @@ const shell = new Shell(life, glasses, router)
 ```
 
 - `list({ title, action, empty })` shows the targets of one action as lines of text. A swipe moves the cursor and a tap runs the action on that item. A tap counts only while the glasses show one whole frame with the cursor on that item: one that comes while the cursor's move, or any other redraw, is still being written to them is dropped. The same holds for a gesture a screen of boxes ties to an action.
-- `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines. With `end: true` it shows its last lines and goes on showing the last as the text grows, for a log or a transcript. A swipe up reads back, counted from the page the wearer is looking at (a second swipe before the first is drawn goes on from the first), and the view holds that place while more comes at the end (a text that also loses lines at its start shifts under it); swiped back down to the end, it follows again. A page never holds more than the glasses take in one box: at the end the oldest lines give way, never the newest, and a swipe, or a spoken "scroll up", moves by no more than the page holds, so every line is reached.
+- `text({ title, body })` shows text split into lines that fit. A swipe scrolls it two lines. With `end: true` it shows its last lines and goes on showing the last as the text grows, for a log or a transcript. A swipe up reads back, counted from the page the wearer is looking at (a swipe made before the last one is drawn goes on from that one, and text that came in the meantime is laid out after them), and the view holds that place while more comes at the end (a text that also loses lines at its start shifts under it); swiped back down to the end, it follows again. A page never holds more than the glasses take in one box: at the end the oldest lines give way, never the newest, and a swipe, or a spoken "scroll up", moves by no more than the page holds, so every line is reached.
 - `boxes(boxes, { on, pictures })` places each box yourself. `on` says which action a tap, a swipe up and a swipe down run: `{ tap: open, up: older, down: { action: open, target: 'next' } }`. A screen gets no raw touches, so whatever touch can do, voice can do too. The other way round is yours where a gesture runs an action on one target only: voice is offered every target of that action, so give touch a way to each, with a gesture for the action as a whole or a cursor of your own. A screen with no `view` lists its actions.
-- By voice, a long text scrolls a screenful ("scroll down"), a list's cursor moves ("move down") and "choose this one" runs the row it is on. The model is told which row that is, unless the row is private. Where that row is offered by its name as well, the two are one choice: what the model gives "choose this one" counts for the row, so a vote split between them still runs it, and the candidates never hold both. That is so on a list of your screen and on the shell's list of an action's targets. On its list of candidates and behind "More…" a row is not offered under that list's own action, so nothing is joined there.
+- By voice, a long text scrolls a screenful ("scroll down"), a list's cursor moves ("move down") and "choose this one" runs the row it is on. The model is told which row that is, unless the row is private. Where that row is offered by its name as well, and the model is told the same of both and both ask as much before they run, the two are one choice: what the model gives "choose this one" counts for the row, so a vote split between them still runs it, and the candidates never hold both. They are two choices when the action that row's name reaches is another than the list's and has another label or hint, names the row otherwise or asks before it runs where the other does not, and when the row by name is a rolling item of another action. A vote that needed both runs the row on show, as a tap on it would; so does "choose this one" by itself. If something else is on show by the time the model answers (another row, another label or hint, another risk), or the row says or asks something else by the time it would run, the shell asks first. A candidate that "choose this one" gave its vote to is that row as well. That is so on a list of your screen and on the shell's list of an action's targets. On its list of candidates and behind "More…" a row is not offered under that list's own action, so nothing is joined there.
 - A list the shell made itself (the candidates, an action's targets, "More…") closes when a row of it is said by name, as it does at a tap on that row. "Go back" said there closes the list and goes no further. Anything else that is said runs and leaves the list open.
 - A double tap goes up, to the screen the current one was opened from. From the home screen it asks Even to close the app.
 - Even's menu lists the screen's and the app's other actions. Over ten, the rest go behind "More…". An action with targets asks which one in a list, or on the app's own screen when the action has `choose`. A target can carry its own `risk`, so only the targets that write ask first.
@@ -290,7 +290,7 @@ const hear = speech.start(life, showTurn, state => showWhetherWordsCome(state))
 - With `staleMs` set, the age of held sound is told by a clock that cannot go back, and every held piece is checked against one reading of it.
 - If your listener throws, or answers with a promise that fails, only a fixed sentence is reported, never the words it was handed. The same goes for the stand-in.
 - Ending the lifetime closes the line. Sound the browser had already taken for that line may still go out before it closes: a page cannot take it back.
-- A turn that was still growing when the line dropped, or when the sound stopped, is told once more as final and `cut`, with the words it had. Turns are numbered on across lines.
+- A turn that was still growing when the line dropped, or when the sound stopped, is told once more as final and `cut`, with the words it had. The transport numbers the turns it tells itself, one by one and on across lines. Within a line it takes the service's turns in the service's order: a message about a turn before the newest of that line is not taken. Two things are promised about the service's numbers: a service that counts its turns from 0, one by one, as Flux does, has every turn told; and no number it sends can keep the turns of a later line from being told. (A turn numbered more than 2^32 ahead of the newest of its line is not told.) What else a service that sends numbers gone wild gets is not promised.
 - `speaker` is whoever the glasses said was speaking for most of the stretch of sound the turn was made from.
 
 ### What the navigator is offered

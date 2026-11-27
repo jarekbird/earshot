@@ -817,6 +817,65 @@ describe('live speech from Flux, through the relay', () => {
     },
   )
 
+  const FAR = [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER - 1, Number.MAX_SAFE_INTEGER - 2 ** 32, 2 ** 32 + 7]
+
+  it.each(FAR)('takes no turn the upstream numbers %i, far beyond any turn of its line, and such a number hides no turn after it', far => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(far, 'far'))
+    lines[0].says(info(far, 'far away', 'EndOfTurn'))
+    lines[0].says(info(0, 'one', 'EndOfTurn'))
+    lines[0].says(info(3, 'two', 'EndOfTurn'))
+    lines[0].says(info(far, 'far again', 'EndOfTurn'))
+    lines[0].says(info(4, 'three', 'EndOfTurn'))
+    for (const line of [1, 2]) {
+      lines[line - 1].drops()
+      hear(sound(100))
+      vi.advanceTimersByTime(retryDelay(1))
+      lines[line].connects()
+      lines[line].says(info(far - 1, 'far once more', 'EndOfTurn'))
+      lines[line].says(info(0, ' ', 'EndOfTurn'))
+      lines[line].says(info(1, `near ${line}`, 'EndOfTurn'))
+    }
+    expect(turns.map(turn => [turn.id, turn.words])).toEqual([
+      [0, 'one'],
+      [1, 'two'],
+      [2, 'three'],
+      [3, 'near 1'],
+      [4, 'near 2'],
+    ])
+  })
+
+  it('takes a turn numbered as far ahead as a line may go, and tells its end', () => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(2 ** 32 - 1, 'hello'))
+    lines[0].says(info(2 ** 32 - 1, 'hello world', 'EndOfTurn'))
+    lines[0].says(info(2 ** 33 - 1, 'and on', 'EndOfTurn'))
+    expect(turns.map(turn => [turn.id, turn.words, turn.final])).toEqual([
+      [0, 'hello', false],
+      [0, 'hello world', true],
+      [1, 'and on', true],
+    ])
+  })
+
+  it('counts its own turns one by one, also where the upstream leaves numbers out', () => {
+    const { lines, turns, hear } = listening()
+    hear(sound(100))
+    lines[0].connects()
+    lines[0].says(info(3, 'one', 'EndOfTurn'))
+    lines[0].says(info(7, 'two'))
+    lines[0].says(info(7, 'two more', 'EndOfTurn'))
+    lines[0].says(info(5, 'late', 'EndOfTurn'))
+    expect(turns.map(turn => [turn.id, turn.words, turn.final])).toEqual([
+      [0, 'one', true],
+      [1, 'two', false],
+      [1, 'two more', true],
+    ])
+  })
+
   it.each([['not json'], [{ type: 'Other' }], [{ type: 'TurnInfo', turn_index: 'x', transcript: 'a' }], [info(0, '   ')], [null], [[1]]])(
     'tells nothing for a message that is not a turn with words: %j',
     message => {

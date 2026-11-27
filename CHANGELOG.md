@@ -6,6 +6,30 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
+## 0.0.64 (2026-11-27)
+
+- A swipe on a text counts from what the wearer has read. A swipe made before the glasses have drawn the last one
+  goes on from where that one reached, and text that came in the meantime is laid out after them.
+- What belongs to a screen ends with it: a hold and a question that waits for a tap are called off when the
+  screen changes, and a menu pick from the screen before does not reach the next one. A voice turn that is being
+  decided is called off too, unless its words were already handed to an agent of the app: that agent may finish and
+  say what it did, as in 0.0.46, and nothing else of the turn runs.
+  A screen opened again after it was left starts at its beginning.
+- One press of a touchpad records once, and a closed router sends the glasses nothing more.
+- Live speech from Flux numbers the turns it tells itself, one by one and on across lines, so one number gone wild
+  no longer hides the turns after it. A turn numbered more than 2^32 ahead of the newest of its line is not told.
+- The router tells every listener of a change of screen, also when one of them throws.
+- "Choose this one" and the row by name are one choice only when the model is told the same of both and both
+  ask as much before they run: the row by name reads as the row on show does, and is of the list's very action
+  or of another with the same hint and risk; never a rolling item of another action. They were one choice whenever the names matched, so a vote split between the
+  two could run an action of the same name that asks nothing, where the row on show asks first.
+- A vote that needed both, and "choose this one" by itself, run the row on show, as a tap on it would. When
+  something else is on show by the time the model answers (another row, another label or hint, another risk),
+  the shell asks before it runs the row that was meant. A lone "choose this one" ran whatever row had come under
+  the cursor. A candidate that "choose this one" gave its vote to is that row too, when it is tapped.
+- A notice shown during a hold is carried over when the next screen is on show, not as the old one is left: so
+  not when the router is closed, or when the screen that was to take its place cannot be entered.
+
 ## 0.0.63 (2026-11-26)
 
 - An option said by its very words is chosen without asking the navigator's model, whatever case and punctuation

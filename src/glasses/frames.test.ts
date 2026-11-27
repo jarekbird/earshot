@@ -1,0 +1,234 @@
+import { describe, expect, it } from 'vitest'
+import { text } from '../view.js'
+import { after, copied, Frames, type Read } from './frames.js'
+import { layoutText, type TextState } from './layout.js'
+
+const screen = (id: string) => ({ id })
+const read = (body: string): Read => {
+  const view = text({ body })
+  if (view.kind !== 'text') throw new Error('not a text')
+  return { view, state: { top: 0 } }
+}
+const body = (frames: Frames, of: unknown) => frames.read(of)?.view.body
+
+describe('the frames a shell asked for', () => {
+  it('keeps only those the glasses show, are being sent, or will be sent next, however many were asked while the glasses were behind', () => {
+    const progress = { shown: 1, menu: 1, text: 1, sending: 2 }
+    const frames = new Frames(progress)
+    const log = screen('log')
+    for (let frame = 1; frame <= 500; frame++) frames.asked(frame, log, read(`text ${frame}`))
+    expect(frames.kept).toBe(3)
+    expect(body(frames, log)).toBe('text 1')
+    Object.assign(progress, { shown: 2, menu: 2, text: 2, sending: 500 })
+    expect(body(frames, log)).toBe('text 2')
+    Object.assign(progress, { shown: 500, menu: 500, text: 500, sending: 0 })
+    expect(body(frames, log)).toBe('text 500')
+    expect(frames.kept).toBe(1)
+  })
+
+  it('keeps what a touch would run on the frame that is whole on the glasses, and no more frames for it, however many were asked while they were behind', () => {
+    const progress = { shown: 1, menu: 1, text: 1, sending: 2 }
+    const frames = new Frames(progress)
+    const list = screen('list')
+    for (let frame = 1; frame <= 500; frame++) frames.asked(frame, list, null, 'list', { tap: `row ${frame}` })
+    expect([frames.whole?.aims, frames.kept]).toEqual([{ tap: 'row 1' }, 3])
+    Object.assign(progress, { shown: 1, menu: 2, text: 2, sending: 500 })
+    expect([frames.whole?.aims, frames.whole?.showing, frames.kept]).toEqual([{ tap: 'row 1' }, list, 3])
+    Object.assign(progress, { shown: 500, menu: 500, text: 500, sending: 0 })
+    expect([frames.whole?.aims, frames.kept]).toEqual([{ tap: 'row 500' }, 1])
+  })
+
+  it('says what a touch would run on the frame asked for last, which a gesture of a screen of boxes is held to', () => {
+    const frames = new Frames({ shown: 1, menu: 1, text: 1, sending: 2 })
+    const timer = screen('timer')
+    expect(frames.newest).toBeUndefined()
+    frames.asked(1, timer, null, 'boxes', { tap: 'pause' })
+    frames.asked(2, timer, null, 'boxes', { tap: 'resume' })
+    expect([frames.whole?.aims, frames.newest?.aims, frames.newest?.showing]).toEqual([{ tap: 'pause' }, { tap: 'resume' }, timer])
+  })
+
+  it('knows of no whole frame of the shell while the glasses show one that was not asked for through it', () => {
+    const frames = new Frames({ shown: 7, menu: 7, text: 7, sending: 0 })
+    frames.asked(3, screen('list'), null, 'list', { tap: 'row' })
+    expect(frames.whole).toBeUndefined()
+  })
+
+  it('counts a swipe from where the last swipe reached until a frame as new is on the glasses, then from what they show', () => {
+    const progress = { shown: 1, menu: 1, text: 1, sending: 0 }
+    const frames = new Frames(progress)
+    const log = screen('log')
+    frames.asked(1, log, read('seen'))
+    frames.swiping(log, read('where the swipe reached'))
+    frames.asked(2, log, read('drawn after the swipe'))
+    frames.asked(3, log, read('more text'))
+    expect(body(frames, log)).toBe('where the swipe reached')
+    Object.assign(progress, { shown: 3, menu: 3, text: 3 })
+    expect(body(frames, log)).toBe('more text')
+  })
+
+  it('lets go of where a swipe reached once a frame as new is on the glasses, also when no swipe follows', () => {
+    const progress = { shown: 1, menu: 1, text: 1, sending: 0 }
+    const frames = new Frames(progress)
+    const log = screen('log')
+    frames.asked(1, log, read('seen'))
+    frames.swiping(log, read('where the swipe reached'))
+    frames.asked(2, log, read('after the swipe'))
+    expect(frames.kept).toBe(3)
+    Object.assign(progress, { shown: 2, menu: 2, text: 2 })
+    frames.asked(3, log, read('more text'))
+    expect(frames.kept).toBe(2)
+  })
+
+  it('counts a swipe from text the glasses have written in place, though the frame it came with is not whole yet', () => {
+    const progress = { shown: 1, menu: 1, text: 1, sending: 0 }
+    const frames = new Frames(progress)
+    const log = screen('log')
+    frames.asked(1, log, read('seen'))
+    frames.asked(2, log, read('written, its menu still to come'))
+    progress.text = 2
+    expect(body(frames, log)).toBe('written, its menu still to come')
+    expect(frames.menu).toBe(log)
+    expect(frames.kept).toBe(2)
+  })
+
+  it('takes frames in the order of their numbers, also when a later one was told of first', () => {
+    const progress = { shown: 0, menu: 0, text: 0, sending: 0 }
+    const frames = new Frames(progress)
+    const log = screen('log')
+    frames.asked(2, log, read('second'))
+    frames.asked(1, log, read('first'))
+    expect(body(frames, log)).toBe('second')
+    Object.assign(progress, { shown: 2, menu: 2, text: 2 })
+    expect(body(frames, log)).toBe('second')
+  })
+
+  it('lets go of what the glasses have moved past as soon as it is told so, with no swipe or draw in between', () => {
+    const progress = { shown: 1, menu: 1, text: 1, sending: 0 }
+    const frames = new Frames(progress)
+    const log = screen('log')
+    frames.asked(1, log, read('seen'))
+    frames.swiping(log, read('where the swipe reached'))
+    frames.asked(2, log, read('after the swipe'))
+    expect(frames.kept).toBe(3)
+    Object.assign(progress, { shown: 2, menu: 2, text: 2 })
+    frames.forget()
+    expect(frames.kept).toBe(1)
+  })
+
+  it('keeps nothing once it is ended', () => {
+    const frames = new Frames({ shown: 1, menu: 1, text: 1, sending: 0 })
+    const log = screen('log')
+    frames.asked(1, log, read('seen'))
+    frames.swiping(log, read('where the swipe reached'))
+    frames.asked(2, log, read('after the swipe'))
+    frames.end()
+    expect(frames.kept).toBe(0)
+    expect(frames.read(log)).toBeNull()
+  })
+
+  it('copies of a view only what is drawn, so nothing else an app hung on it is kept', () => {
+    const view = Object.assign(text({ title: 'Log', body: 'words', end: true }), { record: { private: true } })
+    if (view.kind !== 'text') throw new Error('not a text')
+    expect(copied(view)).toStrictEqual({ kind: 'text', title: 'Log', body: 'words', end: true })
+    expect(copied(text({ body: 'words' }) as Read['view'])).toStrictEqual({ kind: 'text', body: 'words' })
+  })
+
+  it('lets go of where a swipe reached on a screen that has left the path, though the glasses have drawn nothing since', () => {
+    const frames = new Frames({ shown: 2, menu: 2, text: 2, sending: 0 })
+    const home = screen('home')
+    const log = screen('log')
+    frames.asked(1, home, null)
+    frames.asked(2, log, read('log'))
+    frames.swiping(log, read('where the swipe reached'))
+    frames.asked(3, log, read('after the swipe'))
+    frames.asked(4, home, null)
+    expect(frames.texts).toBe(2)
+    frames.left(showing => showing !== log)
+    expect(frames.texts).toBe(0)
+    expect(frames.read(log)).toBeNull()
+    expect(frames.menu).toBe(log)
+  })
+
+  it('keeps of the frame whose menu shows only which screen it was, once newer words are on the glasses', () => {
+    const progress = { shown: 1, menu: 1, text: 1, sending: 0 }
+    const frames = new Frames(progress)
+    const log = screen('log')
+    frames.asked(1, log, read('the old words'))
+    frames.asked(2, log, read('the words written in place'))
+    progress.text = 2
+    frames.forget()
+    expect(frames.menu).toBe(log)
+    expect(frames.texts).toBe(1)
+    expect(body(frames, log)).toBe('the words written in place')
+  })
+
+  it('counts a second swipe from where the first reached, also when it comes before the first was given its frame', () => {
+    const frames = new Frames({ shown: 1, menu: 1, text: 1, sending: 0 })
+    const log = screen('log')
+    frames.asked(1, log, read('seen'))
+    frames.swiping(log, read('where the first reached'))
+    expect(body(frames, log)).toBe('where the first reached')
+    frames.swiping(log, read('where the second reached'))
+    frames.asked(3, log, read('second'))
+    frames.asked(2, log, read('first'))
+    expect(body(frames, log)).toBe('where the second reached')
+  })
+
+  it('keeps where a swipe reached on one showing while a frame of another showing, asked for later, is on the glasses', () => {
+    const progress = { shown: 1, menu: 1, text: 1, sending: 0 }
+    const frames = new Frames(progress)
+    const log = screen('log')
+    const about = screen('about')
+    frames.asked(1, log, read('seen'))
+    frames.swiping(log, read('where the swipe reached'))
+    frames.asked(2, log, read('after the swipe'))
+    frames.asked(3, about, read('about'))
+    Object.assign(progress, { shown: 3, menu: 3, text: 3 })
+    frames.forget()
+    expect(body(frames, log)).toBe('where the swipe reached')
+    frames.asked(4, log, read('back on the log'))
+    Object.assign(progress, { shown: 4, menu: 4, text: 4 })
+    expect(body(frames, log)).toBe('back on the log')
+  })
+
+  it('says which screen the glasses show, and none before they show any', () => {
+    const progress = { shown: 0, menu: 0, text: 0, sending: 0 }
+    const frames = new Frames(progress)
+    const home = screen('home')
+    frames.asked(1, home, null)
+    expect(frames.menu).toBeUndefined()
+    Object.assign(progress, { shown: 1, menu: 1 })
+    expect(frames.menu).toBe(home)
+  })
+
+  it('gives, for whatever texts were drawn since, the place a reader reaches when each is laid out in turn', () => {
+    let seed = 7
+    const next = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+    const some = (): Read['view'] => {
+      const view = text({
+        ...(next() < 0.5 ? { title: 'Log' } : {}),
+        body: Array.from({ length: 1 + Math.floor(next() * 60) }, (_, at) => `Line ${at + 1}`).join('\n'),
+        end: next() < 0.6,
+      })
+      if (view.kind !== 'text') throw new Error('not a text')
+      return view
+    }
+    for (let round = 0; round < 500; round++) {
+      const frames = new Frames({ shown: 1, menu: 1, text: 1, sending: 0 })
+      const log = screen('log')
+      const from: TextState = { top: Math.floor(next() * 50), ...(next() < 0.7 ? { away: next() < 0.5 } : {}) }
+      const place: TextState = { ...from }
+      frames.asked(1, log, { view: some(), state: { ...from } })
+      const drawn = 1 + Math.floor(next() * 6)
+      for (let frame = 2; frame < 2 + drawn; frame++) {
+        const view = some()
+        const laid = layoutText(view)(place)
+        Object.assign(place, laid.state)
+        frames.drawing(log, view, laid.last)
+        frames.asked(frame, log, { view, state: { ...laid.state } })
+      }
+      const reached = after(frames.read(log)!.since, from)
+      expect([reached.top, reached.away === true], `round ${round}`).toEqual([place.top, place.away === true])
+    }
+  })
+})

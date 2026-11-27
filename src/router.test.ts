@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { action } from './action.js'
+import { action, unless, type Action } from './action.js'
 import type { Lifetime } from './lifetime.js'
-import { Router, type Screen } from './router.js'
+import { Router, showingsOf, type Screen } from './router.js'
 
 const screen = (id: string, more: Partial<Screen> = {}): Screen => ({ id, ...more })
 
@@ -315,5 +315,108 @@ describe('the actions possible now', () => {
     router.back()
     expect(await router.run('stop')).toEqual({ done: false, why: 'unknown' })
     expect(run).not.toHaveBeenCalled()
+  })
+})
+
+describe('what the shell is told of the showings on the path', () => {
+  const screen = (id: string): Screen => ({ id })
+
+  it('tells one showing of a screen from another, and counts each for as long as it is on the path, top or not', () => {
+    const log = screen('log')
+    const router = new Router({ home: screen('home') })
+    router.open(log)
+    const first = showingsOf(router).current
+    router.open(log)
+    const second = showingsOf(router).current
+    expect(second).not.toBe(first)
+    expect([first, second].map(showingsOf(router).onPath)).toEqual([true, true])
+    router.back()
+    expect([first, second].map(showingsOf(router).onPath)).toEqual([true, false])
+    router.replace(log)
+    expect(showingsOf(router).onPath(first)).toBe(false)
+  })
+
+  it('tells of every leaving, also when the router is closed, and then counts no showing as on the path', () => {
+    const router = new Router({ home: screen('home') })
+    router.open(screen('log'))
+    const showing = showingsOf(router).current
+    let told = 0
+    const stop = showingsOf(router).onLeave(() => void told++)
+    router.close()
+    expect(told).toBe(1)
+    expect(showingsOf(router).onPath(showing)).toBe(false)
+    stop()
+  })
+})
+
+describe('what the framework keeps to itself', () => {
+  it('adds no member to a router or to an action that an app could see, copy or have to name', () => {
+    const made = action({ id: 'a', say: 'A', run: () => {} })
+    const router = new Router({ home: { id: 'home' } })
+    const named: Record<keyof Action, true> = {
+      id: true,
+      say: true,
+      hint: true,
+      risk: true,
+      blocked: true,
+      targets: true,
+      choose: true,
+      run: true,
+    }
+    expect(Object.keys(named)).toHaveLength(8)
+    expect([made, router, Router.prototype].flatMap(of => Object.getOwnPropertySymbols(of))).toEqual([])
+    expect([typeof unless(made, made.run), unless({ ...made }, made.run), typeof showingsOf(router).onPath]).toEqual([
+      'function',
+      undefined,
+      'function',
+    ])
+  })
+
+  it('tells whoever follows its showings once more, as lost, when the only screen was replaced by one that could not be entered', () => {
+    const router = new Router({ home: screen('home') })
+    const told: boolean[] = []
+    showingsOf(router).onLeave(lost => void told.push(lost))
+    const broken: Screen = {
+      id: 'broken',
+      enter: () => {
+        throw new Error('could not be entered')
+      },
+    }
+    expect(() => router.replace(broken)).toThrow('could not be entered')
+    router.open(screen('next'))
+    router.back()
+    expect([told, showingsOf(router).current === undefined]).toEqual([[false, true], false])
+  })
+
+  it('tells every follower that the last screen is lost, also when one of them throws, and lets the error of the screen that could not be entered through', () => {
+    const router = new Router({ home: screen('home') })
+    const told: boolean[] = []
+    showingsOf(router).onLeave(lost => {
+      if (lost) throw new Error('a follower failed')
+    })
+    showingsOf(router).onLeave(lost => void told.push(lost))
+    const broken: Screen = {
+      id: 'broken',
+      enter: () => {
+        throw new Error('could not be entered')
+      },
+    }
+    expect(() => router.replace(broken)).toThrow('could not be entered')
+    expect(told).toEqual([false, true])
+  })
+
+  it('tells of no loss when a screen over another was replaced by one that could not be entered: the one under it is left', () => {
+    const router = new Router({ home: screen('home') })
+    router.open(screen('child'))
+    const told: boolean[] = []
+    showingsOf(router).onLeave(lost => void told.push(lost))
+    const broken: Screen = {
+      id: 'broken',
+      enter: () => {
+        throw new Error('could not be entered')
+      },
+    }
+    expect(() => router.replace(broken)).toThrow('could not be entered')
+    expect([told, router.current.id]).toEqual([[false], 'home'])
   })
 })
