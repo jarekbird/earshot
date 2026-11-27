@@ -112,10 +112,11 @@ const takenByAnother = async (name: string) => {
   writeFileSync(join(dir, `${name}.taken`), '')
   return port
 }
+let asked = 0
 const startsOf = (name: string) => {
-  const env = { FAKE_STARTS: name }
-  const mine = ([, , options]: Parameters<typeof spawn>) => (options as { env?: NodeJS.ProcessEnv }).env?.FAKE_STARTS === name
-  return { env, count: () => vi.mocked(spawn).mock.calls.filter(mine).length }
+  const mark = `${name} ${++asked}`
+  const mine = ([, , options]: Parameters<typeof spawn>) => (options as { env?: NodeJS.ProcessEnv }).env?.FAKE_STARTS === mark
+  return { env: { FAKE_STARTS: mark }, count: () => vi.mocked(spawn).mock.calls.filter(mine).length }
 }
 const running = (pid: number) => {
   try {
