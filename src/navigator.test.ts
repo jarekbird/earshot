@@ -225,7 +225,10 @@ describe('the navigator', () => {
   describe('two options that would do the same thing', () => {
     const standingFor = (target: string | undefined) =>
       Object.assign(action({ id: 'this', say: 'Choose this one', run: () => {} }), {
-        [SAME]: () => (target === undefined ? undefined : { action: 'open', target }),
+        [SAME]: () =>
+          target === undefined
+            ? undefined
+            : { listed: open, action: 'open', target, say: notes.find(note => note.id === target)?.say ?? '' },
       })
     const withThis = (target: string | undefined) => heard('x', { actions: [open, remove, refresh, standingFor(target), back, home] })
 

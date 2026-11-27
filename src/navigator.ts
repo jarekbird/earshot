@@ -1,4 +1,4 @@
-import type { Action } from './action.js'
+import type { Action, TargetInfo } from './action.js'
 import type { Audio } from './audio.js'
 import type { Lifetime } from './lifetime.js'
 import type { RollingItem } from './rolling.js'
@@ -56,8 +56,18 @@ export const SURE_AT = 0.7
 const UNSURE_FROM = 0.15
 const UNSURE_AT_MOST = 3
 const STANDARD = ['back', 'home']
-export const SAME = Symbol('what an action stands for: the action and the target it would run')
-type Standing = Action & { [SAME]?: () => { action: string; target: string } | undefined }
+export const SAME = Symbol('what an action stands for: a row of a list, as it is shown')
+interface Stood {
+  listed: Action
+  action: string
+  target: string
+  say: string
+}
+type Standing = Action & { [SAME]?: () => Stood | undefined }
+interface Source {
+  action: Action
+  row?: TargetInfo
+}
 const PASS = 'pass'
 const LIST = ' (show the list)'
 const NONE = 'none'
@@ -68,16 +78,21 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
   const meanings = new Map<string, Meaning>()
   const options: Option[] = []
   let length = heard.words.length + (heard.screen?.length ?? 0)
-  const offer = (meaning: Meaning, option: Omit<Option, 'id' | 'action' | 'target' | 'same'>) => {
+  const sources = new Map<Option, Source>()
+  const offer = (meaning: Meaning, option: Omit<Option, 'id' | 'action' | 'target' | 'same'>, source?: Source) => {
     const id = `o${options.length}`
     const runs =
       typeof meaning === 'object' ? { action: meaning.action, ...(meaning.target === undefined ? {} : { target: meaning.target }) } : {}
+    const made = { id, ...option, ...runs }
     meanings.set(id, meaning)
-    options.push({ id, ...option, ...runs })
+    options.push(made)
+    if (source) sources.set(made, source)
     length += option.say.length + (option.context?.length ?? 0)
   }
   const offered = new Set<string>()
+  const reached = new Set<string>()
   const offerAction = (action: Action) => {
+    reached.add(action.id)
     const hint = action.hint === undefined ? {} : { context: action.hint }
     const targets = action.targets() ?? []
     const named = targets.filter(target => !target.private)
@@ -88,7 +103,11 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
       const say = `${action.say}: ${target.say}`
       const rolled = heard.rolling.find(item => item.action.id === action.id && item.target === target.id)
       offered.add(`${action.id}\n${target.id}`)
-      offer({ action: action.id, target: target.id, say }, { say, ...(rolled?.context ? { context: rolled.context } : hint) })
+      offer(
+        { action: action.id, target: target.id, say },
+        { say, ...(rolled?.context ? { context: rolled.context } : hint) },
+        { action, row: target },
+      )
     }
   }
 
@@ -102,15 +121,29 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
   for (const item of rolling.slice(0, Math.max(0, MAX_OPTIONS - options.length))) {
     const context = item.context || item.action.hint || ''
     full ||= length + item.say.length + context.length > QUESTION_LIMIT
-    offer({ action: item.action.id, target: item.target, say: item.say }, { say: item.say, ...(context && !full ? { context } : {}) })
+    offer(
+      { action: item.action.id, target: item.target, say: item.say },
+      { say: item.say, ...(context && !full ? { context } : {}) },
+      { action: item.action },
+    )
   }
   const offering = (action: string, target?: string) => options.find(option => option.action === action && option.target === target)
   for (const action of heard.actions as readonly Standing[]) {
     const stands = action[SAME]?.()
     const [from, to] = stands ? [offering(action.id), offering(stands.action, stands.target)] : []
-    if (from && to) from.same = to.id
+    const source = to && sources.get(to)
+    if (stands && from && source && oneChoice(source, stands, reached)) from.same = to.id
   }
   return { question: { words: heard.words, ...(heard.screen ? { screen: heard.screen } : {}), options }, meanings }
+}
+
+function oneChoice(named: Source, { listed, action, target, say }: Stood, reached: ReadonlySet<string>): boolean {
+  if (!named.row) return named.action === listed && !reached.has(action)
+  const shown = named.action === listed ? named.row : listed.targets()?.find(row => row.id === target)
+  if (!shown || shown.private) return false
+  if (named.action.say !== listed.say || named.action.hint !== listed.hint || named.row.say !== say) return false
+  if (named.action.blocked() !== listed.blocked()) return false
+  return (named.row.risk ?? named.action.risk) === (shown.risk ?? listed.risk)
 }
 
 const verdictOf = (meaning: Meaning): Verdict => {

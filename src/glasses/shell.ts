@@ -138,13 +138,6 @@ const tied = (bound: Bound): { action: Action; target?: string } => {
   return target === undefined ? { action } : { action, target }
 }
 
-function oneChoice(reached: Action, listed: Action, under: TargetInfo, row: string): boolean {
-  const there = reached.targets()?.find(target => target.id === row)
-  if (!there || there.private) return false
-  if (reached.say !== listed.say || reached.hint !== listed.hint || there.say !== under.say) return false
-  return (there.risk ?? reached.risk) === (under.risk ?? listed.risk)
-}
-
 const aimOf = (kind: View['kind'], action: string, target?: string): string => JSON.stringify([kind, action, target ?? null])
 
 interface Answer {
@@ -430,8 +423,6 @@ export class Shell {
     const actions = [...this.#router.actions()]
     if (!drawn || drawn.showing !== showing || !place) return actions
     const { view } = drawn
-    const rolledAs = (id: string, target: string) =>
-      this.#voice?.rolling?.items().find(item => item.action.id === id && item.target === target)?.action
     const move = (id: string, say: string, by: number, field: 'cursor' | 'top') =>
       action({
         id,
@@ -471,10 +462,7 @@ export class Shell {
                       if (!under || under.private) return undefined
                       const listed = view.action
                       const name = listed.id
-                      const reached = actions.find(other => other === listed || other.id === name)
-                      const target = under.id
-                      if (reached ? !oneChoice(reached, listed, under, target) : rolledAs(name, target) !== listed) return undefined
-                      return { action: name, target }
+                      return { listed, action: name, target: under.id, say: under.say }
                     },
                   },
                 ),
@@ -941,7 +929,7 @@ export class Shell {
     const row = id !== BACK && this.#own.get(this.#router.current)?.(id, targetId)
     if (!still()) return
     if (row && !this.#shut()) return
-    void this.#start(found, targetId, said, pass)
+    void this.#start(found, targetId, said, pass, shown)
   }
 
   #jumps(chosen: Action, targetId?: string): boolean {
@@ -969,7 +957,7 @@ export class Shell {
     void this.#start(found)
   }
 
-  async #start(chosen: Action, targetId?: string, said = false, pass?: () => void): Promise<void> {
+  async #start(chosen: Action, targetId?: string, said = false, pass?: () => void, ask = false): Promise<void> {
     const moves = this.#moves
     const showings = showingsOf(this.#router)
     const showing = showings.current
@@ -987,7 +975,7 @@ export class Shell {
     const target = targets?.find(candidate => candidate.id === targetId)
     const risk = target?.risk ?? chosen.risk
     if (moves !== this.#moves) return
-    if (risk === 'safe' || (risk === 'voice' && !said)) return this.#run(chosen, targetId, said)
+    if (!ask && (risk === 'safe' || (risk === 'voice' && !said))) return this.#run(chosen, targetId, said)
     const still = () => showings.current === showing && showings.onPath(showing)
     const instead = pass && this.#voice?.instead
     if (moves !== this.#moves || !still()) return
