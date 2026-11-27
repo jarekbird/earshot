@@ -125,7 +125,9 @@ const nameOf = (option: Option) => tokens(option.say.endsWith(LIST) ? option.say
 function saidByName({ words, options }: Question): string | undefined {
   const said = tokens(words).join(' ')
   if (!said) return undefined
-  const named = options.filter(option => option.role === undefined && nameOf(option).join(' ') === said)
+  const named = options.filter(
+    option => option.role === undefined && (nameOf(option).join(' ') === said || tokens(option.say).join(' ') === said),
+  )
   const meant = new Set(named.map(option => option.same ?? option.id))
   return meant.size === 1 ? [...meant][0] : undefined
 }
