@@ -459,8 +459,9 @@ export class Shell {
 
   #row(drawn: Drawn, place: Place, still = () => true): { action: Action; target: string } | undefined {
     const under = drawn.targets[place.cursor]
-    if (drawn.view.kind !== 'list' || !under) return undefined
-    const action = drawn.view.action
+    const { view } = drawn
+    if (!under || view.kind !== 'list' || !still()) return undefined
+    const action = view.action
     return still() ? { action, target: under.id } : undefined
   }
 
@@ -559,9 +560,10 @@ export class Shell {
       if (!still()) return
       const bound = on?.[input.kind]
       if (!bound || !still()) return
-      const chosen = boundTo(bound).action
+      const tie = boundTo(bound)
+      const chosen = tie.action
       if (!still()) return
-      const { target } = boundTo(bound)
+      const { target } = tie
       if (!still()) return
       return void this.#start(chosen, target)
     }

@@ -167,19 +167,14 @@ interface Kept {
   frame: number
 }
 
-const looksOf = ({ id, x, y, w, h, text, brightness }: Box): string =>
-  JSON.stringify([
-    id,
-    x,
-    y,
-    w,
-    h,
-    brightness ?? MAX_BRIGHTNESS,
-    clipBytes(text),
-    wrapText(cleanText(text), w).slice(0, Math.ceil(h / LINE_HEIGHT)),
-  ])
+const placeOf = ({ id, x, y, w, h, brightness }: Box): string => JSON.stringify([id, x, y, w, h, brightness ?? MAX_BRIGHTNESS])
 
-const looksAlike = (one: Box, other: Box): boolean => looksOf(one) === looksOf(other)
+const wrapped = ({ text, w, h }: Box): string => JSON.stringify(wrapText(cleanText(text), w).slice(0, Math.ceil(h / LINE_HEIGHT)))
+
+function looksAlike(one: Box, other: Box): boolean {
+  if (placeOf(one) !== placeOf(other) || clipBytes(one.text) !== clipBytes(other.text)) return false
+  return one.text === other.text || wrapped(one) === wrapped(other)
+}
 
 const kept = ({ box, text, brightness }: Placed, frame: number): Kept => ({
   under: box,
@@ -271,6 +266,7 @@ export class Glasses {
   readonly #from = new Map<string, number>()
   readonly #following = new Set<() => void>()
   #intact = true
+  #calling = 0
   #over: string | null | undefined = null
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
@@ -339,7 +335,7 @@ export class Glasses {
   }
 
   get [WHOLE](): boolean {
-    return this.#intact
+    return this.#intact && this.#calling === 0
   }
 
   get micOpen(): boolean {
@@ -582,7 +578,12 @@ export class Glasses {
     if (this.#life.ended || this.#takenBack(frame)) return false
     const named = box === undefined ? {} : { box }
     const started = this.#now()
-    this.#watch({ at: 'call', frame, op, ...named })
+    this.#calling++
+    try {
+      this.#watch({ at: 'call', frame, op, ...named })
+    } finally {
+      this.#calling--
+    }
     if (this.#life.ended || this.#takenBack(frame)) {
       this.#watch({ at: 'answer', frame, op, ...named, boxes, ms: 0, ok: false, got: undefined })
       return false

@@ -2877,6 +2877,90 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect([armed, during]).toEqual([false, 1])
   })
 
+  it('E15: runs no row on a tap that comes as the glasses are about to be sent a redraw of the list, from whoever watches the calls', async () => {
+    const made: { fake?: ReturnType<typeof fakeBridge> } = {}
+    let armed = false
+    const { fake, people, ran, shell } = world({
+      watch: event => {
+        if (event.at !== 'call' || !armed) return
+        armed = false
+        made.fake?.tap()
+      },
+    })
+    made.fake = fake
+    await settle()
+    people[1] = 'Bea'
+    armed = true
+    shell.redraw()
+    await settle(100)
+    expect([armed, ran]).toEqual([false, []])
+  })
+
+  it('E15: reads no action of a list at a tap once reading what kind of view it is, on the way to the row, had the app open another screen', async () => {
+    const made: { router?: Router } = {}
+    let armed = false
+    let kinds = 0
+    let actions = 0
+    const { fake, router } = world({
+      home: ({ open }) => {
+        const view = list({ title: 'People', action: open })
+        Object.defineProperty(view, 'action', { get: () => (actions++, open) })
+        Object.defineProperty(view, 'kind', {
+          get: () => {
+            if (armed && ++kinds === 4) {
+              armed = false
+              made.router?.open({ id: 'other', view: () => text({ body: 'Other' }) })
+            }
+            return 'list'
+          },
+        })
+        return { id: 'people', view: () => view }
+      },
+    })
+    made.router = router
+    await settle()
+    const before = actions
+    armed = true
+    fake.tap()
+    const during = actions - before
+    await settle(100)
+    expect([armed, during]).toEqual([false, 0])
+  })
+
+  it('E15: takes what a gesture is tied to as one thing: the target it read with the action stays, also when reading the action changed the binding', async () => {
+    const did: string[] = []
+    const keep = action({
+      id: 'keep',
+      say: 'Keep',
+      targets: () => [{ id: 'one', say: 'One', value: 'one' }],
+      run: to => void did.push(to),
+    })
+    const tie: { action?: Action; target: string } = { target: 'one' }
+    const tied = () =>
+      Object.defineProperty(tie, 'action', {
+        configurable: true,
+        enumerable: true,
+        get: () => {
+          if (armed) delete tie.action
+          return keep
+        },
+      })
+    let armed = false
+    tied()
+    const { fake } = world({
+      home: () => ({
+        id: 'home',
+        view: () =>
+          boxes([{ id: 'control', x: 0, y: 0, w: 200, h: 40, text: 'Keep' }], { on: { tap: tie as { action: Action; target: string } } }),
+      }),
+    })
+    await settle()
+    armed = true
+    fake.tap()
+    await settle(100)
+    expect(did).toEqual(['one'])
+  })
+
   it.each([
     ['what the tap is tied to', 'binding'],
     ['the action it is tied to', 'action'],
