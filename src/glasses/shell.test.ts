@@ -1988,6 +1988,19 @@ describe('a hold', () => {
       expect([made.fake.overlay(), made.fake.mic, made.shell.busy]).toEqual(['Listening ▁▁▁▁▁▁▁▁', 'glasses', true])
     })
 
+    it('E20: goes on when the text the glasses already hold becomes its own only later in the hold', async () => {
+      const made = world({ voice: { transcribe: async () => 'refresh' } })
+      await settle()
+      made.shell.notice('Listening ▁▁▁▁▁▁▁▁\nA new message')
+      await settle(0)
+      made.fake.bridge.textContainerUpgrade = () => new Promise<boolean>(() => {})
+      made.fake.hold()
+      await settle(50)
+      made.shell.notice('A new message')
+      await settle(3_100)
+      expect([made.fake.overlay(), made.fake.mic, made.shell.busy]).toEqual(['Listening ▁▁▁▁▁▁▁▁\nA new message', 'glasses', true])
+    })
+
     it('E20: ends when the glasses took its text before the press and have refused that box since: it may be gone', async () => {
       const made = world({ voice: { transcribe: async () => 'refresh' } })
       await settle()

@@ -242,15 +242,23 @@ export class Glasses {
   [TAKEN](texts: ReadonlySet<string>): () => boolean {
     const watched = { texts, taken: false }
     this.#watched = watched
-    this.#took(this.#inBox)
-    return () => watched.taken
+    const look = () => {
+      this.#look(watched)
+      return watched.taken
+    }
+    look()
+    return look
+  }
+
+  #look(watched: { texts: ReadonlySet<string>; taken: boolean }): void {
+    if (watched.taken || typeof this.#inBox !== 'string') return
+    const drawn = overlayCard(this.#inBox).join('\n')
+    for (const text of watched.texts) if (overlayCard(text).join('\n') === drawn) watched.taken = true
   }
 
   #took(over: string | null | undefined): void {
     this.#inBox = over
-    if (typeof over !== 'string' || !this.#watched || this.#watched.taken) return
-    const drawn = overlayCard(over).join('\n')
-    for (const text of this.#watched.texts) if (overlayCard(text).join('\n') === drawn) this.#watched.taken = true
+    if (this.#watched) this.#look(this.#watched)
   }
 
   get [WHOLE](): boolean {
