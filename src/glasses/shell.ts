@@ -446,12 +446,15 @@ export class Shell {
     this.#callOff()
     const chunks: Uint8Array[] = []
     const bars = Array<string>(METER_BARS).fill(QUIET)
-    const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`)
+    const screen = this.#router.current
+    const listening = () => {
+      if (this.#router.current === screen) this.#show(`${this.#words.listening} ${bars.join('')}`, undefined, true)
+    }
     let meter: Timer | undefined
     const limit = this.#life.timeout(() => this.#finish(), longest)
     const recording = {
       chunks,
-      screen: this.#router.current,
+      screen,
       source,
       hear: ({ pcm }: Sound) => {
         chunks.push(pcm)
@@ -486,7 +489,7 @@ export class Shell {
     if (!recording || !voice) return
     recording.end()
     const pcm = joinPcm(recording.chunks)
-    if (this.#router.current !== recording.screen) return this.#clear()
+    if (this.#router.current !== recording.screen) return this.#clearOfTurn()
     if (problemWith(pcm)) return this.notice(this.#words.missed)
     void this.#decide(voice, { pcm, seconds: secondsOf(pcm) })
   }

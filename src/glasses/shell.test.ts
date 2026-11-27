@@ -1880,6 +1880,62 @@ describe('a hold', () => {
     expect(front()).toBe('')
   })
 
+  describe('a notice the app showed after it went to another screen while the touchpad was still held', () => {
+    const held = async (asked: number[] = []) => {
+      const made = world({ voice: { transcribe: async audio => (asked.push(audio.seconds), 'refresh') } })
+      await settle()
+      made.fake.hold()
+      await settle(50)
+      made.fake.sound(tone(400))
+      await settle(400)
+      expect(made.front()).toMatch(/^Listening/)
+      return made
+    }
+    const gone = (made: { router: Router; shell: Shell }, notice = true) => {
+      made.router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })
+      if (notice) made.shell.notice('That thread is gone')
+    }
+
+    it('is not written over by the meter: the hold is for a screen that is no longer on show', async () => {
+      const made = await held()
+      gone(made)
+      made.fake.sound(tone(400))
+      await settle(400)
+      made.fake.sound(tone(400))
+      await settle(400)
+      expect(made.front()).toBe('That thread is gone')
+    })
+
+    it('stays when the touchpad is let go, and the words go nowhere', async () => {
+      const asked: number[] = []
+      const made = await held(asked)
+      gone(made)
+      made.fake.sound(tone(400))
+      await settle(400)
+      made.fake.release()
+      await settle(50)
+      expect([made.front(), asked, made.ran]).toEqual(['That thread is gone', [], []])
+    })
+
+    it('goes when its own time is up, as any notice does', async () => {
+      const made = await held()
+      gone(made)
+      made.fake.release()
+      await settle(10_000)
+      expect(made.front()).toBe('')
+    })
+
+    it('is not needed for the shell to take its own "Listening" away at the release', async () => {
+      const made = await held()
+      gone(made, false)
+      made.fake.sound(tone(400))
+      await settle(400)
+      made.fake.release()
+      await settle(50)
+      expect(made.front()).toBe('')
+    })
+  })
+
   describe('a notice the app showed after it went to another screen while a command was being decided', () => {
     const gone = (world: { router: Router; shell: Shell }) => {
       world.router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })

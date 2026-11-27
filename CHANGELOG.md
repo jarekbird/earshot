@@ -6,6 +6,11 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
+## 0.0.61 (2026-11-26)
+
+- A notice the app showed after it changed the screen under a hold stays. The meter of the hold wrote over it
+  at once, and the release took it away.
+
 ## 0.0.60 (2026-11-26)
 
 - A list the shell made itself (the candidates, an action's targets, "More…") closes when a row of it is said by
