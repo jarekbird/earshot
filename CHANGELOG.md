@@ -6,7 +6,7 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.60 (2026-11-26)
+## 0.0.61 (2026-11-27)
 
 - A relay that has a secret asks its three calls for it too, not only live speech. A call that does not say it is
   answered 401 before anything is forwarded; one the relay does not forward at all is answered 404 first, as before. A relay with no secret answers as before.
@@ -18,6 +18,13 @@ each version's commits say: they name what a version added, and may miss a chang
   with no live upstream, where the setting used to be ignored.
 - **An app must** give such a relay a fitting secret or take the setting out: one under 16 characters, or over 1,024
   as JSON writes them, was ignored before with no live upstream and now makes no relay.
+
+## 0.0.60 (2026-11-26)
+
+- A list the shell made itself (the candidates, an action's targets, "More…") closes when a row of it is said by
+  name, as it does at a tap. The row ran and the list stayed open over the screen.
+- On the shell's list of an action's targets, "choose this one" and the row by name are one choice, as on a list
+  of the app's screen.
 
 ## 0.0.59 (2026-11-26)
 

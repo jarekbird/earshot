@@ -264,8 +264,11 @@ text, so Jev is enough.
 - Two options that would do the same thing are one choice. The shell's "choose this one" stands for the row under
   the cursor, which the question also offers by name. Both are put to the model, since each is how a person may
   say it, and the chance of the first is added to the second before anything is compared. The row by name is
-  what runs. On a list the shell made itself (a list of candidates, of an action's targets, of more actions)
-  choosing a row also closes the list, so there the two are not the same and stay apart.
+  what runs. A list the shell made itself (of candidates, of an action's targets, of more actions) closes when a
+  row of it is chosen, by a tap, by "choose this one" or by the row's name: the shell keeps, for each such list,
+  what its rows run, and closes the list before a verdict runs one of them. Going back is left to close the list
+  by itself. So on its list of an action's targets the two are the same and are joined as well; on the other two
+  a row is not offered under the list's own action, and nothing is joined.
 - Private targets never enter the rolling set (E6) and are picked by touch.
 
 ### Context
