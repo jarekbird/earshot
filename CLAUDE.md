@@ -41,6 +41,13 @@ Checks cite these IDs. Changing one needs Jarek's OK.
 - **E20** While the shell records for a hold, "Listening" is what it has the glasses show. Nothing is drawn over it:
   a notice goes under it, and a hold that cannot go on ends and lets go of the microphone.
 
+- **E19** A change that breaks an app written against the last version is Jarek's to allow. He is asked before it is
+  built, or told as soon as it is found, and the pull request lists what an app must change. A break is what stops
+  an app that follows the last version's README and types: a removed or renamed name, a newly required setting, a
+  changed default or documented behaviour, a raised Node or SDK need. A new optional setting is not one. _A test
+  holds what an app has (`docs/api.json`: each name of each way in, the commands, the Node and the SDK it needs)
+  and fails when something went. A changed shape or behaviour it cannot see: that part is prose._
+
 ## Code rules
 
 - **C1** No comments, except tool directives and one-line notes of external facts the code cannot express.
