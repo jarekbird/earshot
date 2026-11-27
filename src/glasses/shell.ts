@@ -218,6 +218,7 @@ export class Shell {
   #said = false
   #deciding: Lifetime | null = null
   #decidingOn: object | null = null
+  #shutting: (() => void) | undefined
   #asks = 0
   #handed = false
   readonly #frames: Frames
@@ -274,6 +275,7 @@ export class Shell {
     this.#life.own(
       showingsOf(router).onMove(() => {
         this.#moves++
+        this.#shutting?.()
         const spoken = this.#recording?.showing ?? (this.#handed ? undefined : this.#decidingOn)
         try {
           if (spoken !== undefined && spoken !== null && spoken !== showingsOf(router).current) this.#callOff(true)
@@ -453,7 +455,11 @@ export class Shell {
                   {
                     [SAME]: () => {
                       const under = drawn.targets[place.cursor]
-                      return under ? { action: view.action.id, target: under.id } : undefined
+                      if (!under) return undefined
+                      const listed = view.action
+                      const name = listed.id
+                      const first = actions.find(reached => reached === listed || reached.id === name)
+                      return first === listed ? { action: name, target: under.id } : undefined
                     },
                   },
                 ),
@@ -472,7 +478,7 @@ export class Shell {
 
   #choose(drawn: Drawn, row: { action: Action; target: string } | undefined, said = false): void {
     if (!row) return
-    if (this.#own.has(drawn.screen)) this.#router.back()
+    if (this.#own.has(drawn.screen) && !this.#shut()) return
     void this.#start(row.action, row.target, said)
   }
 
@@ -518,6 +524,20 @@ export class Shell {
       targets: () => actions.map(a => ({ id: a.id, say: a.say, value: a })),
       run: chosen => this.#start(chosen, undefined, this.#said),
     })
+  }
+
+  #shut(): boolean {
+    let settled = -1
+    this.#shutting = () => {
+      this.#shutting = undefined
+      settled = this.#moves
+    }
+    try {
+      this.#router.back()
+    } finally {
+      this.#shutting = undefined
+    }
+    return settled === this.#moves
   }
 
   #openOwn(screen: Screen, rows: Rows): void {
@@ -879,7 +899,9 @@ export class Shell {
     const found = this.#reachable().find(a => a.id === id) ?? rolled
     if (moves !== this.#moves) return
     if (!found) return this.notice(this.#words.unavailable)
-    if (id !== BACK && this.#own.get(this.#router.current)?.(id, targetId)) this.#router.back()
+    const row = id !== BACK && this.#own.get(this.#router.current)?.(id, targetId)
+    if (moves !== this.#moves) return
+    if (row && !this.#shut()) return
     void this.#start(found, targetId, said, pass)
   }
 

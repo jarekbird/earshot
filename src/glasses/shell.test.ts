@@ -6121,7 +6121,7 @@ describe('a hold', () => {
         transcribe: async () => 'which one',
         model: { choose: async () => ((asked = read.slice(-3)), {}) },
       },
-      home: () => ({ id: 'trail', view: () => view }),
+      home: () => ({ id: 'trail', actions: () => [open], view: () => view }),
     })
     await settle()
     await say(fake)
@@ -6424,6 +6424,136 @@ describe('a hold', () => {
       await settle()
       expect(filed).toEqual(['Work'])
       expect(fake.lines()[0]).toBe('People')
+    })
+
+    it('does not count "choose this one" with a row the app keeps to itself: nothing of that row goes to the model', async () => {
+      let asked: Array<{ say: string; same?: string }> = []
+      const kept = action({
+        id: 'file',
+        say: 'File under',
+        targets: () => [{ id: 'work', say: 'Work', value: 'Work', private: true }],
+        run: () => {},
+      })
+      const voice: VoiceOptions = {
+        transcribe: async () => 'which one',
+        model: { choose: async question => ((asked = question.options), {}) },
+      }
+      const { fake } = world({ voice, appActions: () => [kept] })
+      await settle()
+      fake.pick('File under')
+      await settle()
+      await say(fake)
+      await settle(100)
+      expect(asked.filter(option => option.say === 'Choose this one').map(option => option.same)).toEqual([undefined])
+    })
+
+    it('runs the row on show, and asks first as that row says, when "choose this one" is said on a list of the targets of an action another action shares its name with', async () => {
+      const did: string[] = []
+      const mine = action({
+        id: 'file',
+        say: 'File here',
+        targets: () => [{ id: 'work', say: 'Work', value: 'Work', risk: 'confirm' }],
+        run: name => void did.push(`here ${name}`),
+      })
+      const wide = action({
+        id: 'file',
+        say: 'File anywhere',
+        targets: () => [{ id: 'work', say: 'Work', value: 'Work' }],
+        run: name => void did.push(`anywhere ${name}`),
+      })
+      const { fake, front } = world({
+        voice: hearing('choose this one').voice,
+        appActions: () => [wide],
+        home: () => ({ id: 'desk', actions: () => [mine], view: () => text({ body: 'Desk' }) }),
+      })
+      await settle()
+      fake.pick('File here')
+      await settle()
+      const picker = fake.lines()
+      await say(fake)
+      await settle(100)
+      expect([picker[0], did, front().includes('Tap to confirm')]).toEqual(['File here', [], true])
+    })
+
+    it('runs nothing when the app opens another screen as the list closes for a row that was said by name', async () => {
+      const { filed, file } = filing()
+      let armed = false
+      const { fake, router } = world({ voice: hearing('file under work').voice, appActions: () => [file] })
+      router.onChange(() => {
+        if (!armed || router.current.id !== 'people') return
+        armed = false
+        router.open({ id: 'elsewhere', view: () => text({ body: 'Elsewhere' }) })
+      })
+      await settle()
+      fake.pick('File under')
+      await settle()
+      armed = true
+      await say(fake)
+      await settle(100)
+      expect([armed, filed, fake.lines()[0]]).toEqual([false, [], 'Elsewhere'])
+    })
+
+    it('runs nothing when the app opens another screen as the list closes at a tap on a row of it', async () => {
+      const { filed, file } = filing()
+      let armed = false
+      const { fake, router } = world({ appActions: () => [file] })
+      router.onChange(() => {
+        if (!armed || router.current.id !== 'people') return
+        armed = false
+        router.open({ id: 'elsewhere', view: () => text({ body: 'Elsewhere' }) })
+      })
+      await settle()
+      fake.pick('File under')
+      await settle()
+      armed = true
+      fake.tap()
+      await settle(100)
+      expect([armed, filed, fake.lines()[0]]).toEqual([false, [], 'Elsewhere'])
+    })
+
+    it('leaves a screen alone that the app opened as the shell asked whether what was said is a row of the list, and runs nothing', async () => {
+      const made: { router?: Router } = {}
+      let armed = false
+      const candidates = [
+        { say: 'Open: Ana', action: 'open', target: 'ana' },
+        { say: 'Open: Ben', action: 'open', target: 'ben' },
+      ]
+      const { voice } = hearing('which', 'open ben')
+      voice.transcribe = (() => {
+        const said = ['which', 'open ben']
+        return async () => said.shift() ?? ''
+      })()
+      voice.model = {
+        choose: (question, life) =>
+          question.words === 'which'
+            ? Promise.resolve({ [question.options.find(option => option.role === 'pass')?.id ?? '']: 1 })
+            : matchWords.choose(question, life),
+      }
+      voice.agents = [
+        ({ words }) =>
+          words === 'which'
+            ? {
+                kind: 'unsure' as const,
+                get candidates() {
+                  if (armed) {
+                    armed = false
+                    made.router?.open({ id: 'elsewhere', view: () => text({ body: 'Elsewhere' }) })
+                  }
+                  return candidates
+                },
+              }
+            : { kind: 'notMine' as const },
+      ]
+      const { fake, ran, router } = world({ voice })
+      made.router = router
+      await settle()
+      await say(fake)
+      await settle(100)
+      const picker = fake.lines()[0]
+      armed = true
+      await say(fake)
+      await settle(100)
+      expect([picker, armed, ran, fake.lines()[0]]).toEqual(['Which one?', false, [], 'Elsewhere'])
     })
 
     it('closes when a row of it is said by name: the list of candidates', async () => {
