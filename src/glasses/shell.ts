@@ -104,6 +104,16 @@ interface Place {
 
 type Gesture = 'tap' | 'up' | 'down'
 type Rows = (action: string, target?: string) => boolean
+
+interface Recording {
+  chunks: Uint8Array[]
+  screen: Screen
+  source: HoldSource
+  hear: (sound: Sound) => void
+  noted: () => string | undefined
+  note: (text: string) => void
+  end: () => void
+}
 type Aims = Partial<Record<Gesture, string>>
 
 interface Drawn {
@@ -141,7 +151,7 @@ export class Shell {
   #spent = false
   #over: string | null = null
   #fading: Timer | undefined
-  #recording: { chunks: Uint8Array[]; screen: Screen; source: HoldSource; hear: (sound: Sound) => void; end: () => void } | null = null
+  #recording: Recording | null = null
   readonly #down = new Map<HoldSource, Timer>()
   #held: Held | null = null
   #turn = 0
@@ -166,9 +176,11 @@ export class Shell {
       router.onChange(current => {
         if (this.#asking) this.#clear()
         if (this.#recording && this.#recording.screen !== current) {
+          const noted = this.#recording.noted()
           this.#recording.end()
           this.#spent = true
-          this.#clearOfTurn()
+          if (noted === undefined) this.#clearOfTurn()
+          else this.notice(noted)
         }
         this.redraw()
       }),
@@ -311,6 +323,7 @@ export class Shell {
   }
 
   notice(text: string): void {
+    if (this.#recording) return this.#recording.note(text)
     this.#show(text, this.#noticeMs)
   }
 
@@ -453,13 +466,26 @@ export class Shell {
     this.#callOff()
     const chunks: Uint8Array[] = []
     const bars = Array<string>(METER_BARS).fill(QUIET)
-    const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`, undefined, true)
+    let noted: string | undefined
+    let fading: Timer | undefined
+    const listening = () =>
+      this.#show(`${this.#words.listening} ${bars.join('')}${noted === undefined ? '' : `\n${noted}`}`, undefined, true)
     let meter: Timer | undefined
     const limit = this.#life.timeout(() => this.#finish(), longest)
     const recording = {
       chunks,
       screen: this.#router.current,
       source,
+      noted: () => noted,
+      note: (text: string) => {
+        fading?.cancel()
+        noted = text
+        fading = this.#life.timeout(() => {
+          noted = undefined
+          listening()
+        }, this.#noticeMs)
+        listening()
+      },
       hear: ({ pcm }: Sound) => {
         chunks.push(pcm)
         bars.push(levelOf(pcm))
@@ -472,6 +498,7 @@ export class Shell {
       end: () => {
         limit.cancel()
         meter?.cancel()
+        fading?.cancel()
         if (this.#recording !== recording) return
         this.#recording = null
         this.#held?.want(false)

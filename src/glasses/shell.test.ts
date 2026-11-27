@@ -1880,6 +1880,64 @@ describe('a hold', () => {
     expect(front()).toBe('')
   })
 
+  describe('a notice while the touchpad is held', () => {
+    const held = async () => {
+      const made = world({ voice: { transcribe: async () => 'refresh' } })
+      await settle()
+      made.fake.hold()
+      await settle(50)
+      made.fake.sound(tone(400))
+      await settle(400)
+      expect([made.front().split(' ')[0], made.fake.mic]).toEqual(['Listening', 'glasses'])
+      return made
+    }
+
+    it('E20: is shown under "Listening", not over it: the glasses go on saying that they listen', async () => {
+      const made = await held()
+      made.shell.notice('A new message')
+      await settle()
+      expect(made.fake.mic).toBe('glasses')
+      expect(
+        made
+          .front()
+          .split('\n')
+          .map(line => line.split(' ')[0]),
+      ).toEqual(['Listening', 'A'])
+      expect(made.front().split('\n')[1]).toBe('A new message')
+    })
+
+    it('E20: stays under "Listening" as the meter is drawn again, and goes when its own time is up', async () => {
+      const made = await held()
+      made.shell.notice('A new message')
+      made.fake.sound(tone(400))
+      await settle(400)
+      expect(made.front().split('\n')[1]).toBe('A new message')
+      await settle(10_000)
+      expect(made.front().split('\n')).toHaveLength(1)
+      expect(made.front().split(' ')[0]).toBe('Listening')
+    })
+
+    it('stays for its time when the app then changes the screen, which ends the hold', async () => {
+      const made = await held()
+      made.shell.notice('That thread is gone')
+      made.router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })
+      await settle()
+      expect([made.front(), made.fake.mic]).toEqual(['That thread is gone', null])
+      await settle(10_000)
+      expect(made.front()).toBe('')
+    })
+
+    it('gives way to the command when the touchpad is let go', async () => {
+      const made = await held()
+      made.shell.notice('A new message')
+      made.fake.sound(tone(400))
+      made.fake.release()
+      await settle(50)
+      expect(made.ran).toEqual(['refresh'])
+      expect(made.front()).not.toContain('A new message')
+    })
+  })
+
   describe('a screen that changes while the touchpad is still held', () => {
     const held = async (asked: number[] = []) => {
       const made = world({ voice: { transcribe: async audio => (asked.push(audio.seconds), 'refresh') } })
@@ -1896,7 +1954,7 @@ describe('a hold', () => {
       if (notice) made.shell.notice('That thread is gone')
     }
 
-    it('ends the hold there: the microphone is let go of for it, though the touchpad is still down', async () => {
+    it('E20: ends the hold there: the microphone is let go of for it, though the touchpad is still down', async () => {
       const made = await held()
       gone(made, false)
       await settle()

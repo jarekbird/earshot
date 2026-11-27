@@ -1,6 +1,6 @@
 {
   "name": "earshot-example",
-  "version": "0.0.61",
+  "version": "0.0.62",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "0.0.16",
-    "earshot": "github:jarekbird/earshot#v0.0.61"
+    "earshot": "github:jarekbird/earshot#v0.0.62"
   },
   "devDependencies": {
     "@evenrealities/evenhub-cli": "0.2.0",

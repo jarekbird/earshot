@@ -169,7 +169,9 @@ then to the app's agents. The navigator asks one question of a model behind one 
 hold without a release ends after a minute, and an answer that takes over forty-five seconds is given up on. A hold while
 a question is up calls the question off. A hold whose screen changes under it ends there, before the release: what it
 heard was for a screen that is gone, so it lets go of the microphone and takes "Listening" away at once, and nothing
-says the glasses listen while they do not, or hides that they do. The same press starts no other hold.
+says the glasses listen while they do not, or hides that they do. The same press starts no other hold. For as long as
+a hold records, "Listening" is on show (E20): a notice in that time is written as a line under it, for the notice's own
+time, and is shown on as a notice when the hold ends by a change of screen.
 
 Not built yet, and belonging to the next slice: Jev as the model, the rolling queue of items, context and its
 compaction, and the default transports.
