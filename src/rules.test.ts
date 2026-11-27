@@ -74,9 +74,9 @@ it('E4: the check knows each way to name what the guard does not reach: a proces
   expect(UNGUARDED.test("import { createServer } from 'node:http'")).toBe(false)
 })
 
-it('E4: only the simulator driver and this file use what the guard does not reach', () => {
+it('E4: only the simulator driver, its tests and this file use what the guard does not reach', () => {
   const code = tracked.filter(file => /\.(ts|mjs|js|cjs)$/.test(file) && UNGUARDED.test(readFileSync(join(root, file), 'utf8')))
-  expect(code).toEqual(['sim/real.sim.test.ts', 'sim/simulator.ts', 'src/rules.test.ts'])
+  expect(code).toEqual(['sim/real.sim.test.ts', 'sim/simulator.test.ts', 'sim/simulator.ts', 'src/rules.test.ts'])
 })
 
 const NOT_IN_THE_EXAMPLE = [

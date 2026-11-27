@@ -1,20 +1,25 @@
+import { spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as pause } from 'node:timers/promises'
-import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { FRAME_TAG, INPUT_TAG } from '../src/glasses/glasses.js'
 import { ending, findBinary, limited, Simulator } from './simulator.js'
 
+vi.mock('node:child_process', async original => {
+  const real = await original<typeof import('node:child_process')>()
+  return { ...real, spawn: vi.fn(real.spawn) }
+})
+
 const FAKE = `#!/usr/bin/env node
-import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 const args = process.argv.slice(2)
 const port = Number(args[args.indexOf('--automation-port') + 1])
 const mode = process.env.FAKE_SIM ?? ''
-if (process.env.FAKE_STARTS) appendFileSync(process.env.FAKE_STARTS, 'start\\n')
 const [kind, name] = mode.split(':')
 const told = join(import.meta.dirname, name + '.port')
 if (name && !existsSync(told)) {
@@ -108,8 +113,9 @@ const takenByAnother = async (name: string) => {
   return port
 }
 const startsOf = (name: string) => {
-  const file = join(dir, `${name}.starts`)
-  return { env: { FAKE_STARTS: file }, count: () => readFileSync(file, 'utf8').split('\n').length - 1 }
+  const env = { FAKE_STARTS: name }
+  const mine = ([, , options]: Parameters<typeof spawn>) => (options as { env?: NodeJS.ProcessEnv }).env?.FAKE_STARTS === name
+  return { env, count: () => vi.mocked(spawn).mock.calls.filter(mine).length }
 }
 const running = (pid: number) => {
   try {
@@ -172,7 +178,7 @@ describe('a port another program took before the simulator did', () => {
 
   started('is not the reason when the simulator never answers on a port nobody took: that one is started once', async () => {
     const starts = startsOf('silent')
-    await expect(start('silent', { startMs: 2_000 }, starts.env)).rejects.toThrow(/Timed out waiting for the simulator to answer/)
+    await expect(start('silent', { startMs: 400 }, starts.env)).rejects.toThrow(/Timed out waiting for the simulator to answer/)
     expect(starts.count()).toBe(1)
   })
 
