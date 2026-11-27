@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { action, type Action } from '../action.js'
 import { Lifetime } from '../lifetime.js'
-import { matchWords } from '../navigator.js'
+import { matchWords, type Verdict } from '../navigator.js'
 import { Rolling } from '../rolling.js'
 import { Router, type Screen } from '../router.js'
 import { boxes, list, text } from '../view.js'
@@ -1795,6 +1795,76 @@ describe('a hold', () => {
     await settle()
     expect(ran).toEqual([])
     expect(front()).toBe('')
+  })
+
+  describe('a notice the app showed after it went to another screen while a command was being decided', () => {
+    const gone = (world: { router: Router; shell: Shell }) => {
+      world.router.open({ id: 'about', view: () => text({ body: 'Earshot' }) })
+      world.shell.notice('That thread is gone')
+    }
+
+    it('stays when the words come back for the screen before: the dropped turn takes away only what it drew itself', async () => {
+      let answer = (_: string) => {}
+      const made = world({ voice: { transcribe: () => new Promise<string>(done => (answer = done)) } })
+      await settle()
+      await say(made.fake)
+      gone(made)
+      answer('refresh')
+      await settle()
+      expect(made.ran).toEqual([])
+      expect(made.front()).toBe('That thread is gone')
+    })
+
+    it("stays when the model's answer comes back for the screen before", async () => {
+      let answer = (_: Record<string, number>) => {}
+      const voice: VoiceOptions = { transcribe: async () => 'refresh', model: { choose: () => new Promise(done => (answer = done)) } }
+      const made = world({ voice })
+      await settle()
+      await say(made.fake)
+      gone(made)
+      answer({})
+      await settle()
+      expect(made.ran).toEqual([])
+      expect(made.front()).toBe('That thread is gone')
+    })
+
+    it('stays when the transcriber fails for the screen before', async () => {
+      let fail = (_: Error) => {}
+      const made = world({ voice: { transcribe: () => new Promise<string>((_, failed) => (fail = failed)) } })
+      await settle()
+      await say(made.fake)
+      gone(made)
+      fail(new SayError('No connection'))
+      await settle()
+      expect(made.front()).toBe('That thread is gone')
+    })
+
+    it('goes when its own time is up, as any notice does', async () => {
+      let answer = (_: string) => {}
+      const made = world({ voice: { transcribe: () => new Promise<string>(done => (answer = done)) } })
+      await settle()
+      await say(made.fake)
+      gone(made)
+      answer('refresh')
+      await settle(10_000)
+      expect(made.front()).toBe('')
+    })
+
+    it('gives way to what an agent that handled the words has to say', async () => {
+      let answer = (_: Verdict) => {}
+      const voice: VoiceOptions = {
+        transcribe: async () => 'tell the team',
+        model: matchWords,
+        agents: [() => new Promise(done => (answer = done))],
+      }
+      const made = world({ voice })
+      await settle()
+      await say(made.fake)
+      gone(made)
+      answer({ kind: 'handled', say: 'Told' })
+      await settle()
+      expect(made.front()).toBe('Told')
+    })
   })
 
   it("E7: hands the transcriber the command's lifetime, which ends when the command is called off", async () => {
