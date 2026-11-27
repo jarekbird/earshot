@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.63
+npm install github:jarekbird/earshot#v0.0.64
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.63 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.64 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -388,7 +388,7 @@ For live speech the relay needs three more settings. It can also run with these 
 | `EARSHOT_RELAY_SECRET`        | `SECRET`        | What an app must say before a line opens: 16 to 1,024 characters as JSON writes them, of your own making |
 | `EARSHOT_RELAY_LIVE_MODELS`   | `LIVE_MODELS`   | A comma-separated list, when your app uses another model than `@cf/deepgram/flux`                        |
 
-With no upstream for it the relay has no live path. With one, no relay is made without the key and the secret, whichever way it is started. An upstream is named with `https` (`wss` for live speech), so that no key travels in the clear; one on the same machine may be plain, named `localhost`, `[::1]` or an address in 127 (`[::ffff:127.0.0.1]` too) and no other way. Turn the gateway's logs off: they are on for a new gateway, and they would keep what was said.
+With no upstream for it the relay has no live path. With one, no relay is made without the key and the secret, whichever way it is started. An upstream is named with `https` (`wss` for live speech), so that no key travels in the clear; one on the same machine may be plain, named `localhost`, `[::1]` or an address in 127 (`[::ffff:127.0.0.1]` too) and no other way. An upstream has no `#` fragment, for the calls or for live speech: with one the relay does not start, since what follows it never reaches a server and every call would go to the address before it. Turn the gateway's logs off: they are on for a new gateway, and they would keep what was said.
 
 What the relay does:
 

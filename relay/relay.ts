@@ -100,6 +100,8 @@ const BYTES = new TextEncoder()
 const LOOPBACK = /^(?:127(?:\.\d{1,3}){3}|\[::ffff:7f[\da-f]{2}:[\da-f]{1,4}\])$/
 const onThisMachine = (hostname: string) => hostname === 'localhost' || hostname === '[::1]' || LOOPBACK.test(hostname)
 const WHOLE = /^\s*[a-z][a-z0-9+.-]*:\/\//i
+// Fact: a URL is read without the tabs and line ends in it, and without the spaces and control signs at its ends.
+const AS_READ = /[\t\n\r]|^[\0- ]+|[\0- ]+$/g
 const MAX_BYTES = 4_000_000
 const WAIT_MS = 10_000
 const SPEECH_WAIT_MS = 28_000
@@ -167,7 +169,7 @@ function sealed(address: string | undefined, scheme: 'https' | 'wss', what: stri
   if (!WHOLE.test(address ?? '')) throw new Error(`${what} needs the address of its upstream.`)
   if (url.protocol !== `${scheme}:` && !(url.protocol === plain && onThisMachine(url.hostname)))
     throw new Error(`${what} sends a key, so its upstream is named with ${scheme}.`)
-  return (address ?? '').replace(/\/+$/, '')
+  return (address ?? '').replace(AS_READ, '').replace(/\/+$/, '')
 }
 
 function checked(live: LiveOptions): LiveOptions {
@@ -251,6 +253,7 @@ export function relay(options: RelayOptions, sockets?: Sockets): (request: Reque
   if (!forwards && !options.live) throw new Error('A relay needs an upstream: for its calls, for live speech, or for both.')
   if (forwards && options.key === undefined && !options.fetch) throw new Error("The relay's calls need the key of their upstream.")
   const upstream = forwards ? sealed(options.upstream, 'https', "The relay's calls") : ''
+  if (upstream.includes('#')) throw new Error("The relay's calls name their upstream with no fragment.")
   const speech = options.live && checked(options.live)
   const models = new Set(options.models ?? DEFAULT_MODELS)
   const forwarded = new Set(options.calls ? known(options.calls).map(call => PATHS[call]) : Object.values(PATHS))

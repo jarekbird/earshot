@@ -547,6 +547,11 @@ describe('the upstream of the calls, for a host that brings its own fetch', () =
     expect(() => relay(relayOptions(settings))).not.toThrow()
   })
 
+  it('does not start with an upstream for its calls that has a fragment, since every call would go to the address before it', () => {
+    expect(() => relay({ key: 'sk-developer', upstream: 'https://upstream.example/base#part' })).toThrow('with no fragment')
+    expect(() => relay({ key: 'sk-developer', upstream: 'https://upstream.example/base#' })).toThrow('with no fragment')
+  })
+
   it('needs a key to be given when the relay fetches its upstream itself, though the key may be empty, as it always could', async () => {
     expect(() => relay({ upstream: 'https://upstream.example' })).toThrow('need the key')
     const keys: Array<string | null> = []

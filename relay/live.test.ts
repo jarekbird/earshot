@@ -644,6 +644,58 @@ describe('E13: live speech through the relay, on the Node server and on the Work
   })
 })
 
+const UPGRADE = 'connection: upgrade\r\nupgrade: websocket\r\nsec-websocket-version: 13\r\nsec-websocket-key: dGhlIHNhbXBsZSBub25jZQ=='
+const BAD: Array<[string, string | Uint8Array]> = [
+  ['an upgrade with a method that carries none', `TRACE ${LIVE_PATH} HTTP/1.1\r\nhost: relay\r\n${UPGRADE}\r\n\r\n`],
+  ['an upgrade with no key', `GET ${LIVE_PATH} HTTP/1.1\r\nhost: relay\r\nconnection: upgrade\r\nupgrade: websocket\r\n\r\n`],
+  ['an upgrade of a version nobody speaks', `GET ${LIVE_PATH} HTTP/1.1\r\nhost: relay\r\n${UPGRADE.replace('13', '99')}\r\n\r\n`],
+  ['an upgrade to a path the relay does not have', `GET /elsewhere HTTP/1.1\r\nhost: relay\r\n${UPGRADE}\r\n\r\n`],
+  ['an upgrade from a host that is no host', `GET ${LIVE_PATH} HTTP/1.1\r\nhost: [\r\n${UPGRADE}\r\n\r\n`],
+  ['an upgrade to an address that is no address', `GET http://[ HTTP/1.1\r\nhost: relay\r\n${UPGRADE}\r\n\r\n`],
+  ['a post to the live path', `POST ${LIVE_PATH} HTTP/1.1\r\nhost: relay\r\ncontent-length: 2\r\n\r\n{}`],
+  ['a call whose body stops short', 'POST /api/v1/chat/completions HTTP/1.1\r\nhost: relay\r\ncontent-length: 100\r\n\r\n{"model"'],
+  ['a request that stops in its headers', `GET ${LIVE_PATH} HTTP/1.1\r\nhost: rel`],
+  ['bytes that are no request', new Uint8Array([0x16, 0x03, 0x01, 0x02, 0x00, 0x01, 0x00, 0xff, 0xff])],
+]
+
+describe('E18: a host survives a request it cannot take, on the Node server and on the Worker', () => {
+  const send = (at: string, bytes: string | Uint8Array, leave: 'reset' | 'wait') =>
+    new Promise<void>(done => {
+      const { hostname, port } = new URL(at)
+      const raw = connect({ port: Number(port), host: hostname, allowHalfOpen: true }, () => {
+        raw.write(bytes)
+        if (leave === 'reset') setTimeout(() => raw.resetAndDestroy(), 20)
+      })
+      const give = setTimeout(() => raw.destroy(), 400)
+      raw.on('error', () => {})
+      raw.on('close', () => {
+        clearTimeout(give)
+        done()
+      })
+      raw.resume()
+    })
+
+  it.each(['reset', 'wait'] as const)(
+    'both go on serving after each of them, when the caller answers with a %s',
+    async leave => {
+      const answer = await both({}, async ({ at }) => {
+        const served: Record<string, boolean> = {}
+        for (const [name, bytes] of BAD) {
+          await send(at, bytes, leave)
+          const { got, say, line } = call(at)
+          await say(greeting())
+          await vi.waitFor(() => expect(got).toHaveLength(1), WAIT)
+          line.close(1000)
+          served[name] = got[0] === JSON.stringify({ type: 'Connected' })
+        }
+        return served
+      })
+      expect(answer).toEqual(Object.fromEntries(BAD.map(([name]) => [name, true])))
+    },
+    30_000,
+  )
+})
+
 describe('the settings of live speech', () => {
   const calls = { key: DEVELOPER, upstream: 'https://upstream.example' }
   const live = { upstream: 'wss://speech.example/v1', key: LIVE_KEY, secret: PHRASE }

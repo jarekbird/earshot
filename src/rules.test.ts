@@ -501,6 +501,17 @@ it("an app that installs Earshot installs no tool that runs on fewer machines th
   expect(workflow).toMatch(/^ {6}- run: npm ci --prefix workerd\n {6}- run: \$\{\{ matrix\.run \}\}$/m)
 })
 
+it('E17: every live speech Earshot has, stand-in or real, runs the one set of tests in src/live.contract.test.ts', () => {
+  const makers = sources.filter(source => /\): LiveSpeech\b/.test(source.text)).map(source => source.file.split(sep).join('/'))
+  expect(makers.length).toBeGreaterThan(1)
+  const contract = readFileSync(join(root, 'src/live.contract.test.ts'), 'utf8')
+  expect(
+    makers.filter(file => !contract.includes(`from './${file.replace(/\.ts$/, '.js')}'`)),
+    'E17: a stand-in and what it stands in for are held to the same tests. Add this one to BOTH in src/live.contract.test.ts, with a service that says the same lines.',
+  ).toEqual([])
+  expect(contract.match(/^ {2}\['/gm)?.length, 'E17: each maker of live speech has its own entry in BOTH.').toBe(makers.length)
+})
+
 it.runIf(process.env.EARSHOT_OFFLINE)("E4: in CI the tests see no network but the machine's own", () => {
   const outside = Object.values(networkInterfaces())
     .flatMap(addresses => addresses ?? [])

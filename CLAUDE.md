@@ -38,6 +38,17 @@ Checks cite these IDs. Changing one needs Jarek's OK.
   cannot parse, or stopped reading before the end of, is no input: never a default, never a guess.
 - **E15** A touch acts only on what the glasses are known to show: not on a row a notice still covers, and not as
   the answer to a question that is not on show yet.
+- **E16** What carries a key, a secret or sound goes to the address that was checked. An address is read once; that
+  reading is what is checked and what is used, never the text a second time. _A test hands the relay's two
+  upstreams and the transport's relay a list of awkward addresses: each is refused, or reached where the check read
+  it (`relay/addresses.test.ts`)._
+- **E17** A stand-in and what it stands in for pass the same tests: where sound is taken and cut, the order in which
+  a listener is told, what it may do from there, and what is said when it fails. _For live speech, one set of tests
+  runs on both (`src/live.contract.test.ts`), and a test fails when a maker of live speech is not in it. For the
+  navigator's model and for speech-to-text it is prose._
+- **E18** A relay host survives any request: it reads a request inside its error handling, hears the errors of every
+  socket it takes, and destroys what it refuses. _A test sends both hosts a list of requests they cannot take, with
+  a caller that resets or waits, and each must go on serving (`relay/live.test.ts`)._
 - **E20** While the shell records for a hold, "Listening" is what it has the glasses show. Nothing is drawn over it:
   a notice goes under it, and a hold that cannot go on ends and lets go of the microphone.
 
