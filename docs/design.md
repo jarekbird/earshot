@@ -174,8 +174,8 @@ a hold records, "Listening" is on show (E20): a notice in that time is written a
 time, and is shown on for what is left of that time when the hold ends by a change of screen. The microphone opens at
 the press, before the glasses have drawn anything, so that the first word is not lost. `Glasses` knows what the box that
 holds the overlay holds: what the glasses last took there, and nothing certain once they refused a write of it. From the
-press it watches that box for the hold's own texts, as they are drawn: the hold has seen "Listening" if the box held
-one of them already, or once the glasses take one, and that is not taken back. A hold that has not seen it three
+press it watches that box for the hold's own texts, as they are drawn: the hold has seen "Listening" if the box holds
+one of them when the hold asks, or once the glasses take one, and that is not taken back. A hold that has not seen it three
 seconds on ends, as one whose screen changed does. It is judged at the box, when the glasses answer, and by its own
 texts: not by what is certain at one moment (while the meter is drawn again faster than the glasses answer, no moment
 is certain), not by the whole page (another box or a picture of it may be refused while "Listening" is on show), not by
