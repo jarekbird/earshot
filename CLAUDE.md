@@ -49,6 +49,8 @@ Checks cite these IDs. Changing one needs Jarek's OK.
 - **E18** A relay host survives any request: it reads a request inside its error handling, hears the errors of every
   socket it takes, and destroys what it refuses. _A test sends both hosts a list of requests they cannot take, with
   a caller that resets or waits, and each must go on serving (`relay/live.test.ts`)._
+- **E20** While the shell records for a hold, "Listening" is what it has the glasses show. Nothing is drawn over it:
+  a notice goes under it, and a hold that cannot go on ends and lets go of the microphone.
 
 ## Code rules
 
