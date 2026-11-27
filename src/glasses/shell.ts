@@ -8,7 +8,7 @@ import type { Router, Screen } from '../router.js'
 import { SayError } from '../say.js'
 import { list, type Bound, type View } from '../view.js'
 import type { Box, Picture } from './frame.js'
-import { LANDED, OVERLAY, WHOLE, type Glasses } from './glasses.js'
+import { OVERLAY, TAKEN, WHOLE, type Glasses } from './glasses.js'
 import type { HoldSource, Input } from './input.js'
 import { layoutList, layoutText, type Stride, type TextState } from './layout.js'
 import { MAX_MENU_ITEMS } from './limits.js'
@@ -478,11 +478,9 @@ export class Shell {
     }
     let meter: Timer | undefined
     const limit = this.#life.timeout(() => this.#finish(), longest)
-    const before = this.#glasses[LANDED].times
+    let seen = () => false
     const unseen = this.#life.timeout(() => {
-      const { times, over } = this.#glasses[LANDED]
-      const seen = times > before && over !== null && drawn.has(over)
-      if (seen || this.#recording !== recording) return
+      if (seen() || this.#recording !== recording) return
       recording.end()
       this.#spent = true
       this.#clearOfTurn()
@@ -524,6 +522,7 @@ export class Shell {
     this.#recording = recording
     this.#held.want(true)
     listening()
+    seen = this.#glasses[TAKEN](drawn)
     voice.onListen?.()
   }
 

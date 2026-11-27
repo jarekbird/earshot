@@ -111,7 +111,7 @@ interface Page {
 
 export const OVERLAY = Symbol('the overlay the glasses are known to show')
 export const WHOLE = Symbol('whether the glasses show one whole frame, none partly sent since')
-export const LANDED = Symbol('how often the glasses have taken the box that holds the overlay, and the overlay they took last')
+export const TAKEN = Symbol('whether the glasses hold, or have since taken, one of these overlays in the box that holds it')
 
 const layoutOf = ({ boxes, pictures }: Pick<Page, 'boxes' | 'pictures'>) =>
   JSON.stringify([
@@ -213,7 +213,8 @@ export class Glasses {
   #shown = 0
   #whole = true
   #over: string | null | undefined = null
-  #landed: { times: number; over: string | null } = { times: 0, over: null }
+  #inBox: string | null | undefined = null
+  #watched: { texts: ReadonlySet<string>; taken: boolean } | null = null
 
   constructor(parent: Lifetime, bridge: GlassesBridge, options: GlassesOptions = {}) {
     this.#life = parent.child()
@@ -238,8 +239,18 @@ export class Glasses {
     return this.#over
   }
 
-  get [LANDED](): { times: number; over: string | null } {
-    return this.#landed
+  [TAKEN](texts: ReadonlySet<string>): () => boolean {
+    const watched = { texts, taken: false }
+    this.#watched = watched
+    this.#took(this.#inBox)
+    return () => watched.taken
+  }
+
+  #took(over: string | null | undefined): void {
+    this.#inBox = over
+    if (typeof over !== 'string' || !this.#watched || this.#watched.taken) return
+    const drawn = overlayCard(over).join('\n')
+    for (const text of this.#watched.texts) if (overlayCard(text).join('\n') === drawn) this.#watched.taken = true
   }
 
   get [WHOLE](): boolean {
@@ -458,10 +469,11 @@ export class Glasses {
       this.#sent.clear()
       this.#shape = ''
       this.#layout = ''
+      this.#took(undefined)
       return false
     }
     this.#created = true
-    this.#landed = { times: this.#landed.times + 1, over }
+    this.#took(over)
     this.#shape = shape
     this.#layout = layoutOf({ boxes, pictures })
     this.#sent = new Map(boxes.map(box => [box.id, stateOf(box)]))
@@ -483,13 +495,12 @@ export class Glasses {
       if (over !== this.#over) this.#over = undefined
       const accepted = await this.#ask(frame, 'update', 1, () => this.#bridge.textContainerUpgrade(upgrade), true, box.name)
       if (this.#life.ended) return false
-      if (accepted) {
-        this.#sent.set(box.id, stateOf(box))
-        if (box.id === INPUT) this.#landed = { times: this.#landed.times + 1, over }
-      } else {
+      if (accepted) this.#sent.set(box.id, stateOf(box))
+      else {
         this.#sent.delete(box.id)
         drawn = false
       }
+      if (box.id === INPUT) this.#took(accepted ? over : undefined)
     }
     return drawn
   }
