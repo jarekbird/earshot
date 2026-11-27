@@ -167,6 +167,8 @@ interface Kept {
   frame: number
 }
 
+const askedAs = ({ id, x, y, w, h, text, brightness }: Box): string => JSON.stringify([id, x, y, w, h, text, brightness ?? MAX_BRIGHTNESS])
+
 const kept = ({ box, text, brightness }: Placed, frame: number): Kept => ({
   under: box,
   taken: { id: box.id, x: box.x, y: box.y, w: box.w, h: box.h, text, brightness },
@@ -644,7 +646,7 @@ export class Glasses {
         if (index === 0) return
         const had = this.#have.boxes[index - 1]
         const now = kept(box, frame)
-        this.#have.boxes[index - 1] = had && JSON.stringify(had.under) === JSON.stringify(now.under) ? { ...now, frame: had.frame } : now
+        this.#have.boxes[index - 1] = had && askedAs(had.under) === askedAs(now.under) ? { ...now, frame: had.frame } : now
       }
       if (this.#sent.get(box.id) === stateOf(box)) {
         if (!left && !this.#takenBack(frame)) noted()

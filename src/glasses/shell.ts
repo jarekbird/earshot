@@ -144,15 +144,21 @@ function once(given: Verdict, mine: () => boolean): Answer {
   const { kind } = given
   if (!mine()) throw new LifetimeEnded()
   let said: { kind: 'handled'; say?: string } | undefined
-  return {
+  const answer: Answer = {
     kind,
-    says: () => (said = kind === 'handled' ? replyOf(given) : undefined)?.say,
+    says: () => {
+      answer.kind = given.kind
+      if (!mine()) return undefined
+      said = answer.kind === 'handled' ? replyOf(given) : undefined
+      return said?.say
+    },
     now: () => given.kind,
     holds: now => {
       const stands = asItStands(given, now)
       return said && stands.kind === 'handled' && stands.say === undefined ? said : stands
     },
   }
+  return answer
 }
 
 function asItStands(given: Verdict, kind: Verdict['kind']): Verdict {
@@ -534,11 +540,11 @@ export class Shell {
     const moves = this.#moves
     if (view.kind === 'boxes') {
       const shown = this.#onShow(drawn)?.[input.kind]
-      if (shown === undefined || this.#frames.newest?.aims[input.kind] !== shown) return
+      if (drawn !== this.#drawn || shown === undefined || this.#frames.newest?.aims[input.kind] !== shown) return
       const bound = view.on?.[input.kind]
       if (!bound || moves !== this.#moves) return
       const { action: chosen, target } = tied(bound)
-      if (moves !== this.#moves) return
+      if (moves !== this.#moves || drawn !== this.#drawn) return
       return void this.#start(chosen, target)
     }
     const seen = this.#frames.words
@@ -549,9 +555,9 @@ export class Shell {
     } else if (input.kind !== 'tap') place.cursor += step
     else {
       const shown = this.#onShow(drawn)?.tap
-      if (shown === undefined || this.#frames.newest?.aims.tap !== shown) return
+      if (drawn !== this.#drawn || shown === undefined || this.#frames.newest?.aims.tap !== shown) return
       const row = this.#row(drawn, place)
-      return row && moves === this.#moves && row.target === drawn.row ? this.#choose(drawn, row) : undefined
+      return row && moves === this.#moves && drawn === this.#drawn && row.target === drawn.row ? this.#choose(drawn, row) : undefined
     }
     this.redraw()
   }

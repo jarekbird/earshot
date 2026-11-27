@@ -2657,6 +2657,142 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     expect(went).toEqual([cursor()])
   })
 
+  it('E15: runs nothing on a tap when reading the view it was about to act on had the app ask for yet another frame: the binding is of a draw that is no longer the newest', async () => {
+    const did: string[] = []
+    const made: { shell?: Shell } = {}
+    const keep = action({ id: 'keep', say: 'Keep', run: () => void did.push('keep') })
+    const archive = action({ id: 'archive', say: 'Archive', run: () => void did.push('archive') })
+    const viewFor = (chosen: Action) => boxes([{ id: 'control', x: 0, y: 0, w: 200, h: 40, text: chosen.say }], { on: { tap: chosen } })
+    let view = viewFor(keep)
+    let armed = false
+    const { fake, shell } = world({ home: () => ({ id: 'home', view: () => view }) })
+    made.shell = shell
+    await settle()
+    view = viewFor(archive)
+    Object.defineProperty(view, 'kind', {
+      get: () => {
+        if (armed) {
+          armed = false
+          view = viewFor(keep)
+          made.shell?.redraw()
+        }
+        return 'boxes'
+      },
+    })
+    shell.redraw()
+    armed = true
+    const shown = fake.lines()
+    fake.tap()
+    await settle(100)
+    expect([shown, did]).toEqual([['Keep'], []])
+  })
+
+  it('E15: runs nothing on a tap when reading what the view ties the tap to had the app ask for yet another frame', async () => {
+    const did: string[] = []
+    const made: { shell?: Shell } = {}
+    let armed = false
+    const keep = action({ id: 'keep', say: 'Keep', run: () => void did.push('keep') })
+    const on = {
+      get tap() {
+        if (armed) {
+          armed = false
+          made.shell?.redraw()
+        }
+        return keep
+      },
+    }
+    const { fake, shell } = world({
+      home: () => ({ id: 'home', view: () => boxes([{ id: 'control', x: 0, y: 0, w: 200, h: 40, text: 'Keep' }], { on }) }),
+    })
+    made.shell = shell
+    await settle()
+    armed = true
+    fake.tap()
+    await settle(100)
+    const first = [...did]
+    fake.tap()
+    await settle(100)
+    expect([first, did]).toEqual([[], ['keep']])
+  })
+
+  it.each([
+    ['what kind of view it is', 'kind'],
+    ['the action of the list', 'action'],
+  ] as const)('E15: runs no row on a tap when reading %s had the app ask for yet another frame', async (_what, read) => {
+    const made: { shell?: Shell } = {}
+    let armed = false
+    const { fake, open, ran, shell } = world({
+      home: ({ open: action }) => {
+        const view = list({ title: 'People', action })
+        const real = (view as unknown as Record<string, unknown>)[read]
+        Object.defineProperty(view, read, {
+          get: () => {
+            if (armed) {
+              armed = false
+              made.shell?.redraw()
+            }
+            return real
+          },
+        })
+        return { id: 'people', view: () => view }
+      },
+    })
+    made.shell = shell
+    await settle()
+    armed = true
+    fake.tap()
+    await settle(100)
+    const first = [...ran]
+    fake.tap()
+    await settle(100)
+    expect([open.id, first, ran]).toEqual(['open', [], [`open ${names[0]}`]])
+  })
+
+  it.each([
+    [
+      'what a screen of boxes ties the tap to',
+      (redraws: () => boolean, counts: () => void, keep: Action) => {
+        const on = {}
+        Object.defineProperty(on, 'tap', { get: () => (counts(), keep), enumerable: true })
+        const view = boxes([{ id: 'control', x: 0, y: 0, w: 200, h: 40, text: 'Keep' }], { on })
+        Object.defineProperty(view, 'kind', { get: () => (redraws(), 'boxes') })
+        return view
+      },
+    ],
+    [
+      'the action of a list',
+      (redraws: () => boolean, counts: () => void, _keep: Action, open: Action) => {
+        const view = list({ title: 'People', action: open })
+        Object.defineProperty(view, 'action', { get: () => (counts(), open) })
+        Object.defineProperty(view, 'kind', { get: () => (redraws(), 'list') })
+        return view
+      },
+    ],
+  ])(
+    'E15: reads no more of a view at a tap, not %s, once reading what kind it is had the app ask for yet another frame',
+    async (_what, viewOf) => {
+      const made: { shell?: Shell } = {}
+      let armed = false
+      let reads = 0
+      const keep = action({ id: 'keep', say: 'Keep', run: () => {} })
+      const redraws = () => armed && ((armed = false), made.shell?.redraw(), true)
+      const { fake, shell } = world({
+        home: ({ open }) => {
+          const view = viewOf(redraws, () => void reads++, keep, open)
+          return { id: 'home', view: () => view }
+        },
+      })
+      made.shell = shell
+      await settle()
+      const before = reads
+      armed = true
+      fake.tap()
+      const during = reads - before
+      await settle(100)
+      expect([armed, during]).toEqual([false, 1])
+    },
+  )
+
   it('E15: runs nothing of a new frame on a tap that comes as the shell reads what kind of view it asked for, after it asked: the glasses still show the frame before', async () => {
     const did: string[] = []
     const made: { fake?: ReturnType<typeof fakeBridge> } = {}
@@ -4556,7 +4692,7 @@ describe('a hold', () => {
         let says = 0
         return {
           get kind() {
-            if (++kinds === 2) opens()
+            if (++kinds === 3) opens()
             return 'handled' as const
           },
           get say() {
@@ -4613,7 +4749,7 @@ describe('a hold', () => {
         made.router?.back()
         return {
           get kind() {
-            if (++kinds === 2) made.router?.open({ id: 'later', view: () => text({ body: 'Later' }) })
+            if (++kinds === 3) made.router?.open({ id: 'later', view: () => text({ body: 'Later' }) })
             return 'handled' as const
           },
           get say() {
@@ -4628,7 +4764,7 @@ describe('a hold', () => {
     await settle()
     await say(fake)
     await settle(100)
-    expect([kinds, says]).toEqual([2, 1])
+    expect([kinds, says]).toEqual([3, 1])
   })
 
   it('says what an agent that handled the words has to say as it stands once what it left behind has run, also when the agent went to another screen and came back', async () => {
@@ -4659,7 +4795,7 @@ describe('a hold', () => {
         let reads = 0
         return {
           get kind() {
-            if (++reads === 2) holds()
+            if (++reads === 3) holds()
             return 'handled' as const
           },
           say: 'Saved',
@@ -4715,7 +4851,7 @@ describe('a hold', () => {
         made.router?.back()
         return {
           get kind() {
-            if (++kinds === 2) made.fake?.hold()
+            if (++kinds === 3) made.fake?.hold()
             return 'handled' as const
           },
           get say() {
@@ -4731,7 +4867,7 @@ describe('a hold', () => {
     await settle()
     await say(fake)
     await settle(100)
-    expect([kinds, says]).toEqual([2, 1])
+    expect([kinds, says]).toEqual([3, 1])
   })
 
   it('reads no action of an answer that came as handled and names one once what the agent left behind has run, when the agent went to another screen and came back', async () => {
@@ -5127,9 +5263,10 @@ describe('a hold', () => {
     expect(front()).toBe('Saved')
   })
 
-  it('reads what kind of answer an agent gave once, however often it goes on to use it', async () => {
+  it('reads no more of an answer once reading its kind, as the turn takes the answer up, has called the turn off: nothing is said', async () => {
     let answer: (verdict: { kind: 'handled'; say: string }) => void = () => {}
     let reads = 0
+    let says = 0
     const { voice } = hearing('remember the milk')
     voice.agents = [() => new Promise(done => (answer = done))]
     const { fake, front, router } = world({ voice })
@@ -5139,13 +5276,16 @@ describe('a hold', () => {
     await settle()
     answer({
       get kind() {
-        if (++reads > 1) router.close()
+        if (++reads === 2) router.close()
         return 'handled' as const
       },
-      say: 'Saved',
+      get say() {
+        says++
+        return 'Saved'
+      },
     })
     await settle(100)
-    expect([reads, front()]).toEqual([1, 'Saved'])
+    expect([reads, says, front()]).toEqual([2, 0, ''])
   })
 
   it('asks the screen an agent went to for nothing more when the agent has handled the words there: only what it says is shown', async () => {
@@ -5334,7 +5474,7 @@ describe('a hold', () => {
         let reads = 0
         return {
           get kind() {
-            if (++reads === 2) opens()
+            if (++reads === 3) opens()
             return 'sure' as const
           },
           action: 'commit',
@@ -5420,7 +5560,7 @@ describe('a hold', () => {
     voice.agents = [
       () => ({
         get kind() {
-          if (++kinds === 2) made.router?.open({ id: 'there', view: () => text({ body: 'There' }) })
+          if (++kinds === 3) made.router?.open({ id: 'there', view: () => text({ body: 'There' }) })
           return 'sure' as const
         },
         get action() {
@@ -5434,7 +5574,7 @@ describe('a hold', () => {
     await settle()
     await say(fake)
     await settle(100)
-    expect([kinds, named]).toEqual([2, 0])
+    expect([kinds, named]).toEqual([3, 0])
   })
 
   it('runs nothing an agent named when reading what kind it is, once what the agent left behind has run, ended the app', async () => {
@@ -5446,7 +5586,7 @@ describe('a hold', () => {
     voice.agents = [
       () => ({
         get kind() {
-          if (++kinds === 2) made.life?.end()
+          if (++kinds === 3) made.life?.end()
           return 'sure' as const
         },
         action: 'commit',
@@ -5457,7 +5597,7 @@ describe('a hold', () => {
     await settle()
     await say(fake)
     await settle(100)
-    expect([kinds, did]).toEqual([2, []])
+    expect([kinds, did]).toEqual([3, []])
   })
 
   it('tells the navigator what "choose this one" stands for by reading the action the list has, then its name, then the row under the cursor, as `main` reads them', async () => {
@@ -5529,6 +5669,28 @@ describe('a hold', () => {
     expect([fake.lines()[0], front()]).toEqual(['Result', 'Saved'])
   })
 
+  it('says nothing for an agent that handled the words on another screen and took its answer back in the moment after it gave it', async () => {
+    let answer: (verdict: { kind: 'handled'; say?: string }) => void = () => {}
+    const made: { router?: Router } = {}
+    const { voice } = hearing('save it')
+    voice.agents = [
+      () => {
+        made.router?.open({ id: 'result', view: () => text({ body: 'Result' }) })
+        return new Promise(done => (answer = done))
+      },
+    ]
+    const { fake, front, router } = world({ voice })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle()
+    const verdict: { kind: 'handled'; say?: string } = { kind: 'handled', say: 'Saved' }
+    answer(verdict)
+    queueMicrotask(() => void Object.assign(verdict, { kind: 'none' }))
+    await settle(100)
+    expect([fake.lines()[0], front()]).toEqual(['Result', ''])
+  })
+
   it('says what an agent that handled the words has to say when it only says so as the turn ends, in what it left behind', async () => {
     const { voice } = hearing('do it', 'do it')
     voice.agents = [
@@ -5572,7 +5734,7 @@ describe('a hold', () => {
         let reads = 0
         return {
           get kind() {
-            if (++reads === 2) holds()
+            if (++reads === 3) holds()
             return 'sure' as const
           },
           action: 'refresh',
@@ -5623,7 +5785,7 @@ describe('a hold', () => {
     expect([did, front()]).toEqual([[], 'Saved'])
   })
 
-  it("reads the kind of an agent's answer twice and no more: as the answer comes, and once what the agent left behind has run", async () => {
+  it("reads the kind of an agent's answer three times and no more: as the answer comes, as the turn takes it up, and once what the agent left behind has run", async () => {
     const did: string[] = []
     const read: string[] = []
     const preview = action({ id: 'preview', say: 'Preview', run: () => void did.push('preview') })
@@ -5644,7 +5806,7 @@ describe('a hold', () => {
     await settle()
     await say(fake)
     await settle(100)
-    expect([read, did]).toEqual([['kind', 'left behind', 'kind'], ['preview']])
+    expect([read, did]).toEqual([['kind', 'kind', 'left behind', 'kind'], ['preview']])
   })
 
   it('calls a turn off at a change of screen while only the model is at work on it', async () => {
