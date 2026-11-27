@@ -107,7 +107,7 @@ interface Place {
   away?: boolean
 }
 
-type Rows = (action: string, target?: string) => boolean
+type Rows = (action: string, target?: string) => Action | boolean
 
 interface Drawn {
   frame: number
@@ -198,10 +198,8 @@ export class Shell {
   #drawn: Drawn | null = null
   #asking: { yes: () => void; no?: () => void } | null = null
   #overlaid = false
-  #noticed = false
   #ofTurn = false
   #over: string | null = null
-  #spared: HoldSource | undefined
   #slow: Timer | undefined
   #fading: Timer | undefined
   #recording: {
@@ -455,11 +453,7 @@ export class Shell {
                   {
                     [SAME]: () => {
                       const under = drawn.targets[place.cursor]
-                      if (!under) return undefined
-                      const listed = view.action
-                      const name = listed.id
-                      const first = actions.find(reached => reached === listed || reached.id === name)
-                      return first === listed ? { action: name, target: under.id } : undefined
+                      return under && !under.private ? { action: view.action.id, target: under.id } : undefined
                     },
                   },
                 ),
@@ -484,11 +478,9 @@ export class Shell {
 
   notice(text: string): void {
     this.#show(text, this.#noticeMs)
-    this.#noticed = true
   }
 
   #show(text: string, ms?: number, ofTurn = false): void {
-    this.#noticed = false
     this.#fading?.cancel()
     this.#fading = ms === undefined ? undefined : this.#life.timeout(() => this.#clear(), ms)
     this.#asking = null
@@ -499,7 +491,6 @@ export class Shell {
   }
 
   #clear(mine = true): void {
-    this.#noticed = false
     this.#fading?.cancel()
     this.#fading = undefined
     this.#asking = null
@@ -527,6 +518,7 @@ export class Shell {
   }
 
   #shut(): boolean {
+    const turn = this.#turn
     let settled = -1
     this.#shutting = () => {
       this.#shutting = undefined
@@ -537,7 +529,7 @@ export class Shell {
     } finally {
       this.#shutting = undefined
     }
-    return settled === this.#moves
+    return settled === this.#moves && turn === this.#turn
   }
 
   #openOwn(screen: Screen, rows: Rows): void {
@@ -620,12 +612,10 @@ export class Shell {
     this.#decidingOn = null
     this.#handed = false
     serve(() => deciding?.end(), TURN_END)
-    const pressed = this.#recording?.source
     try {
       this.#recording?.end()
     } finally {
-      if (moved && this.#noticed) this.#spared = pressed
-      else if (this.#overlaid) this.#clear(!moved || progressOf(this.#glasses).card() === this.#over)
+      if (moved ? this.#ofTurn || this.#asking : this.#overlaid) this.#clear(!moved || progressOf(this.#glasses).card() === this.#over)
     }
   }
 
@@ -633,7 +623,6 @@ export class Shell {
     for (const lost of this.#down.values()) lost.cancel()
     this.#down.clear()
     this.#spent.clear()
-    this.#spared = undefined
     this.#held?.letGo()
     this.#held = null
   }
@@ -644,10 +633,6 @@ export class Shell {
     this.#down.get(touchpad)?.cancel()
     this.#down.delete(touchpad)
     this.#spent.delete(touchpad)
-    if (this.#spared === touchpad) {
-      this.#spared = undefined
-      if (this.#overlaid) this.#clear()
-    }
     const mine = this.#recording?.source === touchpad
     if (this.#down.size === 0) this.#letGo()
     if (mine) this.#finish()
@@ -902,7 +887,7 @@ export class Shell {
     const row = id !== BACK && this.#own.get(this.#router.current)?.(id, targetId)
     if (moves !== this.#moves) return
     if (row && !this.#shut()) return
-    void this.#start(found, targetId, said, pass)
+    void this.#start(typeof row === 'object' ? row : found, targetId, said, pass)
   }
 
   #jumps(chosen: Action, targetId?: string): boolean {
@@ -942,7 +927,7 @@ export class Shell {
       if (chosen.choose) return chosen.choose()
       return this.#openOwn(
         { id: 'earshot.pick', view: () => list({ title: chosen.say, action: chosen }) },
-        (id, target) => id === chosen.id && target !== undefined,
+        (id, target) => id === chosen.id && target !== undefined && chosen,
       )
     }
     const target = targets?.find(candidate => candidate.id === targetId)

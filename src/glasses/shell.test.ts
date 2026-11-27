@@ -4901,19 +4901,26 @@ describe('a hold', () => {
     expect((await act.run()).done).toBe(true)
   })
 
-  it('takes a notice away at the release of a press whose hold a change of screen had ended, as it always did', async () => {
+  it.each([
+    ['the app gave before the screen changed', false],
+    ['the screen that came gave as it was entered', true],
+  ])('leaves a notice %s to its own time at the release of a press whose hold the change of screen had ended', async (_which, entering) => {
+    const made: { shell?: Shell } = {}
     const { voice } = hearing('refresh')
     const { fake, front, router, shell } = world({ voice })
+    made.shell = shell
     await settle()
     fake.hold()
     await settle(50)
-    shell.notice('Of the screen before')
-    router.open({ id: 'child', view: () => text({ body: 'Child' }) })
+    if (!entering) shell.notice('Timer changed')
+    router.open({ id: 'child', enter: () => void (entering && made.shell?.notice('Timer changed')), view: () => text({ body: 'Child' }) })
     await settle(100)
-    expect(front()).toBe('Of the screen before')
+    const atTheChange = front()
     fake.release()
     await settle(100)
-    expect(front()).toBe('')
+    const atTheRelease = front()
+    await settle(10_000)
+    expect([atTheChange, atTheRelease, front()]).toEqual(['Timer changed', 'Timer changed', ''])
   })
 
   it('records nothing for a hold when the screen was replaced as the app was asked how long a hold may be', async () => {
@@ -6401,6 +6408,29 @@ describe('a hold', () => {
     expect(fake.lines()[0]).toMatch(/^Ana\b/)
   })
 
+  it('runs the row under the cursor when the model split its vote between that row by name and "Choose this one", also when the app makes the action anew for its screen and for its list', async () => {
+    const went: string[] = []
+    const makeOpen = () =>
+      action({ id: 'open', say: 'Open', targets: () => [{ id: 'soup', say: 'Soup', value: 'soup' }], run: to => void went.push(to) })
+    const voice: VoiceOptions = {
+      ...hearing('soup').voice,
+      model: {
+        choose: async question => {
+          const id = (say: string) => question.options.find(option => option.say === say)!.id
+          return { [id('Choose this one')]: 0.5, [id('Open: Soup')]: 0.5 }
+        },
+      },
+    }
+    const { fake } = world({
+      voice,
+      home: () => ({ id: 'recipes', actions: () => [makeOpen()], view: () => list({ title: 'Recipes', action: makeOpen() }) }),
+    })
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect(went).toEqual(['soup'])
+  })
+
   describe('a list the shell made itself', () => {
     const filing = () => {
       const filed: string[] = []
@@ -6554,6 +6584,86 @@ describe('a hold', () => {
       await say(fake)
       await settle(100)
       expect([picker, armed, ran, fake.lines()[0]]).toEqual(['Which one?', false, [], 'Elsewhere'])
+    })
+
+    it('does not count "choose this one" with a row the app keeps to itself, also when a rolling item of another action has the same names: nothing says which row is under the cursor', async () => {
+      let asked: Array<{ say: string; same?: string }> = []
+      const kept = action({
+        id: 'file',
+        say: 'File under',
+        targets: () => [{ id: 'work', say: 'Work', value: 'Work', private: true }],
+        run: () => {},
+      })
+      const shown = action({ id: 'file', say: 'File', targets: () => [{ id: 'work', say: 'Work', value: 'Work' }], run: () => {} })
+      const voice: VoiceOptions = {
+        transcribe: async () => 'which one',
+        model: { choose: async question => ((asked = question.options), {}) },
+      }
+      const { fake, rolling } = world({ voice, appActions: () => [kept] })
+      rolling.add(shown, 'work')
+      await settle()
+      fake.pick('File under')
+      await settle()
+      await say(fake)
+      await settle(100)
+      expect(asked.filter(option => option.say === 'Choose this one').map(option => option.same)).toEqual([undefined])
+    })
+
+    it('runs the action the list was made for, and asks first as its row says, when "choose this one" is said and the app has put another action of the same name in its place meanwhile', async () => {
+      const did: string[] = []
+      let answer: (votes: Record<string, number>) => void = () => {}
+      let choose = ''
+      const careful = action({
+        id: 'file',
+        say: 'File under',
+        targets: () => [{ id: 'work', say: 'Work', value: 'Work', risk: 'confirm' }],
+        run: name => void did.push(`careful ${name}`),
+      })
+      const quick = action({
+        id: 'file',
+        say: 'File under',
+        targets: () => [{ id: 'work', say: 'Work', value: 'Work' }],
+        run: name => void did.push(`quick ${name}`),
+      })
+      let offered = careful
+      const voice: VoiceOptions = {
+        transcribe: async () => 'that one',
+        model: {
+          choose: question =>
+            new Promise(done => {
+              choose = question.options.find(option => option.say === 'Choose this one')?.id ?? ''
+              answer = done
+            }),
+        },
+      }
+      const { fake, front } = world({ voice, appActions: () => [offered] })
+      await settle()
+      fake.pick('File under')
+      await settle()
+      await say(fake)
+      await settle()
+      offered = quick
+      answer({ [choose]: 1 })
+      await settle(100)
+      expect([did, front().includes('Tap to confirm')]).toEqual([[], true])
+    })
+
+    it('runs nothing when a new hold begins as the list closes for a row that was said by name', async () => {
+      const { filed, file } = filing()
+      let armed = false
+      const { fake, router } = world({ voice: hearing('file under work').voice, appActions: () => [file] })
+      router.onChange(() => {
+        if (!armed || router.current.id !== 'people') return
+        armed = false
+        fake.hold()
+      })
+      await settle()
+      fake.pick('File under')
+      await settle()
+      armed = true
+      await say(fake)
+      await settle(100)
+      expect([armed, filed]).toEqual([false, []])
     })
 
     it('closes when a row of it is said by name: the list of candidates', async () => {
