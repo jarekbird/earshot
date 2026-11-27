@@ -30,7 +30,7 @@ The design is in [`docs/design.md`](docs/design.md).
 Not on npm yet. Pin a tag from GitHub:
 
 ```sh
-npm install github:jarekbird/earshot#v0.0.63
+npm install github:jarekbird/earshot#v0.0.64
 ```
 
 npm builds it as it installs. Earshot is built and tested on Node 24, and asks for that or later.
@@ -40,7 +40,7 @@ npm builds it as it installs. Earshot is built and tested on Node 24, and asks f
 `example/` is a whole app that stands alone: a list of notes, a note to read, a screen of its own boxes, hold to talk and a screen that listens. Copy it out and make it yours.
 
 ```sh
-git clone --depth 1 --branch v0.0.63 https://github.com/jarekbird/earshot
+git clone --depth 1 --branch v0.0.64 https://github.com/jarekbird/earshot
 cp -r earshot/example my-app
 cd my-app
 npm install
@@ -290,7 +290,7 @@ const hear = speech.start(life, showTurn, state => showWhetherWordsCome(state))
 - With `staleMs` set, the age of held sound is told by a clock that cannot go back, and every held piece is checked against one reading of it.
 - If your listener throws, or answers with a promise that fails, only a fixed sentence is reported, never the words it was handed. The same goes for the stand-in.
 - Ending the lifetime closes the line. Sound the browser had already taken for that line may still go out before it closes: a page cannot take it back.
-- A turn that was still growing when the line dropped, or when the sound stopped, is told once more as final and `cut`, with the words it had. Turns are numbered on across lines.
+- A turn that was still growing when the line dropped, or when the sound stopped, is told once more as final and `cut`, with the words it had. The transport numbers the turns it tells itself, one by one and on across lines. Within a line it takes the service's turns in the service's order: a message about a turn before the newest of that line is not taken. Two things are promised about the service's numbers: a service that counts its turns from 0, one by one, as Flux does, has every turn told as its words change and when it ends, under one id (a message that changes nothing is not told again, and one with no words is not a turn's end: a turn that ends with none is told as `cut` when the next begins); and no number it sends can keep the turns of a later line from being told. (A turn numbered more than 2^32 ahead of the newest of its line is not told.) What else a service that sends numbers gone wild gets is not promised.
 - `speaker` is whoever the glasses said was speaking for most of the stretch of sound the turn was made from.
 
 ### What the navigator is offered

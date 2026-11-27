@@ -526,8 +526,10 @@ The line, as states:
 - A line still connecting when quiet comes with nothing left to send (what it held went stale) is lost as well, so
   the app hears `down`.
 - A line that closes while the lifetime goes on ends the turn that was growing, as final and cut, with the words it
-  had. Turns of the next line are numbered on from there. A turn the upstream numbers with anything but a count
-  (a fraction, a negative, a number too large to count with) is not taken, so it cannot hide the turns after it.
+  had. The transport numbers the turns itself, one by one and on across lines: the upstream's number only says
+  which turn of its line a message is about. A message about a turn before the newest of its line is not taken, nor
+  one numbered with anything but a count (a fraction, a negative, a number too large to count with), so no number
+  the upstream sends can hide the turns of the next line. Nor is a turn taken whose number is more than 2^32 ahead of the newest turn of its line (of nothing, at a line's start), so a number gone wild does not become the newest of its line. Two things are promised about the upstream's numbers (Jarek, 2026-11-24, "Two promises only"): an upstream that counts its turns from 0, one by one, as Flux does, has every turn told as its words change and when it ends, under one id (a message that changes neither the words nor the speaker of a growing turn is not told again, and a message with no words is not taken, so a turn whose end carries none is told as cut when the next turn begins, as it always was); and no number it sends can keep the turns of a later line from being told. What else an upstream that sends wild numbers gets is not promised, and is not held to what the transport did when it made its ids from those numbers: that was an accident of its arithmetic, and six rounds of review showed that every simple rule differs from it somewhere near 2^32 or 2^53.
 - While the line is up, sound goes out as it comes. Only sound that cannot be sent yet is held: the last ten
   seconds of it, to the sample, in memory of its own (a long piece is copied, not kept whole), and let go of when the
   lifetime ends. It is sent however long the line was away, unless the app set `staleMs`: then sound held longer is
