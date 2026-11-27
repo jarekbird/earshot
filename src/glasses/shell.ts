@@ -470,14 +470,18 @@ export class Shell {
     let noted: string | undefined
     let gone = 0
     let fading: Timer | undefined
-    const listening = () =>
-      this.#show(`${this.#words.listening} ${bars.join('')}${noted === undefined ? '' : `\n${noted}`}`, undefined, true)
+    const drawn = new Set<string>()
+    const listening = () => {
+      const text = `${this.#words.listening} ${bars.join('')}${noted === undefined ? '' : `\n${noted}`}`
+      drawn.add(text)
+      this.#show(text, undefined, true)
+    }
     let meter: Timer | undefined
     const limit = this.#life.timeout(() => this.#finish(), longest)
-    const before = this.#glasses[LANDED].pages
+    const before = this.#glasses[LANDED].times
     const unseen = this.#life.timeout(() => {
-      const { pages, over } = this.#glasses[LANDED]
-      const seen = pages > before && over !== null && over.startsWith(this.#words.listening)
+      const { times, over } = this.#glasses[LANDED]
+      const seen = times > before && over !== null && drawn.has(over)
       if (seen || this.#recording !== recording) return
       recording.end()
       this.#spent = true
