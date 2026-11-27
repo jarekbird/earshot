@@ -8,8 +8,10 @@ each version's commits say: they name what a version added, and may miss a chang
 
 ## 0.0.61 (2026-11-26)
 
-- A notice the app showed after it changed the screen under a hold stays. The meter of the hold wrote over it
-  at once, and the release took it away.
+- A hold ends when the screen changes under it: the microphone is let go of for it and "Listening" goes at
+  once, though the touchpad is still down. It went on recording until the release, and then dropped what it had.
+- So a notice the app showed when it changed the screen stays. The meter of the hold wrote over it at once, and
+  the release took it away.
 
 ## 0.0.60 (2026-11-26)
 
