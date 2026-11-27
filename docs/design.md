@@ -353,7 +353,7 @@ One typed list of failures, each with default glasses text an app can override. 
 | Unsure                                         | The few candidates, to tap   |                                          |
 | None of these                                  | "No match"                   | Stops; the words go to no other agent    |
 | Not a navigation command                       | What the next agent shows    | Passes the words to the next agent       |
-| The screen changed while deciding              | Nothing                      | Drops the verdict; asks no further agent |
+| The screen changed while deciding              | A notice of the app, if any  | Drops the verdict; asks no further agent |
 | An agent handled the words, on another screen  | What the agent says, if any  | Nothing more: the work is done           |
 | The target left, or the action is blocked      | The reason                   | Reports it (E5)                          |
 | Too many targets, or too much context          | Nothing                      | Trims to the cap                         |
