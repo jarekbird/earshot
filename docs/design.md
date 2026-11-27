@@ -172,12 +172,15 @@ heard was for a screen that is gone, so it lets go of the microphone and takes "
 says the glasses listen while they do not, or hides that they do. The same press starts no other hold. For as long as
 a hold records, "Listening" is on show (E20): a notice in that time is written as a line under it, for the notice's own
 time, and is shown on for what is left of that time when the hold ends by a change of screen. The microphone opens at
-the press, before the glasses have drawn anything, so that the first word is not lost. `Glasses` remembers each time the
-glasses take the box that holds the overlay, and which overlay it then held. A hold for which they took none of the
-texts it drew since the press ends three seconds on, as one whose screen changed does. It goes by that box alone and by
-its own texts: not by what is certain at one moment (while the meter is drawn again faster than the glasses answer, no
-moment is certain), not by the whole page (another box or a picture of it may be refused while "Listening" is on show),
-and not by the words (a notice may begin with the same word).
+the press, before the glasses have drawn anything, so that the first word is not lost. `Glasses` knows what the box that
+holds the overlay holds: what the glasses last took there, and nothing certain once they refused a write of it. From the
+press it watches that box for the hold's own texts, as they are drawn: the hold has seen "Listening" if the box held
+one of them already, or once the glasses take one, and that is not taken back. A hold that has not seen it three
+seconds on ends, as one whose screen changed does. It is judged at the box, when the glasses answer, and by its own
+texts: not by what is certain at one moment (while the meter is drawn again faster than the glasses answer, no moment
+is certain), not by the whole page (another box or a picture of it may be refused while "Listening" is on show), not by
+a count of writes (the box may hold the text already, and then none is made), and not by the words (a notice may begin
+with the same word).
 
 Not built yet, and belonging to the next slice: Jev as the model, the rolling queue of items, context and its
 compaction, and the default transports.

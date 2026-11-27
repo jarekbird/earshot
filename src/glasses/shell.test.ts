@@ -1965,6 +1965,42 @@ describe('a hold', () => {
       expect(asked).toEqual([])
     })
 
+    it('E20: goes on when the glasses already hold the very text it draws, so that nothing is written anew', async () => {
+      const made = world({ voice: { transcribe: async () => 'refresh' } })
+      await settle()
+      made.shell.notice('Listening ▁▁▁▁▁▁▁▁')
+      await settle(0)
+      expect(made.fake.overlay()).toBe('Listening ▁▁▁▁▁▁▁▁')
+      const writes = made.fake.calls.length
+      made.fake.hold()
+      await settle(3_100)
+      expect([made.fake.overlay(), made.fake.mic, made.shell.busy]).toEqual(['Listening ▁▁▁▁▁▁▁▁', 'glasses', true])
+      expect(made.fake.calls.slice(writes).filter(call => call === 'update')).toEqual([])
+    })
+
+    it('E20: goes on when the glasses hold a text that is drawn the same as its own, though written otherwise', async () => {
+      const made = world({ voice: { transcribe: async () => 'refresh' } })
+      await settle()
+      made.shell.notice('Listening ▁▁▁▁▁▁▁▁ ')
+      await settle(0)
+      made.fake.hold()
+      await settle(3_100)
+      expect([made.fake.overlay(), made.fake.mic, made.shell.busy]).toEqual(['Listening ▁▁▁▁▁▁▁▁', 'glasses', true])
+    })
+
+    it('E20: ends when the glasses took its text before the press and have refused that box since: it may be gone', async () => {
+      const made = world({ voice: { transcribe: async () => 'refresh' } })
+      await settle()
+      made.shell.notice('Listening ▁▁▁▁▁▁▁▁')
+      await settle(0)
+      made.fake.refuse('update', 1_000)
+      made.shell.notice('Something else')
+      await settle(0)
+      made.fake.hold()
+      await settle(3_100)
+      expect([made.fake.mic, made.shell.busy]).toEqual([null, false])
+    })
+
     it('E20: goes on when the glasses answer each "Listening" only as the next is asked for', async () => {
       const made = world({ voice: { transcribe: async () => 'refresh' } })
       await settle()
