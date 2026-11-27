@@ -6,7 +6,7 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.63 (2026-11-27)
+## 0.0.64 (2026-11-27)
 
 - A relay that has a secret asks its three calls for it too, not only live speech. A call that does not say it is
   answered 401 before anything is forwarded; one the relay does not forward at all is answered 404 first, as before. A relay with no secret answers as before.
@@ -18,6 +18,14 @@ each version's commits say: they name what a version added, and may miss a chang
   with no live upstream, where the setting used to be ignored.
 - **An app must** give such a relay a fitting secret or take the setting out: one under 16 characters, or over 1,024
   as JSON writes them, was ignored before with no live upstream and now makes no relay.
+
+## 0.0.63 (2026-11-26)
+
+- An option said by its very words is chosen without asking the navigator's model, whatever case and punctuation
+  the words came with. Speech-to-text writes "Go back!" and "Refresh." as sentences, and with the mark the model
+  was at times no longer sure of the command, so the words went on to the app's agents or to "Which one?".
+- **An app must** not count on its model being asked about words that are exactly one option's label: a wrapper of
+  the model no longer sees those.
 
 ## 0.0.62 (2026-11-26)
 

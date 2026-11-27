@@ -208,7 +208,7 @@ describe('the example app in the real Even Hub simulator', () => {
   )
 
   it.runIf(process.platform === 'linux')('notes "choose this one" as the row it stands for, as the navigator will run it', async () => {
-    const sim = await start('&say=choose%20this%20one', true)
+    const sim = await start('&say=choose%20this%20one%20please', true)
     await sim.hold(1_200)
     await sim.logged('decided: open welcome')
     await sim.shows('Earshot draws this list')

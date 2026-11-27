@@ -1276,7 +1276,7 @@ describe('a hold', () => {
   it('tells the model which row the cursor is on, unless that row is private', async () => {
     const screens: (string | undefined)[] = []
     const voice: VoiceOptions = {
-      ...hearing('refresh', 'refresh').voice,
+      ...hearing('what is selected', 'what is selected').voice,
       model: {
         choose: async question => {
           screens.push(question.screen)
@@ -1721,7 +1721,7 @@ describe('a hold', () => {
 
   it('tells the model what is on the screen, and what the other agents take', async () => {
     const asked: { screen?: string; says: string[] }[] = []
-    const { voice } = hearing('refresh')
+    const { voice } = hearing('what is here')
     voice.model = {
       choose: async question => {
         asked.push({ screen: question.screen, says: question.options.map(option => option.say) })
@@ -2063,7 +2063,7 @@ describe('a hold', () => {
 
     it("stays when the model's answer comes back for the screen before", async () => {
       let answer = (_: Record<string, number>) => {}
-      const voice: VoiceOptions = { transcribe: async () => 'refresh', model: { choose: () => new Promise(done => (answer = done)) } }
+      const voice: VoiceOptions = { transcribe: async () => 'refresh it', model: { choose: () => new Promise(done => (answer = done)) } }
       const made = world({ voice })
       await settle()
       await say(made.fake)
@@ -2618,14 +2618,14 @@ describe('a hold', () => {
     const ASKED = 'Allow: Run the migration?\nTap to confirm'
 
     it("hands the words to the app's agents at a swipe, and does not run what the navigator chose", async () => {
-      const { voice, got, asked, choose } = noting('allow run the migration')
+      const { voice, got, asked, choose } = noting('allow run the migration now')
       const { fake, front, ran } = world({ voice, home: allowing })
       await settle()
       await say(fake)
       expect(front()).toBe(`${ASKED}\nSwipe: Keep as a note`)
       fake.down()
       await settle()
-      expect(got).toEqual([{ words: 'allow run the migration', seconds: 0.8 }])
+      expect(got).toEqual([{ words: 'allow run the migration now', seconds: 0.8 }])
       expect(ran).toEqual([])
       expect(front()).toBe('Saved')
       expect(asked).toEqual([0.8])
