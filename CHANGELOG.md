@@ -6,7 +6,7 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.63 (2026-11-27)
+## 0.0.64 (2026-11-27)
 
 - A swipe on a text counts from what the wearer has read. A swipe made before the glasses have drawn the last one
   goes on from where that one reached, and text that came in the meantime is laid out after them.
@@ -28,6 +28,14 @@ each version's commits say: they name what a version added, and may miss a chang
   the shell asks before it runs the row that was meant. A lone "choose this one" ran whatever row had come under
   the cursor. A candidate that "choose this one" gave its vote to is that row too, when it is tapped.
 - A notice shown during a hold is not carried over when the router is closed.
+
+## 0.0.63 (2026-11-26)
+
+- An option said by its very words is chosen without asking the navigator's model, whatever case and punctuation
+  the words came with. Speech-to-text writes "Go back!" and "Refresh." as sentences, and with the mark the model
+  was at times no longer sure of the command, so the words went on to the app's agents or to "Which one?".
+- **An app must** not count on its model being asked about words that are exactly one option's label: a wrapper of
+  the model no longer sees those.
 
 ## 0.0.62 (2026-11-26)
 

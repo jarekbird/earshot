@@ -161,6 +161,19 @@ const verdictOf = (meaning: Meaning): Verdict => {
   return { kind: 'sure', action: meaning.action, ...(meaning.target === undefined ? {} : { target: meaning.target }) }
 }
 
+const tokens = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
+const nameOf = (option: Option) => tokens(option.say.endsWith(LIST) ? option.say.slice(0, -LIST.length) : option.say)
+
+function saidByName({ words, options }: Question, actions: readonly Action[]): { id: string; by: string[] } | undefined {
+  const said = tokens(words).join(' ')
+  if (!said) return undefined
+  const alone = (option: Option) => (option.target === undefined ? actions.find(action => action.id === option.action)?.say : undefined)
+  const fits = (text: string | undefined) => text !== undefined && tokens(text).join(' ') === said
+  const named = options.filter(option => option.role === undefined && (fits(option.say) || fits(alone(option))))
+  const meant = new Set(named.map(option => option.same ?? option.id))
+  return meant.size === 1 ? { id: [...meant][0], by: named.map(option => option.id) } : undefined
+}
+
 export function navigator(model: NavigatorModel): Agent {
   return navigatorNoting(model, () => {})
 }
@@ -168,6 +181,16 @@ export function navigator(model: NavigatorModel): Agent {
 export function navigatorNoting(model: NavigatorModel, meant: (stood: Meant, as: Pick) => void): Agent {
   return async heard => {
     const { question, meanings, stood } = questionFor(heard)
+    const tell = (from: string, as: Pick) => {
+      const chosen = stood.get(from)
+      if (chosen) meant(chosen, as)
+    }
+    const said = saidByName(question, heard.actions)
+    const named = said && meanings.get(said.id)
+    if (said && named !== undefined) {
+      if (named !== PASS && named !== NONE) for (const by of said.by) tell(by, named)
+      return verdictOf(named)
+    }
     const same = question.options.flatMap(option => (option.same === undefined ? [] : [[option.id, option.same]]))
     const chances = { ...(await model.choose(question, heard.life)) }
     const needed = new Map<string, string>()
@@ -185,26 +208,20 @@ export function navigatorNoting(model: NavigatorModel, meant: (stood: Meant, as:
       })
       .sort((a, b) => b.chance - a.chance)
     if (ranked.length === 0) return { kind: 'none' }
-    const tell = (id: string, as: Pick) => {
-      const chosen = stood.get(needed.get(id) ?? id)
-      if (chosen) meant(chosen, as)
-    }
     if (ranked[0].chance >= SURE_AT) {
       const { id, meaning } = ranked[0]
-      if (meaning !== PASS && meaning !== NONE) tell(id, meaning)
+      if (meaning !== PASS && meaning !== NONE) tell(needed.get(id) ?? id, meaning)
       return verdictOf(meaning)
     }
     const candidates = ranked
       .filter(({ chance }) => chance >= UNSURE_FROM)
       .flatMap(({ id, meaning }) => (meaning === PASS || meaning === NONE ? [] : [{ id, meaning }]))
       .slice(0, UNSURE_AT_MOST)
-      .map(({ id, meaning }) => (tell(id, meaning), meaning))
+      .map(({ id, meaning }) => (tell(needed.get(id) ?? id, meaning), meaning))
     if (candidates.length) return { kind: 'unsure', candidates }
     return ranked[0].meaning === PASS ? { kind: 'notMine' } : { kind: 'none' }
   }
 }
-
-const tokens = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
 
 export const matchWords: NavigatorModel = {
   async choose({ words, options }) {
@@ -212,7 +229,7 @@ export const matchWords: NavigatorModel = {
     const scored = options
       .filter(option => option.role === undefined)
       .map(option => {
-        const wanted = tokens(option.say.endsWith(LIST) ? option.say.slice(0, -LIST.length) : option.say)
+        const wanted = nameOf(option)
         const matched = wanted.filter(token => said.has(token)).length
         return { id: option.id, matched, share: wanted.length ? matched / wanted.length : 0 }
       })

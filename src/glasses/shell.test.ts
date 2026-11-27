@@ -4325,7 +4325,7 @@ describe('a hold', () => {
   })
 
   it('opens no list of candidates when a screen was opened and left as the app was asked what to offer instead', async () => {
-    const { voice } = hearing('open')
+    const { voice } = hearing('open that')
     voice.agents = [() => ({ kind: 'notMine' })]
     voice.model = { choose: async ({ options }) => Object.fromEntries(options.slice(0, 2).map(option => [option.id, 0.5])) }
     let armed = true
@@ -4348,7 +4348,7 @@ describe('a hold', () => {
 
   it('opens no list of candidates, and hands the words to no agent, when the screen moved on as the app was asked what to offer instead', async () => {
     const heard: string[] = []
-    const { voice } = hearing('open')
+    const { voice } = hearing('open that')
     voice.agents = [said => (heard.push(said.words), { kind: 'notMine' })]
     voice.model = { choose: async ({ options }) => Object.fromEntries(options.slice(0, 2).map(option => [option.id, 0.5])) }
     let moved = false
@@ -6140,7 +6140,7 @@ describe('a hold', () => {
     const { fake } = world({
       voice: {
         transcribe: async () => 'which one',
-        model: { choose: async () => ((asked = read.slice(read.lastIndexOf('action'))), {}) },
+        model: { choose: async () => ((asked = read.slice(read.lastIndexOf('action')).slice(0, 3)), {}) },
       },
       home: () => ({ id: 'trail', actions: () => [open], view: () => view }),
     })
@@ -7703,7 +7703,7 @@ describe('a hold', () => {
     const shown = action({ id: 'open', say: 'Open', targets: rows, run: to => void did.push(`shown ${to}`) })
     const reached = action({ id: 'open', say: 'Open', targets: rows, run: to => void did.push(`reached ${to}`) })
     const voice: VoiceOptions = {
-      transcribe: async () => 'open soup',
+      transcribe: async () => 'please open the soup',
       model: {
         choose: async question => {
           const id = (say: string) => question.options.find(option => option.say === say)!.id
@@ -8012,6 +8012,29 @@ describe('a hold', () => {
     },
   )
 
+  it.each([
+    ['"choose this one" in just those words', 'Choose this one!', 'shown soup'],
+    ['the row by its name in just those words', 'Open: Soup.', 'reached soup'],
+  ])(
+    'asks no model when the wearer says %s, and runs what was said: the row on show for "choose this one", as a tap on it would, and what can be reached by name for the name',
+    async (_how, words, ran) => {
+      const did: string[] = []
+      let asked = 0
+      const rows = () => [{ id: 'soup', say: 'Soup', value: 'soup' }]
+      const shown = action({ id: 'open', say: 'Open', targets: rows, run: to => void did.push(`shown ${to}`) })
+      const reached = action({ id: 'open', say: 'Open', targets: rows, run: to => void did.push(`reached ${to}`) })
+      const voice: VoiceOptions = { transcribe: async () => words, model: { choose: async () => (asked++, {}) } }
+      const { fake } = world({
+        voice,
+        home: () => ({ id: 'recipes', actions: () => [reached], view: () => list({ title: 'Recipes', action: shown }) }),
+      })
+      await settle()
+      await say(fake)
+      await settle(100)
+      expect([asked, did]).toEqual([0, [ran]])
+    },
+  )
+
   it('does not ask an action whether it is blocked to tell the model the options: an action whose answer to that opens another screen is asked only when it is the one chosen', async () => {
     const made: { router?: Router } = {}
     const did: string[] = []
@@ -8030,7 +8053,7 @@ describe('a hold', () => {
     })
     const help = action({ id: 'help', say: 'Help', run: () => void did.push('help') })
     const voice: VoiceOptions = {
-      transcribe: async () => 'help',
+      transcribe: async () => 'help me',
       model: {
         choose: async question => {
           whenAsked = asks
@@ -8660,7 +8683,7 @@ describe('a hold', () => {
   it('tells the model which row the cursor is on, unless that row is private', async () => {
     const screens: (string | undefined)[] = []
     const voice: VoiceOptions = {
-      ...hearing('refresh', 'refresh').voice,
+      ...hearing('what is selected', 'what is selected').voice,
       model: {
         choose: async question => {
           screens.push(question.screen)
@@ -8942,7 +8965,7 @@ describe('a hold', () => {
     const refresh = action({ id: 'refresh', say: 'Refresh', run: () => void did.push('refresh') })
     const { fake, front } = world({
       voice: {
-        transcribe: async () => 'choose this one',
+        transcribe: async () => 'choose this one please',
         model: { choose: (question, life) => ((armed = true), matchWords.choose(question, life)) },
       },
       home: () => ({ id: 'home', actions: () => [refresh], view: () => list({ title: 'Allow', action: allow }) }),
@@ -9178,7 +9201,7 @@ describe('a hold', () => {
 
   it('tells the model what is on the screen, and what the other agents take', async () => {
     const asked: { screen?: string; says: string[] }[] = []
-    const { voice } = hearing('refresh')
+    const { voice } = hearing('what is here')
     voice.model = {
       choose: async question => {
         asked.push({ screen: question.screen, says: question.options.map(option => option.say) })
@@ -9558,7 +9581,7 @@ describe('a hold', () => {
 
     it("stays when the model's answer comes back for the screen before", async () => {
       let answer = (_: Record<string, number>) => {}
-      const voice: VoiceOptions = { transcribe: async () => 'refresh', model: { choose: () => new Promise(done => (answer = done)) } }
+      const voice: VoiceOptions = { transcribe: async () => 'refresh it', model: { choose: () => new Promise(done => (answer = done)) } }
       const made = world({ voice })
       await settle()
       await say(made.fake)
@@ -10126,14 +10149,14 @@ describe('a hold', () => {
     })
 
     it("hands the words to the app's agents at a swipe, and does not run what the navigator chose", async () => {
-      const { voice, got, asked, choose } = noting('allow run the migration')
+      const { voice, got, asked, choose } = noting('allow run the migration now')
       const { fake, front, ran } = world({ voice, home: allowing })
       await settle()
       await say(fake)
       expect(front()).toBe(`${ASKED}\nSwipe: Keep as a note`)
       fake.down()
       await settle()
-      expect(got).toEqual([{ words: 'allow run the migration', seconds: 0.8 }])
+      expect(got).toEqual([{ words: 'allow run the migration now', seconds: 0.8 }])
       expect(ran).toEqual([])
       expect(front()).toBe('Saved')
       expect(asked).toEqual([0.8])
