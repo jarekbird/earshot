@@ -2406,6 +2406,21 @@ describe('watching the draws', () => {
     expect(fake.lines().join(' ')).not.toContain('New')
   })
 
+  it('reads a long text that did not change once at a redraw, to send it: it is not gone through again to see that it is the same', async () => {
+    const fake = fakeBridge()
+    const glasses = new Glasses(new Lifetime(), fake.bridge)
+    const long = 'word '.repeat(50_000)
+    const page = (count: number) => frame(box('log', long, { h: 200 }), box('count', `Count ${count}`, { y: 216 }))
+    glasses.draw(page(1))
+    await settle(REBUILD_GAP_MS)
+    const encoding = vi.spyOn(TextEncoder.prototype, 'encode')
+    glasses.draw(page(2))
+    await settle(60_000)
+    const times = encoding.mock.calls.filter(([input]) => input === long).length
+    vi.restoreAllMocks()
+    expect(times).toBe(1)
+  })
+
   it('knows which overlay the glasses show by the time it tells of the end of the draw that changed it', async () => {
     const fake = fakeBridge()
     const known: (string | null | undefined)[] = []

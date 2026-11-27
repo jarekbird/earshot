@@ -2907,7 +2907,7 @@ describe('a tap while a redraw is on its way to the glasses', () => {
         Object.defineProperty(view, 'action', { get: () => (actions++, open) })
         Object.defineProperty(view, 'kind', {
           get: () => {
-            if (armed && ++kinds === 4) {
+            if (armed && ++kinds === 1) {
               armed = false
               made.router?.open({ id: 'other', view: () => text({ body: 'Other' }) })
             }
@@ -2959,6 +2959,72 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     fake.tap()
     await settle(100)
     expect(did).toEqual(['one'])
+  })
+
+  it.each([
+    ['whoever watches is told the frame is asked for', 'ask'],
+    ['the app is asked for the view of the redraw', 'view'],
+  ] as const)(
+    'E15: reads nothing of the view on show at a tap it drops because it came as %s, not what kind of view it is either',
+    async (_why, at) => {
+      const made: { fake?: ReturnType<typeof fakeBridge> } = {}
+      let armed = false
+      let kinds = 0
+      let during = -1
+      let label = 'Play'
+      const play = action({ id: 'play', say: 'Play', run: () => {} })
+      const taps = () => {
+        if (!armed) return
+        armed = false
+        const before = kinds
+        made.fake?.tap()
+        during = kinds - before
+      }
+      const counted = () => {
+        const view = boxes([{ id: 'state', x: 0, y: 0, w: 576, h: 27, text: label }], { on: { tap: play } })
+        Object.defineProperty(view, 'kind', { get: () => (kinds++, 'boxes') })
+        return view
+      }
+      const { fake, shell } = world({
+        watch: event => void (event.at === 'ask' && at === 'ask' && taps()),
+        home: () => ({ id: 'player', view: () => (at === 'view' && taps(), counted()) }),
+      })
+      made.fake = fake
+      await settle()
+      label = 'Pause'
+      armed = true
+      shell.redraw()
+      await settle(100)
+      expect([armed, during]).toEqual([false, 0])
+    },
+  )
+
+  it('E15: reads what a view ties gestures to no second time at a tap once reading what kind of view it is had the app ask for yet another frame', async () => {
+    const made: { shell?: Shell } = {}
+    let armed = false
+    let ons = 0
+    const keep = action({ id: 'keep', say: 'Keep', run: () => {} })
+    const on = { tap: keep }
+    const view = boxes([{ id: 'control', x: 0, y: 0, w: 200, h: 40, text: 'Keep' }], { on })
+    Object.defineProperty(view, 'on', { get: () => (ons++, on) })
+    Object.defineProperty(view, 'kind', {
+      get: () => {
+        if (armed) {
+          armed = false
+          made.shell?.redraw()
+        }
+        return 'boxes'
+      },
+    })
+    const { fake, shell } = world({ home: () => ({ id: 'home', view: () => view }) })
+    made.shell = shell
+    await settle()
+    armed = true
+    const before = ons
+    fake.tap()
+    const during = ons - before
+    await settle(100)
+    expect([armed, during]).toEqual([false, 1])
   })
 
   it.each([

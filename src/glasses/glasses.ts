@@ -172,8 +172,9 @@ const placeOf = ({ id, x, y, w, h, brightness }: Box): string => JSON.stringify(
 const wrapped = ({ text, w, h }: Box): string => JSON.stringify(wrapText(cleanText(text), w).slice(0, Math.ceil(h / LINE_HEIGHT)))
 
 function looksAlike(one: Box, other: Box): boolean {
-  if (placeOf(one) !== placeOf(other) || clipBytes(one.text) !== clipBytes(other.text)) return false
-  return one.text === other.text || wrapped(one) === wrapped(other)
+  if (placeOf(one) !== placeOf(other)) return false
+  if (one.text === other.text) return true
+  return clipBytes(one.text) === clipBytes(other.text) && wrapped(one) === wrapped(other)
 }
 
 const kept = ({ box, text, brightness }: Placed, frame: number): Kept => ({

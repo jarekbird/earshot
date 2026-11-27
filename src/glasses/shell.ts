@@ -114,6 +114,7 @@ interface Drawn {
   targets: readonly TargetInfo[]
   folded: readonly Action[]
   scrolls: boolean
+  kind: View['kind']
   row?: string
 }
 
@@ -373,6 +374,7 @@ export class Shell {
         targets,
         folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [],
         scrolls,
+        kind,
         ...(row === undefined ? {} : { row }),
       }
     this.#frames.asked(frame, showing, drew, kind, aims)
@@ -550,12 +552,13 @@ export class Shell {
     const showing = showingsOf(this.#router).current
     const place = showing && this.#places.get(showing)
     if (!drawn || drawn.showing !== showing || !place || !showingsOf(this.#router).onPath(showing)) return
-    const { view } = drawn
     const moves = this.#moves
-    if (view.kind === 'boxes') {
+    const still = () => moves === this.#moves && drawn === this.#drawn
+    if (drawn.kind === 'boxes') {
       const shown = this.#onShow(drawn)?.[input.kind]
-      if (this.#asks > 0 || drawn !== this.#drawn || shown === undefined || this.#frames.newest?.aims[input.kind] !== shown) return
-      const still = () => moves === this.#moves && drawn === this.#drawn
+      if (this.#asks > 0 || shown === undefined || this.#frames.newest?.aims[input.kind] !== shown) return
+      const { view } = drawn
+      if (view.kind !== 'boxes' || !still()) return
       const { on } = view
       if (!still()) return
       const bound = on?.[input.kind]
@@ -568,15 +571,14 @@ export class Shell {
       return void this.#start(chosen, target)
     }
     const seen = this.#frames.words
-    if (view.kind === 'text' && (seen?.kind !== 'text' || seen.showing !== showing)) return
+    if (drawn.kind === 'text' && (seen?.kind !== 'text' || seen.showing !== showing)) return
     const step = input.kind === 'up' ? -1 : 1
-    if (view.kind === 'text') {
+    if (drawn.kind === 'text') {
       if (input.kind !== 'tap') return this.#scroll(drawn, place, 'swipe', step < 0)
     } else if (input.kind !== 'tap') place.cursor += step
     else {
       const shown = this.#onShow(drawn)?.tap
-      if (this.#asks > 0 || drawn !== this.#drawn || shown === undefined || this.#frames.newest?.aims.tap !== shown) return
-      const still = () => moves === this.#moves && drawn === this.#drawn
+      if (this.#asks > 0 || shown === undefined || this.#frames.newest?.aims.tap !== shown) return
       const row = this.#row(drawn, place, still)
       return row && still() && row.target === drawn.row ? this.#choose(drawn, row) : undefined
     }
