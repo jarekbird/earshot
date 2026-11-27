@@ -233,7 +233,7 @@ describe('E13: settings that make no relay', () => {
         'POST',
       ])
       expect([call.status, call.headers['access-control-allow-origin'], call.body]).toEqual([
-        503,
+        501,
         '*',
         '{"error":"This relay is not set up."}',
       ])

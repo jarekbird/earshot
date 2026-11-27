@@ -6,11 +6,17 @@ that starts with **An app must** says what an app written against the version be
 Earshot's API will change until two apps run on it. Before 0.0.37 these notes were written after the fact, from what
 each version's commits say: they name what a version added, and may miss a change an app had to make.
 
-## 0.0.59 (2026-11-26)
+## 0.0.60 (2026-11-26)
 
 - No relay is made for an upstream of the three calls that is named with a fragment (`#`): everything after it
   never reached the upstream, so the calls went somewhere other than the address said.
 - **An app must** name its relay's upstream without a fragment. One named with a query of its own is taken as before.
+
+## 0.0.59 (2026-11-26)
+
+- A relay that is not set up makes the glasses say "Voice is off for now". They said "The service is busy",
+  as for an upstream that is busy, since `notSetUp` answered with the same status.
+- **An app must** expect 501, not 503, from `notSetUp`, if it looks at the status itself.
 
 ## 0.0.58 (2026-11-26)
 
