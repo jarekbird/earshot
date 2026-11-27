@@ -687,7 +687,7 @@ export class Shell {
     if (moves !== this.#moves) return void this.#spent.add(source)
     const chunks: Uint8Array[] = []
     const bars = Array<string>(METER_BARS).fill(QUIET)
-    const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`)
+    const listening = () => this.#show(`${this.#words.listening} ${bars.join('')}`, undefined, true)
     let meter: Timer | undefined
     const limit = this.#life.timeout(() => this.#finish(), longest)
     const recording = {

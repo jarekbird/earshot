@@ -169,7 +169,9 @@ half a second or with no sound in it, and gives the rest to the app's transcribe
 then to the app's agents. The navigator asks one question of a model behind one interface; the model built in is
 `matchWords`, the offline stand-in (E4), which compares the words with the labels. A double tap calls a command off, a
 hold without a release ends after a minute, and an answer that takes over forty-five seconds is given up on. A hold while
-a question is up calls the question off.
+a question is up calls the question off. A hold whose screen changes under it ends there, before the release: what it
+heard was for a screen that is gone, so it lets go of the microphone and takes "Listening" away at once, and nothing
+says the glasses listen while they do not, or hides that they do. The same press starts no other hold.
 
 Not built yet, and belonging to the next slice: Jev as the model, the rolling queue of items, context and its
 compaction, and the default transports.
@@ -359,6 +361,7 @@ One typed list of failures, each with default glasses text an app can override. 
 | Unsure                                         | The few candidates, to tap   |                                          |
 | None of these                                  | "No match"                   | Stops; the words go to no other agent    |
 | Not a navigation command                       | What the next agent shows    | Passes the words to the next agent       |
+| The screen changed while listening             | A notice of the app, if any  | Ends the hold; drops what was said       |
 | The screen changed while deciding              | A notice of the app, if any  | Drops the verdict; asks no further agent |
 | An agent handled the words, on another screen  | What the agent says, if any  | Nothing more: the work is done           |
 | The target left, or the action is blocked      | The reason                   | Reports it (E5)                          |
