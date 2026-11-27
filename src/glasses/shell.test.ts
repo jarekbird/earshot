@@ -2793,6 +2793,215 @@ describe('a tap while a redraw is on its way to the glasses', () => {
     },
   )
 
+  it('E15: runs nothing on a tap that comes while the shell is asking for a frame, though the screen already ties the tap to something else: the glasses show the frame before', async () => {
+    const did: string[] = []
+    const made: { fake?: ReturnType<typeof fakeBridge> } = {}
+    let armed = false
+    let label = 'Open'
+    const open = action({ id: 'open', say: 'Open', run: () => void did.push('open') })
+    const remove = action({ id: 'remove', say: 'Remove', run: () => void did.push('remove') })
+    const on: { tap: Action } = { tap: open }
+    const { fake, shell } = world({
+      watch: event => {
+        if (event.at !== 'ask' || !armed) return
+        armed = false
+        made.fake?.tap()
+      },
+      home: () => ({ id: 'home', view: () => boxes([{ id: 'control', x: 0, y: 0, w: 200, h: 40, text: label }], { on }) }),
+    })
+    made.fake = fake
+    await settle()
+    on.tap = remove
+    label = 'Remove'
+    armed = true
+    shell.redraw()
+    await settle(100)
+    expect([armed, did]).toEqual([false, []])
+  })
+
+  it.each([
+    ['what the tap is tied to', 'binding'],
+    ['the action it is tied to', 'action'],
+    ['the target it is tied to', 'target'],
+  ] as const)(
+    'E15: reads no more of a binding at a tap, and runs nothing, once reading %s had the app ask for yet another frame',
+    async (_what, at) => {
+      const made: { shell?: Shell } = {}
+      const did: string[] = []
+      const read: string[] = []
+      let armed = false
+      const keep = action({
+        id: 'keep',
+        say: 'Keep',
+        targets: () => [{ id: 'one', say: 'One', value: 'one' }],
+        run: () => void did.push('keep'),
+      })
+      const redraws = (now: string) => {
+        read.push(now)
+        if (armed && now === at) {
+          armed = false
+          made.shell?.redraw()
+        }
+      }
+      const tie = {
+        get action() {
+          redraws('action')
+          return keep
+        },
+        get target() {
+          redraws('target')
+          return 'one'
+        },
+      }
+      const on = {}
+      Object.defineProperty(on, 'tap', { enumerable: true, get: () => (redraws('binding'), tie) })
+      const { fake, shell } = world({
+        home: () => ({ id: 'home', view: () => boxes([{ id: 'control', x: 0, y: 0, w: 200, h: 40, text: 'Keep' }], { on }) }),
+      })
+      made.shell = shell
+      await settle()
+      read.length = 0
+      armed = true
+      fake.tap()
+      const order = ['binding', 'action', 'target']
+      const atTheTap = read.slice(0, order.indexOf(at) + 1)
+      await settle(100)
+      expect([armed, atTheTap, read.slice(atTheTap.length), did]).toEqual([
+        false,
+        order.slice(0, order.indexOf(at) + 1),
+        ['binding', 'action', 'target'],
+        [],
+      ])
+    },
+  )
+
+  it('E15: runs no row on a tap when reading the id of the row had the app ask for yet another frame', async () => {
+    const made: { shell?: Shell } = {}
+    const went: string[] = []
+    let armed = false
+    const open = action({
+      id: 'open',
+      say: 'Open',
+      targets: () => [{ id: 'rope', say: 'Rope', value: 'rope' }],
+      run: to => void went.push(to),
+    })
+    Object.defineProperty(open, 'targets', {
+      value: () => [
+        {
+          get id() {
+            if (armed) {
+              armed = false
+              made.shell?.redraw()
+            }
+            return 'rope'
+          },
+          say: 'Rope',
+        },
+      ],
+    })
+    const { fake, shell } = world({ home: () => ({ id: 'stock', view: () => list({ title: 'Stock', action: open }) }) })
+    made.shell = shell
+    await settle()
+    armed = true
+    fake.tap()
+    await settle(100)
+    expect([armed, went]).toEqual([false, []])
+  })
+
+  it('E15: runs no row on a tap that comes while the shell is asking for a frame, though the list already has another action: the glasses show the frame before', async () => {
+    const went: string[] = []
+    const made: { fake?: ReturnType<typeof fakeBridge> } = {}
+    let armed = false
+    const rows = (say: string) => () => [{ id: 'north', say, value: 'north' }]
+    const open = action({ id: 'open', say: 'Open', targets: rows('Open North'), run: to => void went.push(`open ${to}`) })
+    const remove = action({ id: 'remove', say: 'Remove', targets: rows('Remove North'), run: to => void went.push(`remove ${to}`) })
+    const view = list({ title: 'Trail', action: open })
+    const { fake, shell } = world({
+      watch: event => {
+        if (event.at !== 'ask' || !armed) return
+        armed = false
+        made.fake?.tap()
+      },
+      home: () => ({ id: 'trail', view: () => view }),
+    })
+    made.fake = fake
+    await settle()
+    Object.assign(view, { action: remove })
+    armed = true
+    shell.redraw()
+    await settle(100)
+    expect([armed, went]).toEqual([false, []])
+  })
+
+  it('E15: reads no target of a binding at a tap once reading the binding had the app ask for yet another frame', async () => {
+    const made: { shell?: Shell } = {}
+    let armed = false
+    let targets = 0
+    const keep = action({ id: 'keep', say: 'Keep', targets: () => [{ id: 'one', say: 'One', value: 'one' }], run: () => {} })
+    const on = {}
+    Object.defineProperty(on, 'tap', {
+      enumerable: true,
+      get: () => {
+        if (!armed) return { action: keep, target: 'one' }
+        armed = false
+        made.shell?.redraw()
+        return {
+          action: keep,
+          get target() {
+            targets++
+            return 'one'
+          },
+        }
+      },
+    })
+    const { fake, shell } = world({
+      home: () => ({ id: 'home', view: () => boxes([{ id: 'control', x: 0, y: 0, w: 200, h: 40, text: 'Keep' }], { on }) }),
+    })
+    made.shell = shell
+    await settle()
+    armed = true
+    fake.tap()
+    await settle(100)
+    expect([armed, targets]).toEqual([false, 0])
+  })
+
+  it('E15: reads no id of a row at a tap once reading the action of the list had the app ask for yet another frame', async () => {
+    const made: { shell?: Shell } = {}
+    let armed = false
+    let ids = 0
+    const open = action({ id: 'open', say: 'Open', targets: () => [{ id: 'rope', say: 'Rope', value: 'rope' }], run: () => {} })
+    Object.defineProperty(open, 'targets', {
+      value: () => [
+        {
+          get id() {
+            ids++
+            return 'rope'
+          },
+          say: 'Rope',
+        },
+      ],
+    })
+    const view = list({ title: 'Stock', action: open })
+    Object.defineProperty(view, 'action', {
+      get: () => {
+        if (armed) {
+          armed = false
+          made.shell?.redraw()
+        }
+        return open
+      },
+    })
+    const { fake, shell } = world({ home: () => ({ id: 'stock', view: () => view }) })
+    made.shell = shell
+    await settle()
+    armed = true
+    const before = ids
+    fake.tap()
+    const during = ids - before
+    await settle(100)
+    expect([armed, during]).toEqual([false, 1])
+  })
+
   it('E15: runs nothing of a new frame on a tap that comes as the shell reads what kind of view it asked for, after it asked: the glasses still show the frame before', async () => {
     const did: string[] = []
     const made: { fake?: ReturnType<typeof fakeBridge> } = {}
@@ -4765,6 +4974,55 @@ describe('a hold', () => {
     await say(fake)
     await settle(100)
     expect([kinds, says]).toEqual([3, 1])
+  })
+
+  it('reads the kind of an answer no third time when its turn ends on another screen than the one its words were said on', async () => {
+    const made: { router?: Router } = {}
+    let kinds = 0
+    const { voice } = hearing('save it')
+    voice.agents = [
+      () => {
+        made.router?.open({ id: 'result', view: () => text({ body: 'Result' }) })
+        return {
+          get kind() {
+            kinds++
+            return 'handled' as const
+          },
+          say: 'Saved',
+        }
+      },
+    ]
+    const { fake, front, router } = world({ voice })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([kinds, front()]).toEqual([2, 'Saved'])
+  })
+
+  it('says what an agent has to say when it only makes its answer a handled one as the turn ends, also after it went to another screen and came back', async () => {
+    const made: { router?: Router } = {}
+    const did: string[] = []
+    const preview = action({ id: 'preview', say: 'Preview', run: () => void did.push('preview') })
+    const { voice } = hearing('do it', 'do it')
+    voice.agents = [
+      ({ life }) => {
+        made.router?.open({ id: 'progress', view: () => text({ body: 'Working' }) })
+        made.router?.back()
+        const verdict = { kind: 'sure' as const, action: 'preview' }
+        life?.own(() => void Object.assign(verdict, { kind: 'handled', say: 'Saved' }))
+        return verdict
+      },
+    ]
+    const { fake, front, router } = world({
+      voice,
+      home: () => ({ id: 'home', actions: () => [preview], view: () => text({ body: 'Home' }) }),
+    })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([did, front()]).toEqual([[], 'Saved'])
   })
 
   it('says what an agent that handled the words has to say as it stands once what it left behind has run, also when the agent went to another screen and came back', async () => {

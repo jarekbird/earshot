@@ -167,7 +167,8 @@ interface Kept {
   frame: number
 }
 
-const askedAs = ({ id, x, y, w, h, text, brightness }: Box): string => JSON.stringify([id, x, y, w, h, text, brightness ?? MAX_BRIGHTNESS])
+const askedAs = ({ id, x, y, w, h, text, brightness }: Box): string =>
+  JSON.stringify([id, x, y, w, h, clipBytes(text), brightness ?? MAX_BRIGHTNESS])
 
 const kept = ({ box, text, brightness }: Placed, frame: number): Kept => ({
   under: box,

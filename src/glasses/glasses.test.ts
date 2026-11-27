@@ -2,7 +2,7 @@ import { evenHubEventFromJson } from '@evenrealities/even_hub_sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Lifetime } from '../lifetime.js'
 import { fakeBridge } from './fake.js'
-import { MAX_BRIGHTNESS } from './limits.js'
+import { MAX_BRIGHTNESS, MAX_TEXT_BYTES } from './limits.js'
 import type { Box, Frame, Picture } from './frame.js'
 import type { Sound } from '../audio.js'
 import { HOLD } from './mic.js'
@@ -2361,6 +2361,29 @@ describe('watching the draws', () => {
     glasses.overlay(null)
     await settle(60_000)
     expect([unsent, fake.lines(), glasses[WHOLE]]).toEqual([true, ['One'], true])
+  })
+
+  it('still takes what the glasses hold for one whole frame after a frame was taken back whose label differed only past what the glasses take of a text, and that had a new picture', async () => {
+    const fake = fakeBridge()
+    let second = 0
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (event.at === 'call' && event.frame === second && event.op === 'picture') progressOf(glasses).drop([second])
+      },
+    })
+    const cover = (key: string, data: number[]) => ({ id: 'cover', x: 376, y: 54, w: 200, h: 100, key, data: new Uint8Array(data) })
+    const long = 'a'.repeat(MAX_TEXT_BYTES)
+    glasses.draw({ ...frame(box('title', `${long} one`)), pictures: [cover('v1', [1, 2, 3])] })
+    await settle(REBUILD_GAP_MS)
+    const calls = fake.calls.length
+    second = glasses.draw({ ...frame(box('title', `${long} two`)), pictures: [cover('v2', [4, 5, 6])] })
+    await settle(60_000)
+    const unsent = fake.calls.length === calls
+    glasses.overlay('Status')
+    await settle(60_000)
+    glasses.overlay(null)
+    await settle(60_000)
+    expect([unsent, glasses[WHOLE]]).toEqual([true, true])
   })
 
   it('knows which overlay the glasses show by the time it tells of the end of the draw that changed it', async () => {

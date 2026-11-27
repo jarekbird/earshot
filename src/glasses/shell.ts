@@ -213,6 +213,7 @@ export class Shell {
   #said = false
   #deciding: Lifetime | null = null
   #decidingOn: object | null = null
+  #asks = 0
   #handed = false
   readonly #frames: Frames
   #pending: number[] = []
@@ -350,21 +351,26 @@ export class Shell {
     if (stale()) return
     this.#places.set(showing, Object.assign(place, reached))
     if (drew) this.#frames.drawing(showing, drew.view, last)
-    const frame = this.#glasses.draw({ boxes, pictures, menu })
-    this.#pending = [...this.#pending.filter(asked => asked === progressOf(this.#glasses).sending || asked > frame), frame]
-    if (this.#life.ended || !showings.onPath(showing)) return progressOf(this.#glasses).drop([frame])
-    if (!this.#drawn || frame > this.#drawn.frame)
-      this.#drawn = {
-        frame,
-        screen,
-        showing,
-        view: kept,
-        targets,
-        folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [],
-        scrolls,
-        ...(row === undefined ? {} : { row }),
-      }
-    this.#frames.asked(frame, showing, drew, kind, aims)
+    this.#asks++
+    try {
+      const frame = this.#glasses.draw({ boxes, pictures, menu })
+      this.#pending = [...this.#pending.filter(asked => asked === progressOf(this.#glasses).sending || asked > frame), frame]
+      if (this.#life.ended || !showings.onPath(showing)) return progressOf(this.#glasses).drop([frame])
+      if (!this.#drawn || frame > this.#drawn.frame)
+        this.#drawn = {
+          frame,
+          screen,
+          showing,
+          view: kept,
+          targets,
+          folded: fold ? offered.slice(MAX_MENU_ITEMS - 1) : [],
+          scrolls,
+          ...(row === undefined ? {} : { row }),
+        }
+      this.#frames.asked(frame, showing, drew, kind, aims)
+    } finally {
+      this.#asks--
+    }
   }
 
   #scroll(drawn: Drawn, place: TextState, by: 'swipe' | 'screenful', up: boolean): void {
@@ -446,11 +452,11 @@ export class Shell {
     return [...actions, ...own.filter(a => !taken.has(a.id) && (taken.add(a.id), true))]
   }
 
-  #row(drawn: Drawn, place: Place): { action: Action; target: string } | undefined {
+  #row(drawn: Drawn, place: Place, still = () => true): { action: Action; target: string } | undefined {
     const under = drawn.targets[place.cursor]
     if (drawn.view.kind !== 'list' || !under) return undefined
     const action = drawn.view.action
-    return { action, target: under.id }
+    return still() ? { action, target: under.id } : undefined
   }
 
   #choose(drawn: Drawn, row: { action: Action; target: string } | undefined, said = false): void {
@@ -540,11 +546,14 @@ export class Shell {
     const moves = this.#moves
     if (view.kind === 'boxes') {
       const shown = this.#onShow(drawn)?.[input.kind]
-      if (drawn !== this.#drawn || shown === undefined || this.#frames.newest?.aims[input.kind] !== shown) return
+      if (this.#asks > 0 || drawn !== this.#drawn || shown === undefined || this.#frames.newest?.aims[input.kind] !== shown) return
+      const still = () => moves === this.#moves && drawn === this.#drawn
       const bound = view.on?.[input.kind]
-      if (!bound || moves !== this.#moves) return
-      const { action: chosen, target } = tied(bound)
-      if (moves !== this.#moves || drawn !== this.#drawn) return
+      if (!bound || !still()) return
+      const chosen = boundTo(bound).action
+      if (!still()) return
+      const { target } = boundTo(bound)
+      if (!still()) return
       return void this.#start(chosen, target)
     }
     const seen = this.#frames.words
@@ -555,9 +564,10 @@ export class Shell {
     } else if (input.kind !== 'tap') place.cursor += step
     else {
       const shown = this.#onShow(drawn)?.tap
-      if (drawn !== this.#drawn || shown === undefined || this.#frames.newest?.aims.tap !== shown) return
-      const row = this.#row(drawn, place)
-      return row && moves === this.#moves && drawn === this.#drawn && row.target === drawn.row ? this.#choose(drawn, row) : undefined
+      if (this.#asks > 0 || drawn !== this.#drawn || shown === undefined || this.#frames.newest?.aims.tap !== shown) return
+      const still = () => moves === this.#moves && drawn === this.#drawn
+      const row = this.#row(drawn, place, still)
+      return row && still() && row.target === drawn.row ? this.#choose(drawn, row) : undefined
     }
     this.redraw()
   }
@@ -736,32 +746,30 @@ export class Shell {
       if (!moved()) this.#show(heard)
       const { answer, more } = await this.#ask(voice, { words, audio, life }, passed === undefined && transcript !== null, moved, mine)
       const done = mine() ? answer.says() : undefined
-      const back = () => answer.kind === 'handled' && showingsOf(this.#router).current === showing
-      const away = (say: string | undefined, handled: boolean) => {
-        if (say === undefined) spare()
-        else this.notice(say)
-        if (handled && back()) this.redraw()
-      }
+      const here = () => showingsOf(this.#router).current === showing
+      const tell = (say: string | undefined) => (say === undefined ? spare() : this.notice(say))
+      const gone = () => tell(done)
       const elsewhere = () => {
-        if (!back()) return away(done, true)
+        if (!here()) return gone()
         const now = answer.now()
         if (!mine()) return
-        if (!back()) return away(done, true)
+        if (!here()) return gone()
         const say = now === 'handled' ? (answer.holds(now) as { say?: string }).say : undefined
         if (!mine()) return
-        if (!back()) return away(done, true)
-        away(say, now === 'handled')
+        if (!here()) return gone()
+        tell(say)
+        if (now === 'handled') this.redraw()
       }
       finish(() => {
         const now = answer.now()
         if (!mine()) return
-        if (moved()) return away(done, true)
+        if (moved()) return gone()
         if (transcript === null && (now === 'none' || now === 'notMine')) return this.notice(this.#words.missed)
         if (words) this.#show(heard, HEARD_MS)
         else this.#clear()
         const verdict = answer.holds(now)
         if (!mine()) return
-        if (moved()) return away(done, true)
+        if (moved()) return gone()
         this.#act(verdict, more ? () => void this.#decide(voice, audio, words) : undefined)
       }, elsewhere)
     } catch (error) {
