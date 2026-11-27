@@ -221,6 +221,30 @@ describe('the navigator', () => {
       expect(await never(heard('open note, show the list.'))).toEqual({ kind: 'sure', action: 'open' })
     })
 
+    it('takes nothing away from a name the app gave: a target whose name ends like the list hint needs its whole name', async () => {
+      const asked: string[] = []
+      const asks = navigator({
+        choose: async question => {
+          asked.push(question.words)
+          return {}
+        },
+      })
+      const pick = action({
+        id: 'pick',
+        say: 'Pick',
+        targets: () => [
+          { id: 'a', say: 'Alpha (show the list)', value: 1 },
+          { id: 'b', say: 'Beta', value: 2 },
+        ],
+        run: () => {},
+      })
+      const hears = (words: string) => heard(words, { actions: [pick, back, home], rolling: [] })
+      await asks(hears('Pick Alpha'))
+      expect(asked).toEqual(['Pick Alpha'])
+      expect(await never(hears('Pick: Alpha (show the list)'))).toEqual({ kind: 'sure', action: 'pick', target: 'a' })
+      expect(await never(hears('Pick'))).toEqual({ kind: 'sure', action: 'pick' })
+    })
+
     it('still goes to the model when the words only hold a name, or name two options', async () => {
       const asked: string[] = []
       const asks = navigator({

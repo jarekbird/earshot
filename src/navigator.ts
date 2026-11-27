@@ -122,12 +122,12 @@ const verdictOf = (meaning: Meaning): Verdict => {
 const tokens = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
 const nameOf = (option: Option) => tokens(option.say.endsWith(LIST) ? option.say.slice(0, -LIST.length) : option.say)
 
-function saidByName({ words, options }: Question): string | undefined {
+function saidByName({ words, options }: Question, actions: readonly Action[]): string | undefined {
   const said = tokens(words).join(' ')
   if (!said) return undefined
-  const named = options.filter(
-    option => option.role === undefined && (nameOf(option).join(' ') === said || tokens(option.say).join(' ') === said),
-  )
+  const alone = (option: Option) => (option.target === undefined ? actions.find(action => action.id === option.action)?.say : undefined)
+  const fits = (text: string | undefined) => text !== undefined && tokens(text).join(' ') === said
+  const named = options.filter(option => option.role === undefined && (fits(option.say) || fits(alone(option))))
   const meant = new Set(named.map(option => option.same ?? option.id))
   return meant.size === 1 ? [...meant][0] : undefined
 }
@@ -135,7 +135,7 @@ function saidByName({ words, options }: Question): string | undefined {
 export function navigator(model: NavigatorModel): Agent {
   return async heard => {
     const { question, meanings } = questionFor(heard)
-    const named = meanings.get(saidByName(question) ?? '')
+    const named = meanings.get(saidByName(question, heard.actions) ?? '')
     if (named !== undefined) return verdictOf(named)
     const same = question.options.flatMap(option => (option.same === undefined ? [] : [[option.id, option.same]]))
     const chances = { ...(await model.choose(question, heard.life)) }
