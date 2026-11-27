@@ -169,12 +169,14 @@ interface Kept {
 
 const placeOf = ({ id, x, y, w, h, brightness }: Box): string => JSON.stringify([id, x, y, w, h, brightness ?? MAX_BRIGHTNESS])
 
-const wrapped = ({ text, w, h }: Box): string => JSON.stringify(wrapText(cleanText(text), w).slice(0, Math.ceil(h / LINE_HEIGHT)))
+const TOPS = Array.from({ length: OVERLAY_LINES }, (_, lines) => (SCREEN_LINES - 3 - lines) * LINE_HEIGHT)
+
+const underNotices = (box: Box): string => JSON.stringify(TOPS.map(top => above(box, top)))
 
 function looksAlike(one: Box, other: Box): boolean {
   if (placeOf(one) !== placeOf(other)) return false
   if (one.text === other.text) return true
-  return clipBytes(one.text) === clipBytes(other.text) && wrapped(one) === wrapped(other)
+  return clipBytes(one.text) === clipBytes(other.text) && underNotices(one) === underNotices(other)
 }
 
 const kept = ({ box, text, brightness }: Placed, frame: number): Kept => ({

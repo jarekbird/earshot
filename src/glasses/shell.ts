@@ -764,12 +764,14 @@ export class Shell {
       const gone = () => tell(done)
       const elsewhere = () => {
         if (!here()) return gone()
+        const since = this.#moves
+        const back = () => since === this.#moves
         const now = answer.now()
         if (!mine()) return
-        if (!here()) return gone()
+        if (!back()) return gone()
         const say = now === 'handled' ? (answer.holds(now) as { say?: string }).say : undefined
         if (!mine()) return
-        if (!here()) return gone()
+        if (!back()) return gone()
         tell(say)
         if (now === 'handled') this.redraw()
       }

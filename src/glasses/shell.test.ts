@@ -5154,6 +5154,38 @@ describe('a hold', () => {
     },
   )
 
+  it('says what a handled answer said as it came when reading its kind once more opened a screen and left it again, after the agent went to another screen and came back', async () => {
+    const made: { router?: Router } = {}
+    let kinds = 0
+    let says = 0
+    const { voice } = hearing('count one more')
+    voice.transcribe = async () => null
+    voice.agents = [
+      () => {
+        made.router?.open({ id: 'progress', view: () => text({ body: 'Counting' }) })
+        made.router?.back()
+        return {
+          get kind() {
+            if (++kinds === 3) {
+              made.router?.open({ id: 'later', view: () => text({ body: 'Later' }) })
+              made.router?.back()
+            }
+            return 'handled' as const
+          },
+          get say() {
+            return ++says === 1 ? 'Saved' : 'Updated'
+          },
+        }
+      },
+    ]
+    const { fake, front, router } = world({ voice, home: () => ({ id: 'stock', view: () => text({ title: 'Stock', body: 'Count' }) }) })
+    made.router = router
+    await settle()
+    await say(fake)
+    await settle(100)
+    expect([kinds, says, front()]).toEqual([3, 1, 'Saved'])
+  })
+
   it('reads what a handled answer says no second time when the screen changed again as its kind was read once more, after the agent went to another screen and came back', async () => {
     const made: { router?: Router } = {}
     let kinds = 0

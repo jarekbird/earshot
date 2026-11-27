@@ -2421,6 +2421,29 @@ describe('watching the draws', () => {
     expect(times).toBe(1)
   })
 
+  it('still takes what the glasses hold for one whole frame after a frame was taken back whose label, above where any notice reaches, differed only in what the glasses take none of', async () => {
+    const fake = fakeBridge()
+    let second = 0
+    const glasses: Glasses = new Glasses(new Lifetime(), fake.bridge, {
+      watch: event => {
+        if (event.at === 'call' && event.frame === second && event.op === 'picture') progressOf(glasses).drop([second])
+      },
+    })
+    const cover = (key: string, data: number[]) => ({ id: 'cover', x: 376, y: 54, w: 200, h: 100, key, data: new Uint8Array(data) })
+    const hidden = '\u200b'.repeat(MAX_TEXT_BYTES / 3)
+    glasses.draw({ ...frame(box('title', `${hidden}One`)), pictures: [cover('v1', [1, 2, 3])] })
+    await settle(REBUILD_GAP_MS)
+    const calls = fake.calls.length
+    second = glasses.draw({ ...frame(box('title', `${hidden}Two`)), pictures: [cover('v2', [4, 5, 6])] })
+    await settle(60_000)
+    const unsent = fake.calls.length === calls
+    glasses.overlay('Status')
+    await settle(60_000)
+    glasses.overlay(null)
+    await settle(60_000)
+    expect([unsent, glasses[WHOLE]]).toEqual([true, true])
+  })
+
   it('knows which overlay the glasses show by the time it tells of the end of the draw that changed it', async () => {
     const fake = fakeBridge()
     const known: (string | null | undefined)[] = []
