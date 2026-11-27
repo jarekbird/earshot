@@ -228,7 +228,14 @@ describe('the navigator', () => {
         [SAME]: () =>
           target === undefined
             ? undefined
-            : { listed: open, action: 'open', target, say: notes.find(note => note.id === target)?.say ?? '' },
+            : {
+                listed: open,
+                action: 'open',
+                target,
+                say: notes.find(note => note.id === target)?.say ?? '',
+                label: open.say,
+                hint: open.hint,
+              },
       })
     const withThis = (target: string | undefined) => heard('x', { actions: [open, remove, refresh, standingFor(target), back, home] })
 

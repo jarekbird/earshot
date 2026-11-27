@@ -62,6 +62,8 @@ interface Stood {
   action: string
   target: string
   say: string
+  label: string
+  hint: string | undefined
 }
 export interface Meant extends Stood {
   risk: Risk
@@ -146,10 +148,10 @@ export function questionFor(heard: Heard): { question: Question; meanings: Map<s
   return { question: { words: heard.words, ...(heard.screen ? { screen: heard.screen } : {}), options }, meanings, stood }
 }
 
-function oneChoice(to: Option, named: Source, { listed, say }: Stood, shown: TargetInfo | undefined): boolean {
+function oneChoice(to: Option, named: Source, { listed, say, label, hint }: Stood, shown: TargetInfo | undefined): boolean {
   if (named.action === listed) return true
   if (!named.row || !shown || shown.private) return false
-  if (to.say !== rowSay(listed.say, say) || to.context !== listed.hint) return false
+  if (to.say !== rowSay(label, say) || to.context !== hint) return false
   return (named.row.risk ?? named.action.risk) === (shown.risk ?? listed.risk)
 }
 
@@ -163,7 +165,7 @@ export function navigator(model: NavigatorModel): Agent {
   return navigatorNoting(model, () => {})
 }
 
-export function navigatorNoting(model: NavigatorModel, meant: (stood: Meant) => void): Agent {
+export function navigatorNoting(model: NavigatorModel, meant: (stood: Meant, as: Pick) => void): Agent {
   return async heard => {
     const { question, meanings, stood } = questionFor(heard)
     const same = question.options.flatMap(option => (option.same === undefined ? [] : [[option.id, option.same]]))
@@ -172,7 +174,7 @@ export function navigatorNoting(model: NavigatorModel, meant: (stood: Meant) => 
     for (const [from, to] of same) {
       if (!Object.hasOwn(chances, from)) continue
       const named = Object.hasOwn(chances, to) ? chances[to] : 0
-      if (named < SURE_AT) needed.set(to, from)
+      if (named < SURE_AT && chances[from] > 0) needed.set(to, from)
       chances[to] = named + chances[from]
       delete chances[from]
     }
@@ -183,15 +185,20 @@ export function navigatorNoting(model: NavigatorModel, meant: (stood: Meant) => 
       })
       .sort((a, b) => b.chance - a.chance)
     if (ranked.length === 0) return { kind: 'none' }
+    const tell = (id: string, as: Pick) => {
+      const chosen = stood.get(needed.get(id) ?? id)
+      if (chosen) meant(chosen, as)
+    }
     if (ranked[0].chance >= SURE_AT) {
-      const chosen = stood.get(needed.get(ranked[0].id) ?? ranked[0].id)
-      if (chosen) meant(chosen)
-      return verdictOf(ranked[0].meaning)
+      const { id, meaning } = ranked[0]
+      if (meaning !== PASS && meaning !== NONE) tell(id, meaning)
+      return verdictOf(meaning)
     }
     const candidates = ranked
       .filter(({ chance }) => chance >= UNSURE_FROM)
-      .flatMap(({ meaning }) => (meaning === PASS || meaning === NONE ? [] : [meaning]))
+      .flatMap(({ id, meaning }) => (meaning === PASS || meaning === NONE ? [] : [{ id, meaning }]))
       .slice(0, UNSURE_AT_MOST)
+      .map(({ id, meaning }) => (tell(id, meaning), meaning))
     if (candidates.length) return { kind: 'unsure', candidates }
     return ranked[0].meaning === PASS ? { kind: 'notMine' } : { kind: 'none' }
   }

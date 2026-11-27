@@ -140,28 +140,30 @@ const tied = (bound: Bound): { action: Action; target?: string } => {
 
 const aimOf = (kind: View['kind'], action: string, target?: string): string => JSON.stringify([kind, action, target ?? null])
 
+type Meanings = (action: string, target?: string) => Meant | undefined
+
 interface Answer {
   kind: Verdict['kind']
-  meant?: Meant
+  meant: Meanings
   says: () => string | undefined
   now: () => Verdict['kind']
   holds: (kind: Verdict['kind']) => Verdict
 }
 
-const NONE: Answer = { kind: 'none', says: () => undefined, now: () => 'none', holds: () => ({ kind: 'none' }) }
+const NONE: Answer = { kind: 'none', meant: () => undefined, says: () => undefined, now: () => 'none', holds: () => ({ kind: 'none' }) }
 
 const replyOf = (given: Verdict): { kind: 'handled'; say?: string } => {
   const { say } = given as { say?: string }
   return say === undefined ? { kind: 'handled' } : { kind: 'handled', say }
 }
 
-function once(given: Verdict, mine: () => boolean, meant: Meant | undefined): Answer {
+function once(given: Verdict, mine: () => boolean, meant: Meanings): Answer {
   const { kind } = given
   if (!mine()) throw new LifetimeEnded()
   let said: { kind: 'handled'; say?: string } | undefined
   const answer: Answer = {
     kind,
-    ...(meant ? { meant } : {}),
+    meant,
     says: () => {
       answer.kind = given.kind
       if (!mine()) return undefined
@@ -462,7 +464,7 @@ export class Shell {
                       if (!under || under.private) return undefined
                       const listed = view.action
                       const name = listed.id
-                      return { listed, action: name, target: under.id, say: under.say }
+                      return { listed, action: name, target: under.id, say: under.say, label: listed.say, hint: listed.hint }
                     },
                   },
                 ),
@@ -471,12 +473,12 @@ export class Shell {
     return [...actions, ...own.filter(a => !taken.has(a.id) && (taken.add(a.id), true))]
   }
 
-  #row(drawn: Drawn, place: Place, still = () => true): { action: Action; target: string } | undefined {
+  #row(drawn: Drawn, place: Place, still = () => true): { action: Action; target: string; say: string } | undefined {
     const under = drawn.targets[place.cursor]
     const { view } = drawn
     if (!under || view.kind !== 'list' || !still()) return undefined
     const action = view.action
-    return still() ? { action, target: under.id } : undefined
+    return still() ? { action, target: under.id, say: under.say } : undefined
   }
 
   #choose(
@@ -862,8 +864,9 @@ export class Shell {
         return Reflect.apply(choose, model, [question, life])
       },
     })
-    let meant: Meant | undefined
-    const own = () => navigatorNoting(asking(voice.model ?? matchWords), stood => void (meant = stood))
+    const noted: Array<{ stood: Meant; as: Pick }> = []
+    const meant: Meanings = (action, target) => noted.find(({ as }) => as.action === action && as.target === target)?.stood
+    const own = () => navigatorNoting(asking(voice.model ?? matchWords), (stood, as) => void noted.push({ stood, as }))
     const agents = [...(navigate ? [own()] : []), ...(voice.agents ?? [])]
     for (const [index, agent] of agents.entries()) {
       if (gone()) throw new LifetimeEnded()
@@ -886,13 +889,13 @@ export class Shell {
     return { answer: NONE, more: false }
   }
 
-  #act(verdict: Verdict, pass?: () => void, meant?: Meant): void {
+  #act(verdict: Verdict, pass?: () => void, meant: Meanings = () => undefined): void {
     if (verdict.kind === 'none' || verdict.kind === 'notMine') return this.notice(this.#words.noMatch)
     if (verdict.kind === 'handled') {
       if (verdict.say !== undefined) this.notice(verdict.say)
       return this.redraw()
     }
-    if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target, true, pass, meant)
+    if (verdict.kind === 'sure') return this.#do(verdict.action, verdict.target, true, pass, meant(verdict.action, verdict.target))
     const moves = this.#moves
     const showings = showingsOf(this.#router)
     const showing = showings.current
@@ -906,7 +909,10 @@ export class Shell {
         ...verdict.candidates.map((candidate, index) => ({ id: String(index), say: candidate.say, value: candidate })),
         ...(instead ? [{ id: INSTEAD, say: instead, value: null }] : []),
       ],
-      run: candidate => (candidate ? this.#do(candidate.action, candidate.target, this.#said) : still() ? pass?.() : undefined),
+      run: candidate => {
+        if (!candidate) return still() ? pass?.() : undefined
+        this.#do(candidate.action, candidate.target, this.#said, undefined, meant(candidate.action, candidate.target))
+      },
     })
     this.#clear()
     this.#openOwn({ id: 'earshot.which', view: () => list({ title: this.#words.which, action: which }) }, (id, target) =>
@@ -926,8 +932,10 @@ export class Shell {
       if (!still()) return
       const name = row?.action.id
       if (!still()) return
-      if (drawn && row && drawn === this.#drawn && name === meant.action && row.target === meant.target) {
-        return this.#choose(drawn, row, said, pass, risk => risk === meant.risk)
+      if (drawn && row && drawn === this.#drawn && name === meant.action && row.target === meant.target && row.say === meant.say) {
+        const same = row.action.say === meant.label && row.action.hint === meant.hint
+        if (!still()) return
+        if (same && drawn === this.#drawn) return this.#choose(drawn, row, said, pass, risk => risk === meant.risk)
       }
       return this.#begin(meant.listed, meant.action, meant.target, said, pass, still, () => false)
     }

@@ -24,8 +24,9 @@ each version's commits say: they name what a version added, and may miss a chang
   rolling item of another action. They were one choice whenever the names matched, so a vote split between the
   two could run an action of the same name that asks nothing, where the row on show asks first.
 - A vote that needed both, and "choose this one" by itself, run the row on show, as a tap on it would. When
-  another row is on show by the time the model answers, or the row asks something else by then, the shell asks
-  before it runs the row that was meant. A lone "choose this one" ran whatever row had come under the cursor.
+  something else is on show by the time the model answers (another row, another label or hint, another risk),
+  the shell asks before it runs the row that was meant. A lone "choose this one" ran whatever row had come under
+  the cursor. A candidate that "choose this one" gave its vote to is that row too, when it is tapped.
 - A notice shown during a hold is not carried over when the router is closed.
 
 ## 0.0.62 (2026-11-26)
